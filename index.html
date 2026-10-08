@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopademia - Discover What Fits Your Life</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/config/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Reenie+Beanie&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="relative min-h-screen text-slate-800 antialiased selection:bg-blue-500 selection:text-white">
+
+    <div class="ambient-orb orb-blue top-[-5%] left-[-5%] w-[600px] h-[600px] animate-pulse-slow"></div>
+    <div class="ambient-orb orb-cyan top-[15%] right-[-5%] w-[700px] h-[700px] animate-pulse-slow" style="animation-delay: 2s;"></div>
+    <div class="ambient-orb orb-orange top-[45%] left-[-10%] w-[500px] h-[500px] animate-pulse-slow" style="animation-delay: 4s;"></div>
+    <div class="ambient-orb orb-blue top-[75%] right-[-5%] w-[650px] h-[650px] animate-pulse-slow" style="animation-delay: 1s;"></div>
+
+    <!-- Header -->
+    <header class="sticky top-4 z-50 px-4 md:px-8 max-w-7xl mx-auto">
+        <nav class="glass-nav rounded-full px-4 py-3 md:px-6 md:py-3.5 flex items-center justify-between gap-4 shadow-glass transition-all duration-300">
+            <a href="#" class="flex items-center gap-2.5 shrink-0 group">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 via-blue-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 group-hover:scale-105 transition-transform duration-300">
+                    <i class="fa-solid fa-bag-shopping text-lg"></i>
+                </div>
+                <span class="text-xl md:text-2xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-950 to-blue-800 bg-clip-text text-transparent tracking-tight">Shopademia</span>
+            </a>
+            <div class="hidden lg:flex items-center gap-8 font-semibold text-sm text-slate-600">
+                <a href="#home" class="text-blue-600 font-bold border-b-2 border-blue-600 pb-0.5">Home</a>
+                <a href="#shop" class="hover:text-blue-600 transition-colors">Shop</a>
+                <a href="#categories" class="hover:text-blue-600 transition-colors">Categories</a>
+                <a href="#deals" class="hover:text-blue-600 transition-colors">Deals</a>
+                <a href="#about" class="hover:text-blue-600 transition-colors">About</a>
+            </div>
+            <div class="relative flex-1 max-w-xs md:max-w-md hidden sm:block">
+                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                <input type="text" id="searchInput" aria-label="Search products" placeholder="Search for products..."
+                    class="w-full bg-slate-100/70 border border-slate-200/80 rounded-full pl-10 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:bg-white transition-all">
+            </div>
+            <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+                <button id="wishlistBtn" aria-label="Wishlist" class="relative w-10 h-10 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
+                    <i class="fa-regular fa-heart text-lg"></i>
+                    <span id="wishlistBadge" class="absolute top-1.5 right-1.5 bg-rose-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">0</span>
+                </button>
+                <button aria-label="Account" class="w-10 h-10 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
+                    <i class="fa-regular fa-user text-lg"></i>
+                </button>
+                <button id="cartDrawerBtn" aria-label="Open cart" class="relative w-10 h-10 rounded-full bg-blue-50/80 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors">
+                    <i class="fa-solid fa-cart-shopping text-base"></i>
+                    <span id="cartBadge" class="absolute -top-1 -right-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm">0</span>
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero -->
+    <section id="home" class="max-w-7xl mx-auto px-4 md:px-8 pt-6 pb-12">
+        <div class="glass-panel rounded-3xl md:rounded-[2.5rem] p-6 md:p-10 lg:p-12 relative overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-10">
+            <div class="lg:w-1/2 space-y-6 text-center lg:text-left z-10">
+                <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-100/80 text-blue-700 text-xs font-bold tracking-wider uppercase">
+                    <span class="w-2 h-2 rounded-full bg-blue-600 animate-ping"></span>
+                    YOUR ONE-STOP ONLINE STORE
+                </div>
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.15]">
+                    Discover What <br class="hidden sm:inline" />
+                    <span class="bg-gradient-to-r from-blue-600 via-cyan-500 to-amber-500 bg-clip-text text-transparent">Fits Your Life.</span>
+                </h1>
+                <p class="text-slate-600 text-base sm:text-lg max-w-lg mx-auto lg:mx-0 font-medium">
+                    Top-quality gadgets, baby care essentials and more — all in one place with nationwide fast delivery.
+                </p>
+                <div class="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+                    <a href="#shop" class="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold text-base shadow-lg shadow-blue-500/30 flex items-center justify-center gap-3 transition-all hover:scale-105">
+                        <span>Shop Now</span><i class="fa-solid fa-arrow-right text-sm"></i>
+                    </a>
+                </div>
+                <div class="pt-6 border-t border-slate-200/60 grid grid-cols-3 gap-2 sm:gap-4 text-center lg:text-left">
+                    <div class="flex flex-col sm:flex-row items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0"><i class="fa-solid fa-truck-fast text-xs"></i></div>
+                        <div><p class="text-xs font-bold text-slate-800">Fast Shipping</p><p class="text-[11px] text-slate-500 hidden sm:block">Nationwide delivery</p></div>
+                    </div>
+                    <div class="flex flex-col sm:flex-row items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 shrink-0"><i class="fa-solid fa-shield-halved text-xs"></i></div>
+                        <div><p class="text-xs font-bold text-slate-800">Secure Payment</p><p class="text-[11px] text-slate-500 hidden sm:block">100% protected</p></div>
+                    </div>
+                    <div class="flex flex-col sm:flex-row items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 shrink-0"><i class="fa-solid fa-rotate-left text-xs"></i></div>
+                        <div><p class="text-xs font-bold text-slate-800">Easy Returns</p><p class="text-[11px] text-slate-500 hidden sm:block">Within 7 days</p></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:w-1/2 relative w-full flex justify-center items-center">
+                <button id="heroPrevBtn" aria-label="Previous showcase" class="absolute -left-2 sm:left-2 z-20 w-10 h-10 rounded-full glass-card flex items-center justify-center text-slate-700 hover:bg-white hover:text-blue-600 transition-all shadow-md"><i class="fa-solid fa-chevron-left text-sm"></i></button>
+                <div class="relative w-full max-w-md aspect-square rounded-3xl bg-gradient-to-b from-white/80 via-blue-50/40 to-cyan-50/60 p-6 flex flex-col items-center justify-center border border-white/80 shadow-inner">
+                    <div class="absolute inset-10 bg-gradient-to-tr from-cyan-400/30 to-blue-500/30 rounded-full blur-2xl -z-10"></div>
+                    <div id="heroSlideContainer" class="relative w-full h-full flex items-center justify-center transition-all duration-500">
+                        <div class="relative w-full h-64 flex items-center justify-center">
+                            <svg class="w-52 h-52 text-slate-800 drop-shadow-2xl z-10 animate-pulse-slow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                                <path d="M3 14v3a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-3" stroke-linecap="round"/>
+                                <path d="M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" fill="rgba(255,255,255,0.9)" stroke="#1e293b"/>
+                                <path d="M2 12v5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H2" fill="rgba(255,255,255,0.9)" stroke="#1e293b"/>
+                            </svg>
+                            <div class="absolute -bottom-2 right-4 z-20 bg-slate-900 rounded-2xl p-2.5 shadow-xl border border-slate-700 flex flex-col items-center">
+                                <div class="w-10 h-12 bg-slate-800 rounded-xl border border-slate-600 flex flex-col items-center justify-center text-cyan-400 font-mono text-[10px] font-bold">
+                                    <span>10:42</span><i class="fa-solid fa-heart-pulse text-rose-500 text-[10px] mt-1 animate-ping"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Filled by HeroView -->
+                        <div id="heroOfferCard" class="absolute top-2 right-0 sm:-right-4 z-30 max-w-[210px] glass-card rounded-2xl p-3.5 shadow-xl border border-white/90"></div>
+                    </div>
+                    <div class="absolute bottom-3 flex items-center gap-2">
+                        <span class="w-6 h-2 rounded-full bg-blue-600"></span>
+                        <span class="w-2 h-2 rounded-full bg-slate-300"></span>
+                        <span class="w-2 h-2 rounded-full bg-slate-300"></span>
+                    </div>
+                </div>
+                <button id="heroNextBtn" aria-label="Next showcase" class="absolute -right-2 sm:right-2 z-20 w-10 h-10 rounded-full glass-card flex items-center justify-center text-slate-700 hover:bg-white hover:text-blue-600 transition-all shadow-md"><i class="fa-solid fa-chevron-right text-sm"></i></button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Categories -->
+    <section id="categories" class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+        <div class="flex items-end justify-between mb-6">
+            <div>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Shop by Category</h2>
+                <p class="text-slate-500 text-sm mt-1">Find what you need, all in one place.</p>
+            </div>
+            <a href="#shop" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></a>
+        </div>
+        <div id="categoryGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3.5"></div>
+    </section>
+
+    <!-- Featured -->
+    <section id="shop" class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+        <div class="flex items-end justify-between mb-6">
+            <div>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Featured Products</h2>
+                <p class="text-slate-500 text-sm mt-1">Top picks, loved by many.</p>
+            </div>
+            <a href="#shop" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></a>
+        </div>
+        <div id="featuredProductGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"></div>
+    </section>
+
+    <!-- Promo banner -->
+    <section id="deals" class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+        <div class="relative rounded-3xl overflow-hidden bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white p-8 md:p-12 shadow-2xl border border-blue-400/30 flex flex-col md:flex-row items-center justify-between gap-8">
+            <div class="absolute -left-10 -top-10 w-60 h-60 bg-blue-500/30 rounded-full blur-3xl"></div>
+            <div class="absolute -right-10 -bottom-10 w-60 h-60 bg-cyan-400/30 rounded-full blur-3xl"></div>
+            <div class="z-10 max-w-lg text-center md:text-left">
+                <span class="px-3.5 py-1 rounded-full bg-orange-500 text-white text-xs font-bold uppercase tracking-wider inline-block mb-3 shadow-md">Limited Time Offer</span>
+                <h2 class="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white leading-tight">Up to 40% Off</h2>
+                <p class="text-blue-100 text-sm sm:text-base mt-2 font-medium">On Selected Gadgets &amp; Accessories. Grab your favorites before stock runs out!</p>
+                <button data-toast="Explore Deals applied!" class="mt-6 px-8 py-3.5 rounded-full bg-white text-blue-900 hover:bg-blue-50 font-bold text-sm shadow-xl flex items-center gap-2.5 mx-auto md:mx-0 transition-transform hover:scale-105">
+                    <span>Explore Deals</span><i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </div>
+            <div class="z-10 relative flex items-center justify-center">
+                <div class="relative w-64 h-44 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 flex flex-col justify-between shadow-2xl">
+                    <div class="flex items-center justify-between">
+                        <i class="fa-solid fa-mobile-screen text-3xl text-cyan-300"></i>
+                        <i class="fa-solid fa-headphones text-3xl text-white"></i>
+                        <i class="fa-solid fa-clock text-3xl text-amber-300"></i>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-handwriting text-2xl text-cyan-200 block -rotate-3">Better Tech,</span>
+                        <span class="font-handwriting text-3xl text-amber-300 font-bold block -rotate-3">Better You</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- New arrivals -->
+    <section class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+        <div class="flex items-end justify-between mb-6">
+            <div>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">New Arrivals</h2>
+                <p class="text-slate-500 text-sm mt-1">Fresh picks for a brighter tomorrow.</p>
+            </div>
+            <a href="#shop" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></a>
+        </div>
+        <div id="newArrivalsGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4"></div>
+    </section>
+
+    <!-- Trust bar -->
+    <section class="max-w-7xl mx-auto px-4 md:px-8 py-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="glass-panel rounded-2xl p-4 flex items-center gap-3.5"><div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm"><i class="fa-solid fa-circle-check"></i></div><div><h4 class="text-xs font-bold text-slate-900">Trusted Quality</h4><p class="text-[11px] text-slate-500">Only genuine products</p></div></div>
+            <div class="glass-panel rounded-2xl p-4 flex items-center gap-3.5"><div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm"><i class="fa-solid fa-truck-ramp-box"></i></div><div><h4 class="text-xs font-bold text-slate-900">Fast Delivery</h4><p class="text-[11px] text-slate-500">Across the country</p></div></div>
+            <div class="glass-panel rounded-2xl p-4 flex items-center gap-3.5"><div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm"><i class="fa-solid fa-headset"></i></div><div><h4 class="text-xs font-bold text-slate-900">24/7 Support</h4><p class="text-[11px] text-slate-500">We're here to help</p></div></div>
+            <div class="glass-panel rounded-2xl p-4 flex items-center gap-3.5"><div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm"><i class="fa-solid fa-lock"></i></div><div><h4 class="text-xs font-bold text-slate-900">Secure Checkout</h4><p class="text-[11px] text-slate-500">Multiple payment options</p></div></div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer id="about" class="bg-slate-950 text-slate-300 pt-16 pb-8 border-t border-slate-800 mt-12">
+        <div class="max-w-7xl mx-auto px-4 md:px-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 pb-12 border-b border-slate-800">
+            <div class="lg:col-span-2 space-y-4">
+                <a href="#" class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-white font-bold shadow-md"><i class="fa-solid fa-bag-shopping text-lg"></i></div>
+                    <span class="text-2xl font-black text-white tracking-tight">Shopademia</span>
+                </a>
+                <p class="text-slate-400 text-xs max-w-sm">Smart Choices, Better Living. Your ultimate destination for modern gadgets, electronics, and daily lifestyle essentials.</p>
+                <div class="pt-2 text-xs text-slate-500">© 2026 Shopademia. All rights reserved.</div>
+            </div>
+            <div class="space-y-3">
+                <h4 class="text-sm font-bold text-white uppercase tracking-wider">Quick Links</h4>
+                <ul class="space-y-2 text-xs text-slate-400">
+                    <li><a href="#home" class="hover:text-white transition-colors">Home</a></li>
+                    <li><a href="#shop" class="hover:text-white transition-colors">Shop</a></li>
+                    <li><a href="#categories" class="hover:text-white transition-colors">Categories</a></li>
+                    <li><a href="#deals" class="hover:text-white transition-colors">Deals</a></li>
+                    <li><a href="#about" class="hover:text-white transition-colors">About Us</a></li>
+                </ul>
+            </div>
+            <div class="space-y-3">
+                <h4 class="text-sm font-bold text-white uppercase tracking-wider">Customer Care</h4>
+                <ul class="space-y-2 text-xs text-slate-400">
+                    <li><a href="#" class="hover:text-white transition-colors">Help Center</a></li>
+                    <li><a href="#" class="hover:text-white transition-colors">Shipping Info</a></li>
+                    <li><a href="#" class="hover:text-white transition-colors">Return Policy</a></li>
+                    <li><a href="#" class="hover:text-white transition-colors">Track Order</a></li>
+                    <li><a href="#" class="hover:text-white transition-colors">Contact Us</a></li>
+                </ul>
+            </div>
+            <div class="space-y-4">
+                <h4 class="text-sm font-bold text-white uppercase tracking-wider">Follow Us</h4>
+                <div class="flex items-center gap-3 text-slate-400">
+                    <a href="#" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-blue-600 hover:text-white flex items-center justify-center transition-colors"><i class="fa-brands fa-facebook-f text-xs"></i></a>
+                    <a href="#" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-rose-600 hover:text-white flex items-center justify-center transition-colors"><i class="fa-brands fa-instagram text-xs"></i></a>
+                    <a href="#" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-red-600 hover:text-white flex items-center justify-center transition-colors"><i class="fa-brands fa-youtube text-xs"></i></a>
+                    <a href="#" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 hover:text-white flex items-center justify-center transition-colors"><i class="fa-brands fa-tiktok text-xs"></i></a>
+                    <a href="#" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 hover:text-white flex items-center justify-center transition-colors"><i class="fa-brands fa-x-twitter text-xs"></i></a>
+                </div>
+                <div class="pt-2">
+                    <h5 class="text-xs font-bold text-white mb-2">Join Our Newsletter</h5>
+                    <div class="relative">
+                        <input type="email" placeholder="Your email address" class="w-full bg-slate-900 border border-slate-800 rounded-full pl-4 pr-10 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                        <button data-toast="Subscribed to Newsletter!" class="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors"><i class="fa-solid fa-paper-plane text-[10px]"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="max-w-7xl mx-auto px-4 md:px-8 pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
+            <p>Privacy Policy &nbsp;|&nbsp; Terms of Service</p>
+            <div class="flex items-center gap-4 text-slate-400">
+                <i class="fa-brands fa-cc-visa text-lg"></i><i class="fa-brands fa-cc-mastercard text-lg"></i><i class="fa-solid fa-credit-card text-lg"></i>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Cart drawer (filled by CartDrawerView) -->
+    <div id="cartModal" role="dialog" aria-modal="true" aria-label="Shopping cart" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm hidden transition-opacity duration-300">
+        <div class="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl p-6 flex flex-col justify-between">
+            <div>
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <h3 class="text-lg font-bold text-slate-900">Your Shopping Cart</h3>
+                    <button id="closeCartBtn" aria-label="Close cart" class="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div id="cartItemsContainer" class="py-4 space-y-4 max-h-[60vh] overflow-y-auto"></div>
+            </div>
+            <div class="pt-4 border-t border-slate-100 space-y-3">
+                <div class="flex items-center justify-between font-bold text-slate-900">
+                    <span>Total Amount</span>
+                    <span id="cartTotalPrice" class="text-blue-600 text-lg">৳ 0</span>
+                </div>
+                <button id="checkoutBtn" class="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-colors">Checkout Now</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Checkout modal (driven by CheckoutView) -->
+    <div id="checkoutModal" class="fixed inset-0 z-[55] bg-slate-900/50 backdrop-blur-sm hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
+        <div class="min-h-full flex items-center justify-center p-4">
+            <div class="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6 md:p-8 relative">
+                <button id="checkoutCloseBtn" aria-label="Close checkout" class="absolute top-4 right-4 w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500"><i class="fa-solid fa-xmark"></i></button>
+
+                <div id="checkoutFormPanel">
+                    <h3 id="checkoutTitle" class="text-xl font-extrabold text-slate-900">Checkout</h3>
+                    <p class="text-xs text-slate-500 mt-1">Pay the delivery charge in advance via bKash. The rest is paid on delivery.</p>
+
+                    <div class="mt-4 rounded-2xl bg-slate-50 p-4 text-sm space-y-1.5">
+                        <div class="flex justify-between text-slate-600"><span>Products subtotal</span><span id="coSubtotal" class="font-bold text-slate-900"></span></div>
+                        <div class="flex justify-between text-slate-600"><span>Delivery charge (pay now)</span><span id="coAdvance" class="font-bold text-blue-700"></span></div>
+                        <div class="flex justify-between text-slate-600 border-t border-slate-200 pt-1.5"><span>Pay on delivery</span><span id="coDue" class="font-bold text-slate-900"></span></div>
+                    </div>
+
+                    <div class="mt-4 rounded-2xl bg-pink-50 border border-pink-200 p-4 text-xs text-pink-900">
+                        <p class="font-bold text-sm">How to pay via bKash</p>
+                        <p class="mt-1">Send <b id="bkashAmount"></b> to <b id="bkashMerchantNumber"></b>, then enter the bKash number you paid from below.</p>
+                    </div>
+
+                    <form id="checkoutForm" class="mt-4 space-y-3.5" novalidate>
+                        <div>
+                            <label for="coName" class="text-xs font-bold text-slate-700">Full Name</label>
+                            <input id="coName" data-field="name" type="text" autocomplete="name" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                            <p data-error="name" class="text-[11px] text-rose-500 mt-1"></p>
+                        </div>
+                        <div>
+                            <label for="coPhone" class="text-xs font-bold text-slate-700">Phone Number</label>
+                            <input id="coPhone" data-field="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="01XXXXXXXXX" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                            <p data-error="phone" class="text-[11px] text-rose-500 mt-1"></p>
+                        </div>
+                        <div>
+                            <label for="coAddress" class="text-xs font-bold text-slate-700">Full Address</label>
+                            <textarea id="coAddress" data-field="address" rows="3" autocomplete="street-address" placeholder="House, road, area, district" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"></textarea>
+                            <p data-error="address" class="text-[11px] text-rose-500 mt-1"></p>
+                        </div>
+                        <div>
+                            <label for="coBkash" class="text-xs font-bold text-slate-700">bKash Number (you paid from)</label>
+                            <input id="coBkash" data-field="bkashNumber" type="tel" inputmode="numeric" placeholder="01XXXXXXXXX" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                            <p data-error="bkashNumber" class="text-[11px] text-rose-500 mt-1"></p>
+                        </div>
+                        <p id="checkoutServerError" class="hidden text-xs text-rose-600 bg-rose-50 rounded-xl p-3" role="alert"></p>
+                        <button id="checkoutSubmitBtn" type="submit" class="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold text-sm shadow-md transition-colors"><span>Place Order</span></button>
+                    </form>
+                </div>
+
+                <div id="checkoutSuccessPanel" class="hidden text-center py-6">
+                    <div class="w-16 h-16 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl"><i class="fa-solid fa-check"></i></div>
+                    <h3 class="text-xl font-extrabold text-slate-900 mt-4">Order placed!</h3>
+                    <p class="text-sm text-slate-600 mt-1">Your order number is <b id="coOrderNumber"></b>. We will verify your bKash payment and call you to confirm.</p>
+                    <button id="checkoutDoneBtn" class="mt-6 px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm">Continue Shopping</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast (driven by ToastView) -->
+    <div id="toast" role="status" aria-live="polite" class="fixed bottom-6 right-6 z-[60] glass-panel px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-blue-400/40 translate-y-20 opacity-0 transition-all duration-300">
+        <div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs"><i class="fa-solid fa-check"></i></div>
+        <span id="toastMessage" class="text-xs font-bold text-slate-800"></span>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
