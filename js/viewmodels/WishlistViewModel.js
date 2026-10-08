@@ -12,4 +12,5 @@ export class WishlistViewModel {
         const added = this.wishlist.toggle(product.id);
         this.toast.show(added ? 'Added to Wishlist' : 'Removed from Wishlist');
     }
+    isWished(id) { return this.wishlist.has(id); }
 }

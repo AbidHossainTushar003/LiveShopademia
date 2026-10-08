@@ -48,15 +48,16 @@ async function bootstrap() {
     const checkoutVM = new CheckoutViewModel({ cartService, orderRepository: orderRepo, analytics, toast: toastVM, config: appConfig });
 
     new ToastView(toastVM);
-    new HeaderView({ cartVM, wishlistVM, homeVM });
+    new HeaderView({ cartVM, wishlistVM, homeVM, toastVM });
     new CartDrawerView(cartVM, checkoutVM);
     new CheckoutView(checkoutVM, appConfig);
     new CategoryGridView(document.getElementById('categoryGrid'), homeVM);
     new ProductGridView(document.getElementById('featuredProductGrid'), { homeVM, cartVM, wishlistVM });
-    new NewArrivalsView(document.getElementById('newArrivalsGrid'), homeVM);
+    new NewArrivalsView(document.getElementById('newArrivalsGrid'), homeVM, cartVM);
     new HeroView({ homeVM, cartVM, heroVM });
 
     await homeVM.load();
+    wishlistService.retainAvailable([...homeVM.featured.value, ...homeVM.newArrivals.value, homeVM.heroOffer.value]);
 }
 
 bootstrap().catch((err) => console.error('Shopademia failed to start:', err));

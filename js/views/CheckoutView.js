@@ -8,6 +8,7 @@ export class CheckoutView {
         const submitBtn = $('checkoutSubmitBtn'), serverError = $('checkoutServerError');
 
         $('bkashMerchantNumber').textContent = config.bkash.merchantNumber;
+        $('demoCheckoutNotice').classList.toggle('hidden', !config.useMockApi && !config.bkash.merchantNumber.includes('X'));
 
         vm.isOpen.subscribe((open) => modal.classList.toggle('hidden', !open));
         vm.summary.subscribe((s) => {

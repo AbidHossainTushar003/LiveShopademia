@@ -12,12 +12,19 @@ export class CartViewModel {
         this.cart.lines.subscribe((lines) => this.summary.set({
             count: this.cart.count,
             totalText: formatPrice(this.cart.total),
-            lines: lines.map((l) => ({ ...l.product, quantity: l.quantity, priceText: formatPrice(l.product.price) }))
+            lines: lines.map((l) => ({ ...l.product, quantity: l.quantity, priceText: formatPrice(l.product.price), subtotalText: formatPrice(l.subtotal) }))
         }));
     }
     add(product) {
         this.cart.add(product);
         this.analytics?.track('add_to_cart', { items: [{ id: product.id, name: product.name, price: product.price, quantity: 1 }], value: product.price, currency: 'BDT' }); this.toast.show(`${product.name} added to cart!`);
+    }
+    setQuantity(productId, quantity) {
+        this.cart.setQuantity(productId, quantity);
+    }
+    remove(productId) {
+        this.cart.remove(productId);
+        this.toast.show('Item removed from cart');
     }
     seed(products) { products.forEach((p) => this.cart.add(p)); }
     open() { this.isOpen.set(true); }
