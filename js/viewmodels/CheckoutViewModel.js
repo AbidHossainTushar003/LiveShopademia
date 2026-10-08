@@ -4,6 +4,37 @@ import { CheckoutValidator } from '../services/CheckoutValidator.js';
 import { AnalyticsService } from '../services/analytics/AnalyticsService.js';
 
 const newEventId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const volatileEventIds = new Map();
+const eventStorageKey = 'shopademia.orderAttempt';
+
+function eventIdFor(key) {
+    try {
+        const saved = globalThis.sessionStorage?.getItem(key);
+        if (saved) {
+            volatileEventIds.set(key, saved);
+            return saved;
+        }
+        if (volatileEventIds.has(key)) return volatileEventIds.get(key);
+        const eventId = newEventId();
+        volatileEventIds.set(key, eventId);
+        globalThis.sessionStorage?.setItem(key, eventId);
+        return eventId;
+    } catch (error) {
+        console.warn('Could not persist the order retry key for this browser session:', error);
+        const eventId = volatileEventIds.get(key) ?? newEventId();
+        volatileEventIds.set(key, eventId);
+        return eventId;
+    }
+}
+
+function clearEventId(key) {
+    volatileEventIds.delete(key);
+    try {
+        globalThis.sessionStorage?.removeItem(key);
+    } catch (error) {
+        console.warn('Could not clear the completed order retry key:', error);
+    }
+}
 
 export class CheckoutViewModel {
     isOpen = new Observable(false);
@@ -19,13 +50,22 @@ export class CheckoutViewModel {
     }
     open() {
         if (this.cart.count === 0) { this.toast.show('Your cart is empty'); return; }
+        if (!this.cart.canCheckout()) {
+            this.toast.show('Update or remove unavailable cart items before checkout.');
+            return;
+        }
         const subtotal = this.cart.total, advance = this.config.delivery.advanceCharge;
-        this.summary.set({ subtotal, advance, due: subtotal }); // advance covers delivery; the rest is paid on delivery
+        this.summary.set({ subtotal, advance, due: subtotal });
         this.errors.set({}); this.status.set('idle'); this.result.set({ orderNumber: '', error: '' });
         this.isOpen.set(true);
         this.analytics.track('begin_checkout', AnalyticsService.fromLines(this.cart.lines.value));
     }
-    close() { if (this.status.value !== 'submitting') this.isOpen.set(false); }
+    close() {
+        if (this.status.value === 'submitting') return;
+        this.fields.set({ name: '', phone: '', address: '', bkashNumber: '' });
+        this.errors.set({});
+        this.isOpen.set(false);
+    }
     update(field, value) {
         this.fields.set({ ...this.fields.value, [field]: value });
         if (this.errors.value[field]) { const { [field]: _, ...rest } = this.errors.value; this.errors.set(rest); }
@@ -37,24 +77,32 @@ export class CheckoutViewModel {
         if (Object.keys(errors).length) return;
 
         const f = this.fields.value, lines = this.cart.lines.value;
+        const retryKey = eventStorageKey;
         const request = new OrderRequest({
             name: f.name.trim(), address: f.address.trim(),
             phone: CheckoutValidator.normalizePhone(f.phone),
             bkashNumber: CheckoutValidator.normalizePhone(f.bkashNumber),
             items: lines.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
-            advanceAmount: this.summary.value.advance, eventId: newEventId()
+            advanceAmount: this.summary.value.advance,
+            subtotal: this.summary.value.subtotal,
+            eventId: eventIdFor(retryKey)
         });
         this.status.set('submitting');
         try {
-            const { orderNumber } = await this.orders.place(request);
+            const { orderNumber, subtotal, advanceAmount, due } = await this.orders.place(request);
+            this.summary.set({ subtotal, advance: advanceAmount, due });
             this.analytics.track('purchase', AnalyticsService.fromLines(lines, {
                 transactionId: orderNumber, eventId: request.eventId,
                 value: this.summary.value.subtotal + this.summary.value.advance
             }));
             this.cart.clear();
+            clearEventId(retryKey);
+            this.fields.set({ name: '', phone: '', address: '', bkashNumber: '' });
+            this.errors.set({});
             this.result.set({ orderNumber, error: '' });
             this.status.set('success');
         } catch (err) {
+            if (err?.status === 409) clearEventId(retryKey);
             this.result.set({ orderNumber: '', error: err.message || 'Could not place order. Please try again.' });
             this.status.set('error');
         }

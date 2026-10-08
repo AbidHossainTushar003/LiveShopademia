@@ -65,9 +65,7 @@ export class HomeViewModel {
         const products = isFiltering ? this.#allProducts : this.#allFeatured;
         this.featured.set(products.filter((p) => {
             const matchesQuery = !this.#query || `${p.name} ${p.category}`.toLowerCase().includes(this.#query);
-            const matchesCategory = this.activeCategory.value === 'all'
-                || this.activeCategory.value === 'more'
-                || p.category === this.activeCategory.value;
+            const matchesCategory = this.activeCategory.value === 'all' || p.category === this.activeCategory.value;
             return matchesQuery && matchesCategory && (!this.dealsOnly.value || p.hasDiscount);
         }));
         this.isFiltering.set(isFiltering);

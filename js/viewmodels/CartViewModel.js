@@ -12,11 +12,30 @@ export class CartViewModel {
         this.cart.lines.subscribe((lines) => this.summary.set({
             count: this.cart.count,
             totalText: formatPrice(this.cart.total),
-            lines: lines.map((l) => ({ ...l.product, quantity: l.quantity, priceText: formatPrice(l.product.price), subtotalText: formatPrice(l.subtotal) }))
+            canCheckout: this.cart.canCheckout(),
+            lines: lines.map((l) => ({
+                ...l.product,
+                quantity: l.quantity,
+                isAvailableForPurchase: l.product.isAvailable !== false
+                    && l.product.stockQuantity !== 0
+                    && l.product.isAvailableForPurchase !== false
+                    && (l.product.stockQuantity == null || l.quantity <= l.product.stockQuantity),
+                priceText: formatPrice(l.product.price),
+                subtotalText: formatPrice(l.subtotal)
+            }))
         }));
     }
     add(product) {
-        this.cart.add(product);
+        if (!this.cart.add(product)) {
+            if (product?.isAvailable === false || product?.stockQuantity === 0 || product?.isAvailableForPurchase === false) {
+                this.toast.show('This product is currently unavailable.');
+            } else if (Number.isSafeInteger(product?.stockQuantity)) {
+                this.toast.show(`Only ${product.stockQuantity} of this product are currently in stock.`);
+            } else {
+                this.toast.show('You can add up to 99 of each product.');
+            }
+            return;
+        }
         this.analytics?.track('add_to_cart', { items: [{ id: product.id, name: product.name, price: product.price, quantity: 1 }], value: product.price, currency: 'BDT' }); this.toast.show(`${product.name} added to cart!`);
     }
     setQuantity(productId, quantity) {

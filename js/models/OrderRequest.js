@@ -3,8 +3,8 @@
  * the server must price the order from its own product data.
  */
 export class OrderRequest {
-    constructor({ name, phone, address, bkashNumber, items, advanceAmount, eventId }) {
-        Object.assign(this, { name, phone, address, bkashNumber, items, advanceAmount, eventId });
+    constructor({ name, phone, address, bkashNumber, items, advanceAmount, subtotal, eventId }) {
+        Object.assign(this, { name, phone, address, bkashNumber, items, advanceAmount, subtotal, eventId });
     }
     toPayload() {
         return {

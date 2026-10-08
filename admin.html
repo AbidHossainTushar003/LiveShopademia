@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Admin orders | Shopademia</title>
+    <link rel="stylesheet" href="/admin-assets/admin.css">
+    <script type="module" src="/admin-assets/admin.js"></script>
+</head>
+<body>
+    <main class="shell">
+        <header class="topbar">
+            <a class="brand" href="/" aria-label="Shopademia storefront">
+                <span class="brand-mark" aria-hidden="true">S</span>
+                <span>Shopademia <small>ADMIN</small></span>
+            </a>
+            <button id="logoutButton" class="button button-secondary hidden" type="button">Sign out</button>
+        </header>
+
+        <section id="loginPanel" class="login-panel" aria-labelledby="loginTitle">
+            <p class="eyebrow">ORDER MANAGEMENT</p>
+            <h1 id="loginTitle">Admin sign in</h1>
+            <p class="muted">Sign in with the admin credentials configured on the server.</p>
+            <form id="loginForm" class="form">
+                <label for="email">Admin email</label>
+                <input id="email" name="email" type="email" autocomplete="username" required maxlength="254">
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" required>
+                <p id="loginError" class="error hidden" role="alert"></p>
+                <button id="loginButton" class="button button-primary" type="submit">Sign in</button>
+            </form>
+        </section>
+
+        <section id="dashboardPanel" class="dashboard hidden" aria-labelledby="dashboardTitle">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">STORE OPERATIONS</p>
+                    <h1 id="dashboardTitle">Customer orders</h1>
+                    <p id="dashboardDescription" class="muted">Review orders, record manual advance-payment checks, and update fulfilment status. Payment checks are not verified by a bKash API.</p>
+                </div>
+                <button id="refreshButton" class="button button-secondary" type="button">Refresh orders</button>
+            </div>
+            <nav class="admin-nav" aria-label="Admin sections">
+                <button class="button button-secondary" type="button" data-admin-view="orders" aria-pressed="true">Orders</button>
+                <button class="button button-secondary" type="button" data-admin-view="products" aria-pressed="false">Products</button>
+                <button class="button button-secondary" type="button" data-admin-view="profile" aria-pressed="false">Admin profile</button>
+            </nav>
+            <p id="dashboardMessage" class="notice hidden" role="status"></p>
+            <section id="ordersPanel" aria-label="Customer orders">
+                <div class="toolbar">
+                    <label for="statusFilter">Filter by status</label>
+                    <select id="statusFilter">
+                        <option value="">All statuses</option>
+                        <option value="new">New</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="processing">Processing</option>
+                        <option value="shipped">Shipped</option>
+                        <option value="delivered">Delivered</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                    <span id="orderCount" class="muted" aria-live="polite"></span>
+                </div>
+                <div id="ordersList" class="orders-list" aria-live="polite"></div>
+                <nav id="pagination" class="pagination hidden" aria-label="Orders pagination">
+                    <button id="previousPage" class="button button-secondary" type="button">Previous</button>
+                    <span id="pageLabel" class="muted"></span>
+                    <button id="nextPage" class="button button-secondary" type="button">Next</button>
+                </nav>
+            </section>
+            <section id="productsPanel" class="products-panel hidden" aria-labelledby="productsTitle">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">STORE CATALOG</p>
+                        <h2 id="productsTitle">Manage products</h2>
+                        <p class="muted">Add a product with a JPEG, PNG, or WebP image, set its stock and purchase availability, and publish it through the storefront catalog API.</p>
+                    </div>
+                    <button id="refreshProductsButton" class="button button-secondary" type="button">Refresh products</button>
+                </div>
+                <form id="productForm" class="product-form" enctype="multipart/form-data">
+                    <p id="productEditNotice" class="notice hidden" role="status">Editing a product. Leave the image empty to keep its current image.</p>
+                    <div class="product-form-fields">
+                        <div>
+                            <label for="productName">Product name</label>
+                            <input id="productName" name="name" type="text" minlength="2" maxlength="120" required>
+                        </div>
+                        <div>
+                            <label for="productPrice">Price (whole BDT)</label>
+                            <input id="productPrice" name="price" type="number" min="1" max="9007199254740991" step="1" required>
+                        </div>
+                        <div>
+                            <label for="productOldPrice">Previous price (optional)</label>
+                            <input id="productOldPrice" name="oldPrice" type="number" min="1" max="9007199254740991" step="1">
+                        </div>
+                        <div>
+                            <label for="productStockQuantity">Stock quantity</label>
+                            <input id="productStockQuantity" name="stockQuantity" type="number" min="0" max="9007199254740991" step="1" value="0" required>
+                            <p class="muted">Orders reserve stock immediately; cancelled orders return it.</p>
+                        </div>
+                        <div>
+                            <label for="productAvailability">Availability</label>
+                            <select id="productAvailability" name="isAvailable" required>
+                                <option value="true" selected>Available for purchase</option>
+                                <option value="false">Unavailable</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="productCategory">Category</label>
+                            <select id="productCategory" name="category" required>
+                                <option value="">Choose a category</option>
+                                <option value="gadgets">Electronics</option>
+                                <option value="accessories">Jewelry &amp; Accessories</option>
+                                <option value="clothing">Clothing</option>
+                                <option value="more">Other</option>
+                            </select>
+                        </div>
+                        <div class="product-description-field">
+                            <label for="productDescription">Description (optional)</label>
+                            <textarea id="productDescription" name="description" maxlength="2000" rows="4"></textarea>
+                        </div>
+                        <div>
+                            <label for="productImage">Product image</label>
+                            <input id="productImage" name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
+                            <p class="muted">Maximum size: 5 MB. JPEG, PNG, or WebP only.</p>
+                        </div>
+                    </div>
+                    <div id="productImagePreview" class="product-image-preview hidden" aria-live="polite"></div>
+                    <p id="productFormError" class="error hidden" role="alert"></p>
+                    <div class="product-form-actions">
+                        <button id="createProductButton" class="button button-primary" type="submit">Upload and publish product</button>
+                        <button id="cancelProductEditButton" class="button button-secondary hidden" type="button">Cancel edit</button>
+                    </div>
+                </form>
+                <div class="section-heading product-list-heading">
+                    <h3>Admin-added products</h3>
+                    <span id="productCount" class="muted" aria-live="polite"></span>
+                </div>
+                <div id="productsList" class="products-list" aria-live="polite"></div>
+            </section>
+            <section id="profilePanel" class="profile-panel hidden" aria-labelledby="profileTitle">
+                <p class="eyebrow">ACCOUNT SECURITY</p>
+                <h2 id="profileTitle">Account details</h2>
+                <p class="muted">This profile belongs to the admin account configured for this store.</p>
+                <dl class="profile-details">
+                    <div>
+                        <dt>Admin email</dt>
+                        <dd id="profileEmail">Loading…</dd>
+                    </div>
+                </dl>
+                <form id="passwordForm" class="form">
+                    <h3>Change password</h3>
+                    <label for="currentPassword">Current password</label>
+                    <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required>
+                    <label for="newPassword">New password</label>
+                    <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+                    <label for="confirmPassword">Confirm new password</label>
+                    <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+                    <p id="profileMessage" class="error hidden" role="alert"></p>
+                    <button id="changePasswordButton" class="button button-primary" type="submit">Change password</button>
+                    <p class="muted">Changing your password signs out all active admin sessions. Sign in again with your new password.</p>
+                </form>
+            </section>
+        </section>
+    </main>
+</body>
+</html>

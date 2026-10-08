@@ -1,0 +1,32 @@
+{
+  "name": "shopademia-storefront",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test",
+    "test:api": "node --test server/*.test.js",
+    "build:css": "tailwindcss -i css/tailwind.input.css -o css/tailwind.generated.css --minify"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.4.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "supertest": "^7.0.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "overrides": {
+    "@parcel/watcher": "^2.6.0"
+  }
+}

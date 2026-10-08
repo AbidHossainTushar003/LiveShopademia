@@ -1,1 +1,8 @@
 /.vscode
+.env
+.env.*
+!.env.example
+!.env.production.example
+node_modules/
+uploads/
+npm-debug.log*

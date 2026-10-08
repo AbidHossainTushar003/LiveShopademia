@@ -1,5 +1,5 @@
 export class HeaderView {
-    constructor({ cartVM, wishlistVM, homeVM, toastVM }) {
+    constructor({ cartVM, wishlistVM, homeVM }) {
         const cartBadge = document.getElementById('cartBadge');
         const wishBadge = document.getElementById('wishlistBadge');
         cartVM.summary.subscribe((s) => { cartBadge.textContent = s.count; });
@@ -28,11 +28,6 @@ export class HeaderView {
         wishlistButton.addEventListener('click', () => {
             homeVM.toggleWishlistFilter();
             document.getElementById('shop').scrollIntoView({ behavior: 'smooth' });
-        });
-        document.getElementById('accountBtn').addEventListener('click', () => toastVM.show('Account features are coming soon.'));
-        document.getElementById('newsletterForm').addEventListener('submit', (event) => {
-            event.preventDefault();
-            toastVM.show('Newsletter sign-up is not connected yet.');
         });
     }
 }

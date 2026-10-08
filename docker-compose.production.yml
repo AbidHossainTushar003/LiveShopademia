@@ -1,0 +1,81 @@
+services:
+  database:
+    build:
+      context: ./database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env.production}
+    volumes:
+      - shopademia-production-postgres:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      TRUST_PROXY_HOPS: 1
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env.production}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
+      DELIVERY_ADVANCE_CHARGE: ${DELIVERY_ADVANCE_CHARGE:-100}
+      DEMO_USD_TO_BDT: ${DEMO_USD_TO_BDT:-120}
+      FAKE_STORE_API_URL: ${FAKE_STORE_API_URL:-https://fakestoreapi.com/products}
+    volumes:
+      - shopademia-product-images:/app/uploads
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - proxy
+      - database
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - shopademia-caddy-data:/data
+      - shopademia-caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - proxy
+
+networks:
+  proxy:
+  database:
+    internal: true
+
+volumes:
+  shopademia-production-postgres:
+  shopademia-product-images:
+  shopademia-caddy-data:
+  shopademia-caddy-config:

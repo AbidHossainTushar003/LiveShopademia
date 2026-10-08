@@ -8,9 +8,11 @@ export class CheckoutValidator {
     }
     validate({ name, phone, address, bkashNumber }) {
         const errors = {};
-        if (String(name).trim().length < 3) errors.name = 'Please enter your full name.';
+        const normalizedName = String(name).trim();
+        if (normalizedName.length < 3 || normalizedName.length > 120) errors.name = 'Enter a name between 3 and 120 characters.';
         if (!BD_MOBILE.test(CheckoutValidator.normalizePhone(phone))) errors.phone = 'Enter a valid 11-digit mobile number (01XXXXXXXXX).';
-        if (String(address).trim().length < 10) errors.address = 'Please enter your full delivery address.';
+        const normalizedAddress = String(address).trim();
+        if (normalizedAddress.length < 10 || normalizedAddress.length > 1000) errors.address = 'Enter a delivery address between 10 and 1000 characters.';
         if (!BD_MOBILE.test(CheckoutValidator.normalizePhone(bkashNumber))) errors.bkashNumber = 'Enter the bKash number you will pay from (01XXXXXXXXX).';
         return errors;
     }
