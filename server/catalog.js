@@ -19,7 +19,7 @@ let products = [...featuredProductsData, ...newArrivalsData];
 let heroProduct = heroProductData;
 const baseProducts = [...products];
 let managedProducts = [];
-let productsById = new Map([...products, heroProduct].map((product) => [String(product.id), product]));
+let productsById = new Map([...products, heroProduct].filter(Boolean).map((product) => [String(product.id), product]));
 
 function refreshProducts() {
     products = [...baseProducts.slice(0, Math.ceil(baseProducts.length / 2)), ...managedProducts, ...baseProducts.slice(Math.ceil(baseProducts.length / 2))];
@@ -100,7 +100,7 @@ export function getHeroProduct() {
 
 export function findProduct(id) {
     const key = String(id);
-    return productsById.get(key) ?? (String(heroProduct.id) === key ? heroProduct : undefined);
+    return productsById.get(key) ?? (heroProduct && String(heroProduct.id) === key ? heroProduct : undefined);
 }
 
 export function getProductsForShop(shopId) {
@@ -141,7 +141,7 @@ export function getCategories(shopId = null) {
         clothing: { name: 'Clothing', icon: 'fa-shirt', gradient: 'from-rose-100 to-orange-50', color: 'text-rose-600' },
         more: { name: 'Other', icon: 'fa-border-all', gradient: 'from-slate-200 to-slate-100', color: 'text-slate-700' }
     };
-    const scopedProducts = shopId ? getProductsForShop(shopId) : [...products, heroProduct];
+    const scopedProducts = shopId ? getProductsForShop(shopId) : [...products, heroProduct].filter(Boolean);
     const available = new Set(scopedProducts.map((product) => product.category));
     return Object.entries(categoryNames)
         .filter(([id]) => available.has(id))

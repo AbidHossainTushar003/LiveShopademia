@@ -46,7 +46,7 @@ Start the app locally, then set `PLAYWRIGHT_BASE_URL` to that local URL before r
 
 ## Catalog and API
 
-The storefront uses this application's same-origin API; it does not fetch catalog or checkout data from a third-party demo API. The product endpoints (`GET /api/v1/products`, `/api/v1/products?featured=true`, `/api/v1/products?sort=newest`, `/api/v1/products/hero-offer`, and `/api/v1/categories`) serve the bundled starter catalog together with products published through the admin API. Product additions, edits, stock, availability, and uploaded images are managed through authenticated `/api/v1/admin/products` endpoints and persisted in PostgreSQL. Checkout uses the server-owned catalog prices; the browser cannot set order prices.
+The storefront uses this application's same-origin API; it does not fetch catalog or checkout data from a third-party demo API. The product endpoints (`GET /api/v1/products`, `/api/v1/products?featured=true`, `/api/v1/products?sort=newest`, `/api/v1/products/hero-offer`, and `/api/v1/categories`) serve products published through the admin API. New installations start with no bundled sample listings. Product additions, edits, stock, availability, and uploaded images are managed through authenticated `/api/v1/admin/products` endpoints and persisted in PostgreSQL. Checkout uses the server-owned catalog prices; the browser cannot set order prices.
 
 ### Shop product API for external websites
 
@@ -83,7 +83,7 @@ Shop names and admin emails depend on the actual deployment database and are int
 
 Checkout submits orders to `POST /api/v1/orders`; customers can query them through `POST /api/v1/customer/order-lookup`. The admin dashboard uses this app's `/api/v1/admin` login, order-management, product-management, and profile endpoints.
 
-New installations include a small bundled starter catalog for the initial storefront display. Replace or supplement it with your own listings in the admin dashboard at `/admin`.
+New installations start with an empty shop catalog. Add verified listings, prices, inventory, and product images through the shop admin dashboard at `/admin`.
 
 The storefront divides the home catalog between an initial product row and a second **More Products** row; this is a display split, not a claim about popularity or arrival dates. Product details, category listings, deals, the public shop directory, and individual shop profiles have separate shareable URLs (`/product/<id>`, `/category/<id>`, `/deals`, `/shops`, and `/shops/<slug>`). Each shop-specific page preserves its shop context with `?shop=<slug>` where needed. The `/about` and `/find-order` pages provide store information and order lookup. Search covers product names, categories, and descriptions; both product rows support wishlist actions. The storefront navigation collapses into an accessible menu on smaller screens.
 

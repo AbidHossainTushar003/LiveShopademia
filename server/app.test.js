@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,17 @@ const config = {
     advanceCharge: 100
 };
 const initialAdminPasswordHash = await hashAdminPassword(config.adminPassword);
+const mainShopTestProducts = [
+    {
+        id: 1, name: 'Wireless Earbuds Pro', description: 'Test product description.',
+        price: 9990, oldPrice: 11990, category: 'gadgets'
+    },
+    {
+        id: 101, name: 'Portable Blender', description: 'Test arrival description.',
+        price: 3990, oldPrice: null, category: 'more'
+    }
+];
+beforeEach(() => setManagedProducts(mainShopTestProducts));
 
 test('service worker source parses successfully', async () => {
     const source = await readFile(new URL('../service-worker.js', import.meta.url), 'utf8');
@@ -1704,7 +1715,7 @@ test('serves the admin dashboard and same-origin catalog with a restrictive scri
     assert.match(policy, /connect-src 'self'.*googletagmanager/);
     assert.doesNotMatch(policy, /upgrade-insecure-requests/);
     const catalog = await request(app).get('/api/v1/products?featured=true').expect(200);
-    assert.equal(catalog.body.data.length, 6);
+    assert.equal(catalog.body.data.length, 1);
     const storeConfig = await request(app).get('/api/v1/storefront-config').expect(200);
     assert.equal(storeConfig.body.delivery.advanceCharge, config.advanceCharge);
     assert.deepEqual(Object.keys(storeConfig.body), ['shop', 'delivery']);

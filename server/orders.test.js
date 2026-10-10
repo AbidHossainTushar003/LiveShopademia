@@ -9,6 +9,11 @@ import {
 } from './orders.js';
 import { findProduct, getHeroProduct, setManagedProducts } from './catalog.js';
 
+const testProducts = [
+    { id: 1, name: 'Test earbuds', price: 9990, oldPrice: 11990, category: 'gadgets', stockQuantity: 10, isAvailable: true },
+    { id: 101, name: 'Test blender', price: 3990, oldPrice: null, category: 'more', stockQuantity: 10, isAvailable: true }
+];
+setManagedProducts(testProducts);
 const validOrder = {
     customer: { name: '  Abid Hossain ', phone: '+8801712345678', address: 'House 12, Road 5, Dhaka' },
     payment: { method: 'bkash', bkashNumber: '01812345678', advanceAmount: 999999 },
@@ -44,8 +49,8 @@ test('prices orders from the server catalog, not submitted prices', () => {
     assert.match(order.orderNumber, /^SH-[A-Z0-9]{1,12}-[A-F0-9]{12}$/);
 });
 
-test('includes the fallback hero offer in the server-owned checkout catalog', () => {
-    assert.equal(findProduct(getHeroProduct().id).price, getHeroProduct().price);
+test('does not publish a fallback hero product when the shop has no products', () => {
+    assert.equal(getHeroProduct(), null);
 });
 
 test('rejects an invalid phone, unavailable product, and excessive quantity', () => {

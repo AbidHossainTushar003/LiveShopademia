@@ -1,11 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HomeViewModel } from './HomeViewModel.js';
-import { InMemoryProductRepository } from '../repositories/InMemoryProductRepository.js';
-import { CategoryRepository } from '../repositories/CategoryRepository.js';
+import { Product } from '../models/Product.js';
+
+const testCategoryRepository = { async getAll() { return []; } };
+const featuredProducts = [
+    { id: 1, name: 'Wireless test device', price: 200, oldPrice: 300, category: 'gadgets' },
+    { id: 2, name: 'Desk accessory', description: 'Rechargeable travel light', price: 100, category: 'more' }
+];
+const arrivalProducts = [
+    { id: 101, name: 'Portable Blender', price: 50, category: 'more' }
+];
+
+function testProductRepository() {
+    const allProducts = [...featuredProducts, ...arrivalProducts].map((product) => new Product(product));
+    return {
+        async getFeatured() { return allProducts.slice(0, featuredProducts.length); },
+        async getNewArrivals() { return allProducts.slice(featuredProducts.length); },
+        async getAll() { return allProducts; },
+        async getHeroOffer() { return null; }
+    };
+}
 
 async function loadHome() {
-    const home = new HomeViewModel(new InMemoryProductRepository(), new CategoryRepository());
+    const home = new HomeViewModel(testProductRepository(), testCategoryRepository);
     assert.equal(home.loading.value, true);
     await home.load();
     assert.equal(home.loading.value, false);
@@ -19,7 +37,7 @@ test('category filters include only products in that category', async () => {
     assert.ok(home.featured.value.every((product) => product.category === 'gadgets'));
 });
 
-test('More displays only fallback products mapped to the other category', async () => {
+test('More displays only products mapped to the other category', async () => {
     const home = await loadHome();
     home.setCategory('more');
     assert.ok(home.featured.value.length > 0);
@@ -64,12 +82,10 @@ test('clearing filters restores the default split catalog while view all stays e
 
 test('search matches product descriptions', async () => {
     const home = new HomeViewModel({
-        async getFeatured() {
-            return [{ id: 1, name: 'Desk accessory', description: 'Rechargeable travel light', category: 'more' }];
-        },
+        async getFeatured() { return [new Product(featuredProducts[1])]; },
         async getNewArrivals() { return []; },
-        async getHeroOffer() { return { id: 2, name: 'Featured item', category: 'gadgets' }; }
-    }, new CategoryRepository());
+        async getHeroOffer() { return null; }
+    }, testCategoryRepository);
     await home.load();
     home.search('rechargeable');
     assert.deepEqual(home.featured.value.map((product) => product.name), ['Desk accessory']);
@@ -83,7 +99,7 @@ test('all catalog products are available to direct product routes', async () => 
         async getNewArrivals() { return []; },
         async getAll() { return [listedProduct, detailOnlyProduct]; },
         async getHeroOffer() { return null; }
-    }, new CategoryRepository());
+    }, testCategoryRepository);
 
     await home.load();
 
@@ -96,7 +112,7 @@ test('catalog loading state clears and load failures remain visible to callers',
         async getFeatured() { throw new Error('catalog unavailable'); },
         async getNewArrivals() { return []; },
         async getHeroOffer() { return {}; }
-    }, new CategoryRepository());
+    }, testCategoryRepository);
     await assert.rejects(home.load(), /catalog unavailable/);
     assert.equal(home.loading.value, false);
 });

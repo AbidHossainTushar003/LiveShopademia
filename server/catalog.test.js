@@ -10,12 +10,10 @@ import {
     updateManagedProduct
 } from './catalog.js';
 
-test('serves the bundled starter catalog without an external product API', () => {
-    const visible = [...getFeaturedProducts(), ...getNewArrivals(), getHeroProduct()];
-    assert.equal(getFeaturedProducts().length, 6);
-    assert.equal(getNewArrivals().length, 5);
-    assert.equal(visible.length, 12);
-    assert.equal(new Set(visible.map((product) => product.id)).size, visible.length);
+test('starts with no bundled products or hero offer', () => {
+    assert.deepEqual(getFeaturedProducts(), []);
+    assert.deepEqual(getNewArrivals(), []);
+    assert.equal(getHeroProduct(), null);
 });
 
 test('updates managed products without changing their catalog order and removes them from checkout lookup', () => {
