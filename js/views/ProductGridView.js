@@ -109,7 +109,7 @@ export class ProductGridView {
                 <i class="${isWished ? 'fa-solid' : 'fa-regular'} fa-heart text-sm"></i>
             </button>
             <a href="/product/${encodeURIComponent(p.id)}?shop=${encodeURIComponent(this.shopSlug)}" aria-label="View details for ${escapeHtml(p.name)}" class="w-full aspect-square rounded-xl bg-gradient-to-b from-slate-50 to-blue-50/30 flex items-center justify-center p-4 mb-3 overflow-hidden focus-visible:outline-2 focus-visible:outline-blue-600">
-                ${imageUrl ? `<img data-product-image src="${escapeHtml(imageUrl)}" alt="${escapeHtml(p.name)}" loading="lazy" class="h-full w-full object-contain mix-blend-multiply">` : ''}
+                ${imageUrl ? `<img data-product-image src="${escapeHtml(imageUrl)}" alt="${escapeHtml(p.imageAlt || p.name)}" loading="lazy" class="h-full w-full object-contain mix-blend-multiply">` : ''}
                 <i aria-hidden="true" class="fa-solid ${escapeHtml(icon)} ${imageUrl ? 'hidden' : ''} text-6xl text-slate-700 group-hover:scale-110 transition-transform duration-300 drop-shadow-md"></i>
             </a>
             <div>
@@ -119,10 +119,10 @@ export class ProductGridView {
                     <span class="text-base font-extrabold text-blue-700">${formatPrice(p.price)}</span>
                     ${p.hasDiscount ? `<span class="text-xs text-slate-600 line-through">${formatPrice(p.oldPrice)}</span>` : ''}
                 </div>
-                <div class="flex items-center gap-1 mt-1.5 text-xs text-slate-600">
+                ${Number.isFinite(p.rating) && p.rating > 0 && Number(p.reviews) > 0 ? `<div class="flex items-center gap-1 mt-1.5 text-xs text-slate-600">
                     <i class="fa-solid fa-star text-amber-400 text-[11px]"></i>
                     <span class="font-bold text-slate-800">${p.rating}</span><span>(${escapeHtml(p.reviews)})</span>
-                </div>
+                </div>` : ''}
             </div>
             <button data-action="add" ${available ? '' : 'disabled'} class="w-full mt-4 py-2 rounded-xl ${available ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-300 cursor-not-allowed'} text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all">
                 <i class="fa-solid ${available ? 'fa-cart-shopping' : 'fa-ban'}"></i><span>${available ? 'Add to Cart' : availabilityLabel}</span>

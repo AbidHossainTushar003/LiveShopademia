@@ -131,6 +131,9 @@ function fakePool() {
                     ...current,
                     name,
                     description,
+                    imageAlt: values[11],
+                    seoTitle: values[12],
+                    metaDescription: values[13],
                     price: String(price),
                     oldPrice: oldPrice === null ? null : String(oldPrice),
                     category,
@@ -156,12 +159,12 @@ function fakePool() {
                 };
             }
             if (sql.includes('INSERT INTO managed_products')) {
-                const [id, name, description, price, oldPrice, category, image] = values;
+                const [id, name, description, imageAlt, seoTitle, metaDescription, price, oldPrice, category, image] = values;
                 const row = {
-                    id, name, description, price: String(price),
+                    id, name, description, imageAlt, seoTitle, metaDescription, price: String(price),
                     oldPrice: oldPrice === null ? null : String(oldPrice),
-                    category, image, stockQuantity: String(values[7]), isAvailable: values[8],
-                    shopId: values[9], createdAt: new Date()
+                    category, image, stockQuantity: String(values[10]), isAvailable: values[11],
+                    shopId: values[12], createdAt: new Date()
                 };
                 managedProducts.set(id, row);
                 return { rows: [row] };
@@ -437,8 +440,12 @@ function fakePool() {
             if (sql.includes("SELECT id FROM shops WHERE status = 'active'")) {
                 return { rows: [{ id: mainShopId }] };
             }
-            if (sql.includes("SELECT status FROM shops WHERE slug = $1")) {
-                return { rows: values[0] === 'main' ? [{ status: 'active' }] : [] };
+            if (sql.includes('SELECT id, slug, name, status FROM shops WHERE slug = $1')) {
+                return {
+                    rows: values[0] === 'main'
+                        ? [{ id: mainShopId, slug: 'main', name: 'Main Shop', status: 'active' }]
+                        : []
+                };
             }
             if (sql.includes("SELECT advance_charge FROM shops WHERE id = $1 AND status = 'active'")) {
                 return { rows: values[0] === mainShopId ? [{ advance_charge: 100 }] : [] };
@@ -479,8 +486,8 @@ test('shareable storefront routes serve the app shell', async () => {
         assert.match(response.text, /favicon\.svg/);
     }
     const product = await request(app).get('/product/1?shop=main').expect(200);
-    assert.match(product.text, /<title>Wireless Earbuds Pro \| Shopademia<\/title>/);
-    assert.match(product.text, /https:\/\/shopademia\.example\/product\/1\?shop=main/);
+    assert.match(product.text, /<title>Wireless Earbuds Pro \| Main Shop \| Shopademia<\/title>/);
+    assert.match(product.text, /<link rel="canonical" href="https:\/\/shopademia\.example\/product\/1">/);
     const admin = await request(app).get('/admin').expect(200);
     const platform = await request(app).get('/admin/platform').expect(200);
     for (const response of [admin, platform]) {
@@ -489,6 +496,26 @@ test('shareable storefront routes serve the app shell', async () => {
         assert.match(response.text, /favicon\.svg/);
         assert.match(response.text, /shopademia-mark\.svg/);
     }
+});
+
+test('redirects www requests to the configured canonical host and preserves the request path', async () => {
+    const app = createApp({ pool: fakePool(), config: { ...config, siteUrl: 'https://shopademia.example' } });
+
+    await request(app)
+        .get('/deals?shop=main')
+        .set('Host', 'www.shopademia.example')
+        .expect(301)
+        .expect('Location', 'https://shopademia.example/deals?shop=main');
+    await request(app)
+        .get('/deals')
+        .set('Host', 'shopademia.example')
+        .expect(200);
+    await request(app)
+        .get('/privacy?source=www')
+        .set('Host', 'shopademia.example')
+        .set('X-Forwarded-Host', 'www.shopademia.example')
+        .expect(301)
+        .expect('Location', 'https://shopademia.example/privacy?source=www');
 });
 
 test('publishes robots, a shop-aware sitemap, shared brand assets, and an HTML 404', async () => {
@@ -504,11 +531,38 @@ test('publishes robots, a shop-aware sitemap, shared brand assets, and an HTML 4
 
     const robots = await request(app).get('/robots.txt').expect(200);
     assert.match(robots.text, /Disallow: \/admin/);
+    assert.match(robots.text, /Allow: \/api\/v1\/products/);
+    assert.match(robots.text, /Allow: \/api\/v1\/shops\//);
+    assert.match(robots.text, /Disallow: \/api\/v1\/admin\//);
+    assert.match(robots.text, /Disallow: \/api\/v1\/customer\//);
+    assert.doesNotMatch(robots.text, /Disallow: \/api\/\n/);
     assert.match(robots.text, /Sitemap: https:\/\/shopademia\.example\/sitemap\.xml/);
+    const homePage = await request(app).get('/?shop=main').expect(200);
+    assert.match(homePage.text, /<title>Shop products and deals \| Main Shop \| Shopademia<\/title>/);
+    assert.match(homePage.text, /<link rel="canonical" href="https:\/\/shopademia\.example\/">/);
     const sitemap = await request(app).get('/sitemap.xml').expect(200);
     assert.match(sitemap.headers['content-type'], /application\/xml/);
     assert.match(sitemap.text, /https:\/\/shopademia\.example\/privacy/);
-    assert.match(sitemap.text, /https:\/\/shopademia\.example\/product\/1\?shop=main/);
+    assert.match(sitemap.text, /https:\/\/shopademia\.example\/product\/1</);
+    assert.doesNotMatch(sitemap.text, /https:\/\/shopademia\.example\/\?shop=main/);
+    const productPage = await request(app).get('/product/1?shop=main').expect(200);
+    assert.match(productPage.text, /<title>Wireless Earbuds Pro \| Main Shop \| Shopademia<\/title>/);
+    assert.match(productPage.text, /<link rel="canonical" href="https:\/\/shopademia\.example\/product\/1">/);
+    assert.match(productPage.text, /<meta name="twitter:title" content="Wireless Earbuds Pro \| Main Shop \| Shopademia">/);
+    assert.match(productPage.text, /<noscript><main><article><h1>Wireless Earbuds Pro<\/h1>/);
+    const jsonLd = productPage.text.match(/<script type="application\/ld\+json">([^<]+)<\/script>/);
+    assert.ok(jsonLd);
+    const structuredData = JSON.parse(jsonLd[1]);
+    assert.ok(structuredData['@graph'].some(({ '@type': type }) => type === 'WebSite'));
+    assert.ok(structuredData['@graph'].some(({ '@type': type }) => type === 'Product'));
+    assert.ok(structuredData['@graph'].some(({ '@type': type }) => type === 'BreadcrumbList'));
+    assert.doesNotMatch(jsonLd[1], /aggregateRating|reviewCount/);
+    const categoryPage = await request(app).get('/category/gadgets?shop=main').expect(200);
+    assert.match(categoryPage.text, /<title>Electronics \| Main Shop \| Shopademia<\/title>/);
+    assert.match(categoryPage.text, /<noscript><main><h1>Electronics<\/h1>/);
+    await request(app).get('/category/not-a-category?shop=main').expect(404);
+    await request(app).get('/product/1?shop=unknown').expect(404);
+    await request(app).get('/product/not-a-product?shop=main').expect(404);
     await request(app).get('/public-assets/favicon.svg').expect(200);
     await request(app).get('/public-assets/social-preview.png').expect(200);
     const notFound = await request(app).get('/missing-page').expect(404);
@@ -542,6 +596,9 @@ test('cross-origin shop API exposes only that shop uploaded products with safe p
             shopId: '00000000-0000-4000-8000-000000000011',
             name: 'Shop One Item',
             description: 'Uploaded by shop one',
+            imageAlt: 'Black headphones on a white surface',
+            seoTitle: 'Shop One headphones',
+            metaDescription: 'Shop One headphones with clear sound and a comfortable fit.',
             price: 1200,
             oldPrice: null,
             image: '/uploads/11111111-1111-4111-8111-111111111111.webp',
@@ -565,10 +622,10 @@ test('cross-origin shop API exposes only that shop uploaded products with safe p
     const pool = fakePool();
     const query = pool.query.bind(pool);
     pool.query = async (sql, values) => {
-        if (sql.includes("FROM shops WHERE slug = $1 AND status = 'active'")) {
+        if (sql.includes('FROM shops WHERE slug = $1')) {
             const shops = {
-                'shop-one': { id: '00000000-0000-4000-8000-000000000011', slug: 'shop-one', name: 'Shop One' },
-                'shop-two': { id: '00000000-0000-4000-8000-000000000022', slug: 'shop-two', name: 'Shop Two' }
+                'shop-one': { id: '00000000-0000-4000-8000-000000000011', slug: 'shop-one', name: 'Shop One', status: 'active' },
+                'shop-two': { id: '00000000-0000-4000-8000-000000000022', slug: 'shop-two', name: 'Shop Two', status: 'active' }
             };
             return { rows: shops[values[0]] ? [shops[values[0]]] : [] };
         }
@@ -586,9 +643,16 @@ test('cross-origin shop API exposes only that shop uploaded products with safe p
     assert.equal(one.body.shop.name, 'Shop One');
     assert.deepEqual(one.body.data.map(({ id }) => id), ['shop-one-product']);
     assert.equal(one.body.data[0].image, 'https://shopademia.example/uploads/11111111-1111-4111-8111-111111111111.webp');
+    assert.equal(one.body.data[0].imageAlt, 'Black headphones on a white surface');
+    assert.equal(one.body.data[0].seoTitle, 'Shop One headphones');
+    assert.equal(one.body.data[0].metaDescription, 'Shop One headphones with clear sound and a comfortable fit.');
     assert.equal(one.body.data[0].isAvailableForPurchase, true);
     assert.equal(Object.hasOwn(one.body.data[0], 'shopId'), false);
     assert.deepEqual(one.body.pagination, { total: 1, limit: 50, offset: 0, hasMore: false });
+    const productPage = await request(app).get('/product/shop-one-product?shop=shop-one').expect(200);
+    assert.match(productPage.text, /<title>Shop One headphones \| Shop One \| Shopademia<\/title>/);
+    assert.match(productPage.text, /content="Shop One headphones with clear sound and a comfortable fit\."/);
+    assert.match(productPage.text, /alt="Black headphones on a white surface"/);
 
     const two = await request(app).get('/api/v1/public/shops/shop-two/products?limit=1&category=accessories').expect(200);
     assert.deepEqual(two.body.data.map(({ id }) => id), ['shop-two-product']);
@@ -695,6 +759,9 @@ test('admin product management supports authenticated create, update, replacemen
         .set('Authorization', authorization)
         .field('name', 'Admin Product')
         .field('description', 'Added from the admin catalog.')
+        .field('imageAlt', 'Compact black wireless earbuds in their charging case')
+        .field('seoTitle', 'Wireless Earbuds | Admin Shop')
+        .field('metaDescription', 'Compact wireless earbuds with a portable charging case.')
         .field('price', '1250')
         .field('oldPrice', '1500')
         .field('stockQuantity', '5')
@@ -709,12 +776,18 @@ test('admin product management supports authenticated create, update, replacemen
     assert.equal(product.oldPrice, 1500);
     assert.equal(product.stockQuantity, 5);
     assert.equal(product.isAvailable, true);
+    assert.equal(product.imageAlt, 'Compact black wireless earbuds in their charging case');
+    assert.equal(product.seoTitle, 'Wireless Earbuds | Admin Shop');
+    assert.equal(product.metaDescription, 'Compact wireless earbuds with a portable charging case.');
     assert.match(product.image, /^\/uploads\/[0-9a-f-]{36}\.png$/);
     assert.equal(findProduct(product.id).price, 1250);
     assert.ok((await readFile(join(uploadDirectory, product.image.split('/').at(-1)))).equals(image));
 
     const storefront = await request(app).get('/api/v1/products').expect(200);
-    assert.ok(storefront.body.data.some(({ id }) => id === product.id));
+    const publicProduct = storefront.body.data.find(({ id }) => id === product.id);
+    assert.equal(publicProduct.imageAlt, product.imageAlt);
+    assert.equal(publicProduct.seoTitle, product.seoTitle);
+    assert.equal(publicProduct.metaDescription, product.metaDescription);
     const checkout = await request(app).post('/api/v1/orders').send({
         ...payload,
         items: [{ productId: product.id, quantity: 2 }],
@@ -728,6 +801,9 @@ test('admin product management supports authenticated create, update, replacemen
         .expect(200);
     assert.equal(listed.body.data.length, 1);
     assert.equal(listed.body.data[0].id, product.id);
+    assert.equal(listed.body.data[0].imageAlt, product.imageAlt);
+    assert.equal(listed.body.data[0].seoTitle, product.seoTitle);
+    assert.equal(listed.body.data[0].metaDescription, product.metaDescription);
 
     const storedImage = await request(app).get(product.image).expect(200);
     assert.equal(storedImage.headers['content-type'], 'image/png');
@@ -737,6 +813,9 @@ test('admin product management supports authenticated create, update, replacemen
     await request(app).put(`/api/v1/admin/products/${product.id}`)
         .field('name', 'Updated Admin Product')
         .field('description', 'Updated product details.')
+        .field('imageAlt', 'Updated image showing black earbuds and charging case')
+        .field('seoTitle', 'Updated Earbuds Product')
+        .field('metaDescription', 'Updated search description for the product listing.')
         .field('price', '1350')
         .field('oldPrice', '1600')
         .field('stockQuantity', '3')
@@ -748,6 +827,9 @@ test('admin product management supports authenticated create, update, replacemen
         .set('Authorization', authorization)
         .field('name', 'Updated Admin Product')
         .field('description', 'Updated product details.')
+        .field('imageAlt', 'Updated image showing black earbuds and charging case')
+        .field('seoTitle', 'Updated Earbuds Product')
+        .field('metaDescription', 'Updated search description for the product listing.')
         .field('price', '1350')
         .field('oldPrice', '1600')
         .field('stockQuantity', '3')
@@ -756,6 +838,9 @@ test('admin product management supports authenticated create, update, replacemen
         .expect(200);
     assert.equal(updated.body.data.name, 'Updated Admin Product');
     assert.equal(updated.body.data.price, 1350);
+    assert.equal(updated.body.data.imageAlt, 'Updated image showing black earbuds and charging case');
+    assert.equal(updated.body.data.seoTitle, 'Updated Earbuds Product');
+    assert.equal(updated.body.data.metaDescription, 'Updated search description for the product listing.');
     assert.equal(updated.body.data.image, product.image);
     assert.equal(findProduct(product.id).price, 1350);
 
@@ -892,6 +977,14 @@ test('admin rejects unsupported and spoofed product image uploads without publis
             contentType: 'image/png'
         })
         .expect(400, { error: 'The previous price must be a whole BDT amount greater than the current price.' });
+
+    await productFields(request(app).post('/api/v1/admin/products'))
+        .field('seoTitle', 'x'.repeat(71))
+        .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=', 'base64'), {
+            filename: 'product.png',
+            contentType: 'image/png'
+        })
+        .expect(400, { error: 'SEO title cannot exceed 70 characters.' });
 
     await request(app).get('/api/v1/admin/products')
         .set('Authorization', authorization)
@@ -1609,6 +1702,7 @@ test('serves the admin dashboard and same-origin catalog with a restrictive scri
     assert.doesNotMatch(policy, /fakestoreapi\.com/);
     assert.match(policy, /img-src 'self' data: blob:/);
     assert.match(policy, /connect-src 'self'.*googletagmanager/);
+    assert.doesNotMatch(policy, /upgrade-insecure-requests/);
     const catalog = await request(app).get('/api/v1/products?featured=true').expect(200);
     assert.equal(catalog.body.data.length, 6);
     const storeConfig = await request(app).get('/api/v1/storefront-config').expect(200);
@@ -1619,6 +1713,12 @@ test('serves the admin dashboard and same-origin catalog with a restrictive scri
     assert.ok(categories.body.data.length > 0);
     await request(app).get('/css/tailwind.generated.css').expect(200);
     await request(app).get('/admin-assets/admin.js').expect(200);
+});
+
+test('production CSP upgrades insecure requests', async () => {
+    const app = createApp({ pool: fakePool(), config: { ...config, nodeEnv: 'production' } });
+    const response = await request(app).get('/admin').expect(200);
+    assert.match(response.headers['content-security-policy'], /upgrade-insecure-requests/);
 });
 
 test('static assets revalidate and missing files return 404', async () => {

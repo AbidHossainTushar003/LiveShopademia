@@ -67,6 +67,9 @@ export async function initializeDatabase(pool, admin) {
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL CHECK (char_length(name) BETWEEN 2 AND 120),
             description TEXT NOT NULL DEFAULT '' CHECK (char_length(description) <= 2000),
+            image_alt TEXT NOT NULL DEFAULT '' CHECK (char_length(image_alt) <= 250),
+            seo_title TEXT NOT NULL DEFAULT '' CHECK (char_length(seo_title) <= 70),
+            meta_description TEXT NOT NULL DEFAULT '' CHECK (char_length(meta_description) <= 160),
             price BIGINT NOT NULL CHECK (price > 0),
             old_price BIGINT CHECK (old_price IS NULL OR old_price > price),
             category TEXT NOT NULL CHECK (category IN ('gadgets', 'accessories', 'clothing', 'more')),
@@ -78,6 +81,9 @@ export async function initializeDatabase(pool, admin) {
     `);
     await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS stock_quantity BIGINT NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0)');
     await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS is_available BOOLEAN NOT NULL DEFAULT TRUE');
+    await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS image_alt TEXT NOT NULL DEFAULT \'\' CHECK (char_length(image_alt) <= 250)');
+    await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS seo_title TEXT NOT NULL DEFAULT \'\' CHECK (char_length(seo_title) <= 70)');
+    await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS meta_description TEXT NOT NULL DEFAULT \'\' CHECK (char_length(meta_description) <= 160)');
     await pool.query('CREATE INDEX IF NOT EXISTS managed_products_created_at_idx ON managed_products (created_at DESC)');
     const passwordHash = await hashAdminPassword(admin.password);
     await pool.query(
@@ -157,6 +163,8 @@ async function initializeShopPlatform(pool, admin) {
         WHERE c.id = TRUE
         ON CONFLICT (user_id) DO NOTHING
     `);
+    await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES admin_users(id) ON DELETE CASCADE');
+    await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS shop_id UUID REFERENCES shops(id) ON DELETE CASCADE');
     await pool.query(`
         DELETE FROM shop_memberships
         WHERE user_id IN (SELECT user_id FROM platform_admins)
@@ -165,8 +173,6 @@ async function initializeShopPlatform(pool, admin) {
         UPDATE admin_sessions SET revoked_at = NOW()
         WHERE user_id IN (SELECT user_id FROM platform_admins) AND revoked_at IS NULL
     `);
-    await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES admin_users(id) ON DELETE CASCADE');
-    await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS shop_id UUID REFERENCES shops(id) ON DELETE CASCADE');
 
     await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS shop_id UUID');
     await pool.query('UPDATE managed_products SET shop_id = $1 WHERE shop_id IS NULL', [defaultShopId]);
@@ -272,7 +278,9 @@ async function initializeShopPlatform(pool, admin) {
 
 export async function loadManagedProducts(pool) {
     const { rows } = await pool.query(
-        `SELECT id, name, description, price, old_price AS "oldPrice",
+        `SELECT id, name, description, image_alt AS "imageAlt",
+                seo_title AS "seoTitle", meta_description AS "metaDescription",
+                price, old_price AS "oldPrice",
                 category, image, stock_quantity AS "stockQuantity", is_available AS "isAvailable",
                 shop_id AS "shopId", created_at AS "createdAt"
          FROM managed_products

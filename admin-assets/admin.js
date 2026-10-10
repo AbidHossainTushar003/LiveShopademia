@@ -157,6 +157,9 @@ function beginProductEdit(product) {
     document.getElementById('productAvailability').value = String(product.isAvailable);
     document.getElementById('productCategory').value = product.category;
     document.getElementById('productDescription').value = product.description;
+    document.getElementById('productImageAlt').value = product.imageAlt || '';
+    document.getElementById('productSeoTitle').value = product.seoTitle || '';
+    document.getElementById('productMetaDescription').value = product.metaDescription || '';
     const imageInput = document.getElementById('productImage');
     imageInput.value = '';
     imageInput.required = false;
@@ -176,7 +179,7 @@ function renderManagedProduct(product) {
     card.className = 'product-admin-card';
     const image = document.createElement('img');
     if (/^\/uploads\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/i.test(product.image)) image.src = product.image;
-    image.alt = product.name;
+    image.alt = product.imageAlt || product.name;
     image.loading = 'lazy';
     image.addEventListener('error', () => image.classList.add('hidden'), { once: true });
     const details = document.createElement('div');

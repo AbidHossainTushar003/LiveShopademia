@@ -124,6 +124,21 @@
                             <textarea id="productDescription" name="description" maxlength="2000" rows="4"></textarea>
                         </div>
                         <div>
+                            <label for="productImageAlt">Product image alt text</label>
+                            <input id="productImageAlt" name="imageAlt" type="text" maxlength="250" autocomplete="off">
+                            <p class="muted">Describe what is visibly shown in the product image. Defaults to the product name.</p>
+                        </div>
+                        <div>
+                            <label for="productSeoTitle">SEO title</label>
+                            <input id="productSeoTitle" name="seoTitle" type="text" maxlength="70" autocomplete="off">
+                            <p class="muted">Used for the product page title and browser search preview. Defaults to the product name.</p>
+                        </div>
+                        <div class="product-description-field">
+                            <label for="productMetaDescription">Meta description</label>
+                            <textarea id="productMetaDescription" name="metaDescription" maxlength="160" rows="3"></textarea>
+                            <p class="muted">A concise, factual search snippet. Defaults to the product description.</p>
+                        </div>
+                        <div>
                             <label for="productImage">Product image</label>
                             <input id="productImage" name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
                             <p class="muted">Maximum size: 5 MB. JPEG, PNG, or WebP only.</p>

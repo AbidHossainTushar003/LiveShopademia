@@ -77,7 +77,7 @@ export class RoutePageView {
         if (!products.length) return '<p class="route-empty">There are no products to show right now.</p>';
         return `<div class="route-product-grid">${products.map((product) => {
             const image = isSafeProductImage(product.image)
-                ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy">`
+                ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy">`
                 : `<span class="route-product-placeholder" aria-hidden="true"><i class="fa-solid fa-box"></i></span>`;
             const categoryLink = `/category/${encodeURIComponent(product.category)}?shop=${encodeURIComponent(this.shop.slug)}`;
             const productLink = `/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(this.shop.slug)}`;
@@ -99,7 +99,7 @@ export class RoutePageView {
         if (!product) return this.renderNotFound('Product not found');
         const fallbackIcon = /^[a-z0-9-]+$/.test(product.icon) ? product.icon : 'fa-box-open';
         const image = isSafeProductImage(product.image)
-            ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}">`
+            ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}">`
             : `<i class="fa-solid ${fallbackIcon}" aria-hidden="true"></i>`;
         const category = this.homeVM.categories.value.find(({ id }) => id === product.category);
         this.root.innerHTML = `<nav class="route-breadcrumb" aria-label="Breadcrumb"><a href="/?shop=${encodeURIComponent(this.shop.slug)}">Home</a><span aria-hidden="true">/</span><a href="/category/${encodeURIComponent(product.category)}?shop=${encodeURIComponent(this.shop.slug)}">${escapeHtml(category?.name || 'Category')}</a><span aria-hidden="true">/</span><span>${escapeHtml(product.name)}</span></nav>
@@ -169,7 +169,14 @@ export class RoutePageView {
 
     renderAbout() {
         this.root.innerHTML = `<header class="route-heading"><p class="route-eyebrow">ABOUT</p><h1>Shopping with ${escapeHtml(this.shop.name)}</h1><p>Explore products from our independent shops and send an order request directly to the shop.</p></header>
-            <section class="route-about-grid"><article><span class="route-about-icon"><i class="fa-solid fa-bag-shopping" aria-hidden="true"></i></span><h2>Browse with confidence</h2><p>Each shop has its own storefront, products, categories, and offers.</p></article><article><span class="route-about-icon"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></span><h2>Order requests</h2><p>After you submit a request, the shop reviews it and contacts you about next steps.</p></article><article><span class="route-about-icon"><i class="fa-solid fa-receipt" aria-hidden="true"></i></span><h2>Keep your receipt</h2><p>Download your order receipt after submitting your request. It is not proof of payment.</p></article></section>`;
+            <section class="route-about-grid"><article><span class="route-about-icon"><i class="fa-solid fa-bag-shopping" aria-hidden="true"></i></span><h2>Browse with confidence</h2><p>Each shop has its own storefront, products, categories, and offers.</p></article><article><span class="route-about-icon"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></span><h2>Order requests</h2><p>After you submit a request, the shop reviews it and contacts you about next steps.</p></article><article><span class="route-about-icon"><i class="fa-solid fa-receipt" aria-hidden="true"></i></span><h2>Keep your receipt</h2><p>Download your order receipt after submitting your request. It is not proof of payment.</p></article></section>
+            <section class="route-subsection route-faq" aria-labelledby="faqTitle"><header class="route-heading route-heading-small"><p class="route-eyebrow">HELP &amp; ANSWERS</p><h2 id="faqTitle">Frequently asked questions</h2><p>How orders, payments, and shop policies work on Shopademia.</p></header>
+                <details><summary>Is my order confirmed when I submit it?</summary><p>No. Submitting an order sends a request to the shop. The shop reviews availability and contacts you to confirm the order and explain the next steps.</p></details>
+                <details><summary>How do I pay for an order?</summary><p>Shopademia does not collect or verify payment through this storefront. Arrange payment directly with the shop using instructions you have verified with them. A submitted transaction reference is not proof of payment.</p></details>
+                <details><summary>How can I check my order status?</summary><p>Open <a href="/find-order?shop=${encodeURIComponent(this.shop.slug)}">Find your order</a> and enter the order number and phone number used at checkout.</p></details>
+                <details><summary>Can I use the downloadable receipt as proof of payment?</summary><p>No. The receipt confirms that an order request was submitted; it does not confirm payment. Payment status must be confirmed directly by the shop.</p></details>
+                <details><summary>What are the delivery, return, or refund terms?</summary><p>These terms can differ by shop. Ask the shop directly and review its terms before completing a sale.</p></details>
+            </section>`;
         document.title = `About | ${this.shop.name}`;
     }
 
@@ -201,11 +208,11 @@ export class RoutePageView {
 
     updateMetadata() {
         const descriptions = {
-            home: 'Discover products, deals, and independent shops on Shopademia. Submit order requests directly to each shop.',
+            home: `Browse products and current offers from ${this.shop.name}. Send an order request to the shop on Shopademia.`,
             product: `Explore ${document.querySelector('#routePage h1')?.textContent || 'this product'} from ${this.shop.name} on Shopademia.`,
-            category: `Browse ${document.querySelector('#routePage h1')?.textContent || 'products'} from ${this.shop.name} on Shopademia.`,
+            category: `Browse ${document.querySelector('#routePage h1')?.textContent || 'products'} products from ${this.shop.name} on Shopademia.`,
             shops: 'Explore independent shops, storefronts, products, and current deals on Shopademia.',
-            shop: `Visit ${document.querySelector('#routePage h1')?.textContent || this.shop.name} on Shopademia to browse products and offers.`,
+            shop: `Visit ${document.querySelector('#routePage h1')?.textContent || this.shop.name} on Shopademia to browse its shop profile, products, and current offers.`,
             deals: `Browse current offers and discounted products from ${this.shop.name}.`,
             about: 'Learn how Shopademia connects customers with independent shops and order requests.',
             'find-order': 'Look up your Shopademia order request using your order number and checkout phone number.',
@@ -213,7 +220,28 @@ export class RoutePageView {
             terms: 'Review the terms for browsing Shopademia and submitting order requests to independent shops.',
             'not-found': 'The page you requested could not be found on Shopademia.'
         };
-        const description = descriptions[this.route.type] || descriptions['not-found'];
+        const product = this.route.type === 'product' ? this.homeVM.findProduct(this.route.id) : null;
+        const productDescription = product?.description?.trim().replace(/\s+/g, ' ');
+        const description = this.route.type === 'product' && product?.metaDescription
+            ? product.metaDescription
+            : this.route.type === 'product' && productDescription
+            ? (productDescription.length > 160 ? `${productDescription.slice(0, 157).trimEnd()}…` : productDescription)
+            : descriptions[this.route.type] || descriptions['not-found'];
+        const pageHeading = document.querySelector('#routePage h1')?.textContent?.trim();
+        const titles = {
+            home: `Shop products and deals | ${this.shop.name} | Shopademia`,
+            product: `${product?.seoTitle || product?.name || pageHeading || 'Product'} | ${this.shop.name} | Shopademia`,
+            category: `${pageHeading || 'Products'} | ${this.shop.name} | Shopademia`,
+            shops: 'Explore our shops | Shopademia',
+            shop: `${pageHeading || this.shop.name} | Shopademia`,
+            deals: `Deals and offers | ${this.shop.name} | Shopademia`,
+            about: `About ${this.shop.name} | Shopademia`,
+            'find-order': `Find your order | ${this.shop.name} | Shopademia`,
+            privacy: 'Privacy policy | Shopademia',
+            terms: 'Terms & conditions | Shopademia',
+            'not-found': `Page not found | ${this.shop.name} | Shopademia`
+        };
+        document.title = titles[this.route.type] || titles['not-found'];
         let meta = document.querySelector('meta[name="description"]');
         if (!meta) {
             meta = document.createElement('meta');
@@ -221,7 +249,14 @@ export class RoutePageView {
             document.head.append(meta);
         }
         meta.content = description;
-        for (const [property, content] of [['og:title', document.title], ['og:description', description], ['og:url', window.location.href], ['og:image', `${window.location.origin}/public-assets/social-preview.png`]]) {
+        const canonicalShop = ['home', 'product', 'category', 'deals', 'about', 'find-order'].includes(this.route.type)
+            ? new URLSearchParams(window.location.search).get('shop')
+            : null;
+        const canonicalQuery = canonicalShop && canonicalShop !== 'main'
+            ? `?shop=${encodeURIComponent(canonicalShop)}`
+            : '';
+        const canonicalUrl = `${window.location.origin}${window.location.pathname}${canonicalQuery}`;
+        for (const [property, content] of [['og:title', document.title], ['og:description', description], ['og:url', canonicalUrl], ['og:image', `${window.location.origin}/public-assets/social-preview.png`]]) {
             let tag = document.querySelector(`meta[property="${property}"]`);
             if (!tag) {
                 tag = document.createElement('meta');
@@ -237,13 +272,22 @@ export class RoutePageView {
             twitterImage.content = `${window.location.origin}/public-assets/social-preview.png`;
             tag.content = content;
         }
+        for (const [name, content] of [['twitter:title', document.title], ['twitter:description', description]]) {
+            let tag = document.querySelector(`meta[name="${name}"]`);
+            if (!tag) {
+                tag = document.createElement('meta');
+                tag.name = name;
+                document.head.append(tag);
+            }
+            tag.content = content;
+        }
         let canonical = document.querySelector('link[rel="canonical"]');
         if (!canonical) {
             canonical = document.createElement('link');
             canonical.rel = 'canonical';
             document.head.append(canonical);
         }
-        canonical.href = `${window.location.origin}${window.location.pathname}${this.route.type === 'product' || this.route.type === 'category' || this.route.type === 'shop' ? window.location.search : ''}`;
+        canonical.href = canonicalUrl;
     }
 
     renderNotFound(title = 'Page not found') {

@@ -32,6 +32,11 @@ export function setManagedProducts(records) {
         id: record.id,
         name: record.name,
         description: record.description,
+        imageAlt: record.imageAlt || record.name,
+        seoTitle: record.seoTitle || record.name,
+        metaDescription: record.metaDescription || (record.description?.length > 160
+            ? `${record.description.slice(0, 157).trimEnd()}…`
+            : record.description || ''),
         price: Number(record.price),
         oldPrice: record.oldPrice === null ? null : Number(record.oldPrice),
         rating: 0,

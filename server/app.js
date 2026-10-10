@@ -21,7 +21,8 @@ import {
     getUploadedProductsForShop,
     removeManagedProduct,
     updateManagedStock,
-    updateManagedProduct
+    updateManagedProduct,
+    findProductForShop
 } from './catalog.js';
 import {
     canTransitionOrderStatus,
@@ -51,6 +52,20 @@ function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, (character) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     })[character]);
+}
+
+function normalizeMetaDescription(value, fallback) {
+    const normalized = String(value || fallback).trim().replace(/\s+/g, ' ');
+    return normalized.length > 160 ? `${normalized.slice(0, 157).trimEnd()}…` : normalized;
+}
+
+function serializeJsonLd(value) {
+    return JSON.stringify(value)
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e')
+        .replace(/&/g, '\\u0026')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
 }
 
 class ProductInputError extends Error {
@@ -84,7 +99,7 @@ function productUpload(uploadDirectory) {
                 callback(null, `${randomUUID()}${IMAGE_TYPES.get(file.mimetype).extension}`);
             }
         }),
-        limits: { fileSize: 5 * 1024 * 1024, files: 2, fields: 7, fieldSize: 4096, parts: 10 },
+        limits: { fileSize: 5 * 1024 * 1024, files: 2, fields: 10, fieldSize: 4096, parts: 13 },
         fileFilter(_req, file, callback) {
             if (!IMAGE_TYPES.has(file.mimetype)) return callback(new ProductInputError('Upload a JPEG, PNG, or WebP product image.'));
             callback(null, true);
@@ -95,6 +110,9 @@ function productUpload(uploadDirectory) {
 function validateManagedProduct(body, image, { requireImage = true } = {}) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const description = typeof body?.description === 'string' ? body.description.trim() : '';
+    const imageAlt = typeof body?.imageAlt === 'string' ? body.imageAlt.trim() : '';
+    const seoTitle = typeof body?.seoTitle === 'string' ? body.seoTitle.trim() : '';
+    const metaDescription = typeof body?.metaDescription === 'string' ? body.metaDescription.trim() : '';
     const category = typeof body?.category === 'string' ? body.category : '';
     const price = typeof body?.price === 'string' && /^\d{1,15}$/.test(body.price) ? Number(body.price) : NaN;
     const stockQuantity = typeof body?.stockQuantity === 'string' && /^\d{1,15}$/.test(body.stockQuantity)
@@ -106,6 +124,9 @@ function validateManagedProduct(body, image, { requireImage = true } = {}) {
         : typeof body.oldPrice === 'string' && /^\d{1,15}$/.test(body.oldPrice) ? Number(body.oldPrice) : NaN;
     if (name.length < 2 || name.length > 120) throw new ProductInputError('Product name must be between 2 and 120 characters.');
     if (description.length > 2000) throw new ProductInputError('Product description cannot exceed 2000 characters.');
+    if (imageAlt.length > 250) throw new ProductInputError('Image alt text cannot exceed 250 characters.');
+    if (seoTitle.length > 70) throw new ProductInputError('SEO title cannot exceed 70 characters.');
+    if (metaDescription.length > 160) throw new ProductInputError('Meta description cannot exceed 160 characters.');
     if (!Number.isSafeInteger(price) || price < 1) throw new ProductInputError('Enter a valid product price in whole BDT.');
     if (!Number.isSafeInteger(stockQuantity) || stockQuantity < 0) throw new ProductInputError('Enter a valid whole-number stock quantity.');
     if (isAvailable === null) throw new ProductInputError('Choose whether this product is available for purchase.');
@@ -114,7 +135,20 @@ function validateManagedProduct(body, image, { requireImage = true } = {}) {
     }
     if (!PRODUCT_CATEGORIES.has(category)) throw new ProductInputError('Choose a valid product category.');
     if (requireImage && !image) throw new ProductInputError('Choose a product image to upload.');
-    return { name, description, category, price, oldPrice, stockQuantity, isAvailable };
+    return {
+        name,
+        description,
+        imageAlt: imageAlt || name,
+        seoTitle: seoTitle || name,
+        metaDescription: metaDescription || (description.length > 160
+            ? `${description.slice(0, 157).trimEnd()}…`
+            : description),
+        category,
+        price,
+        oldPrice,
+        stockQuantity,
+        isAvailable
+    };
 }
 
 function isUuid(value) {
@@ -360,18 +394,41 @@ export function createApp({ pool, config }) {
         legacyHeaders: false,
         message: { error: 'Too many password changes. Try again later.' }
     });
+    const canonicalHostname = config.siteUrl ? new URL(config.siteUrl).hostname.toLowerCase() : null;
     const siteOrigin = (req) => config.siteUrl || `${req.protocol}://${req.get('host')}`;
-    const sendStorefrontShell = async (req, res, title, description) => {
+    const sendStorefrontShell = async (req, res, title, description, pageEntities = [], fallbackHtml = '') => {
         const html = await readFile(join(root, 'index.html'), 'utf8');
         const origin = siteOrigin(req);
         const url = new URL(req.originalUrl, origin);
         const includeShop = ['/','/product/','/category/','/deals','/about','/find-order'].some((path) => path === '/' ? url.pathname === '/' : url.pathname.startsWith(path));
-        const shop = includeShop ? url.searchParams.get('shop') : null;
+        const requestedShop = includeShop ? url.searchParams.get('shop') : null;
+        const shop = requestedShop === 'main' ? null : requestedShop;
         const canonicalUrl = `${origin}${url.pathname}${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`;
         const safeTitle = escapeHtml(title);
-        const safeDescription = escapeHtml(description);
+        const safeDescription = escapeHtml(normalizeMetaDescription(description, 'Explore products and independent shops on Shopademia.'));
         const escapedUrl = escapeHtml(canonicalUrl);
         const escapedImage = escapeHtml(`${origin}/public-assets/social-preview.png`);
+        const organizationId = `${origin}/#organization`;
+        const structuredData = {
+            '@context': 'https://schema.org',
+            '@graph': [
+                {
+                    '@type': 'Organization',
+                    '@id': organizationId,
+                    name: 'Shopademia',
+                    url: `${origin}/`,
+                    logo: `${origin}/public-assets/shopademia-mark.svg`
+                },
+                {
+                    '@type': 'WebSite',
+                    '@id': `${origin}/#website`,
+                    name: 'Shopademia',
+                    url: `${origin}/`,
+                    publisher: { '@id': organizationId }
+                },
+                ...pageEntities
+            ]
+        };
         const rendered = html
             .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
             .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${safeDescription}">`)
@@ -379,8 +436,12 @@ export function createApp({ pool, config }) {
             .replace(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${safeDescription}">`)
             .replace(/<meta property="og:image" content="[^"]*">/, `<meta property="og:image" content="${escapedImage}">`)
             .replace(/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${escapedUrl}">`)
+            .replace(/<meta name="twitter:title" content="[^"]*">/, `<meta name="twitter:title" content="${safeTitle}">`)
+            .replace(/<meta name="twitter:description" content="[^"]*">/, `<meta name="twitter:description" content="${safeDescription}">`)
             .replace(/<meta name="twitter:image" content="[^"]*">/, `<meta name="twitter:image" content="${escapedImage}">`)
-            .replace(/<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${escapedUrl}">`);
+            .replace(/<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${escapedUrl}">`)
+            .replace('</head>', `<script type="application/ld+json">${serializeJsonLd(structuredData)}</script>\n</head>`)
+            .replace('<script type="module" src="/js/main.js">', `${fallbackHtml}<script type="module" src="/js/main.js">`);
         return res.type('html').send(rendered);
     };
 
@@ -404,7 +465,8 @@ export function createApp({ pool, config }) {
                 connectSrc: ["'self'", 'https://www.google-analytics.com', 'https://region1.google-analytics.com', 'https://www.googletagmanager.com', 'https://www.facebook.com'],
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
-                frameAncestors: ["'none'"]
+                frameAncestors: ["'none'"],
+                upgradeInsecureRequests: config.nodeEnv === 'production' ? [] : null
             }
         },
         hsts: {
@@ -415,6 +477,15 @@ export function createApp({ pool, config }) {
         noSniff: true,
         crossOriginResourcePolicy: { policy: 'same-origin' }
     }));
+    app.use((req, res, next) => {
+        const requestHosts = [req.get('x-forwarded-host'), req.get('host')]
+            .filter(Boolean)
+            .map((host) => host.split(',')[0].trim().replace(/:\d+$/, '').toLowerCase());
+        if (canonicalHostname && requestHosts.includes(`www.${canonicalHostname}`)) {
+            return res.redirect(301, new URL(req.originalUrl, config.siteUrl).toString());
+        }
+        return next();
+    });
     app.use('/api/v1/customer/order-lookup', (_req, res, next) => {
         res.set('Cache-Control', 'no-store');
         next();
@@ -424,38 +495,120 @@ export function createApp({ pool, config }) {
     app.get('/', async (req, res, next) => {
         try {
             const slug = typeof req.query.shop === 'string' ? req.query.shop : 'main';
-            const { rows } = await pool.query('SELECT status FROM shops WHERE slug = $1', [slug]);
+            const { rows } = await pool.query('SELECT id, slug, name, status FROM shops WHERE slug = $1', [slug]);
             if (rows[0]?.status !== 'active') return res.status(404).sendFile(join(root, '404.html'));
-            return await sendStorefrontShell(req, res, `${slug} | Shopademia`, 'Discover products, deals, and independent shops on Shopademia. Submit an order request directly to a shop.');
+            return await sendStorefrontShell(
+                req,
+                res,
+                `Shop products and deals | ${rows[0].name} | Shopademia`,
+                `Browse products and current offers from ${rows[0].name}. Send an order request to the shop on Shopademia.`
+            );
         } catch (error) {
             return next(error);
         }
     });
     app.get(['/product/:id', '/category/:id', '/shops', '/shops/:slug', '/deals', '/about', '/find-order', '/privacy', '/terms'], async (req, res, next) => {
         try {
-            let title = 'Shopademia | Discover independent shops';
-            let description = 'Explore independent shops, products, and deals on Shopademia.';
+            let title = 'Explore independent shops | Shopademia';
+            let description = 'Explore products, shop profiles, and current deals on Shopademia.';
+            let pageEntities = [];
+            let fallbackHtml = '';
+            const productRoute = req.path.startsWith('/product/');
+            const categoryRoute = req.path.startsWith('/category/');
+            const shopProfileRoute = /^\/shops\/[^/]+$/.test(req.path);
+            const selectedShopRoute = ['/deals', '/about', '/find-order'].includes(req.path);
+            let selectedShop = null;
+            if (productRoute || categoryRoute || shopProfileRoute || selectedShopRoute) {
+                const shopSlug = shopProfileRoute
+                    ? req.params.slug
+                    : (typeof req.query.shop === 'string' ? req.query.shop : 'main');
+                const { rows } = await pool.query(
+                    'SELECT id, slug, name, status FROM shops WHERE slug = $1',
+                    [shopSlug]
+                );
+                selectedShop = rows[0];
+                if (selectedShop?.status !== 'active') return res.status(404).sendFile(join(root, '404.html'));
+            }
             if (req.path.startsWith('/product/')) {
-                const product = getAllProducts().find(({ id }) => String(id) === req.params.id);
-                if (product) title = `${product.name} | Shopademia`;
-                description = product?.description || 'Discover product details and the shop selling this item on Shopademia.';
+                const product = findProductForShop(req.params.id, selectedShop.id);
+                if (!product) return res.status(404).sendFile(join(root, '404.html'));
+                const seoTitle = product.seoTitle?.trim() || product.name;
+                title = `${seoTitle} | ${selectedShop.name} | Shopademia`;
+                description = product.metaDescription?.trim()
+                    || product.description
+                    || `${product.name} from ${selectedShop.name}. View price and availability on Shopademia.`;
+                const image = typeof product.image === 'string' && /^\/uploads\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/i.test(product.image)
+                    ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}">`
+                    : '';
+                const available = product.isAvailable !== false
+                    && !(Number.isSafeInteger(product.stockQuantity) && product.stockQuantity <= 0);
+                fallbackHtml = `<noscript><main><article><h1>${escapeHtml(product.name)}</h1>${image}<p>${escapeHtml(product.description || `Product details for ${product.name}.`)}</p><p>Sold by ${escapeHtml(selectedShop.name)}</p><p>Price: BDT ${Number(product.price).toLocaleString('en-US')}</p><p>${available ? 'Available to order' : 'Currently unavailable'}</p></article></main></noscript>\n`;
+                const origin = siteOrigin(req);
+                const productUrl = `${origin}${req.path}${selectedShop.slug === 'main' ? '' : `?shop=${encodeURIComponent(selectedShop.slug)}`}`;
+                const productSchema = {
+                    '@type': 'Product',
+                    name: product.name,
+                    sku: String(product.id),
+                    url: productUrl,
+                    ...(product.metaDescription || product.description
+                        ? { description: product.metaDescription || product.description }
+                        : {}),
+                    ...(typeof product.image === 'string' && /^\/uploads\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/i.test(product.image)
+                        ? { image: new URL(product.image, origin).href }
+                        : {}),
+                    offers: {
+                        '@type': 'Offer',
+                        url: productUrl,
+                        priceCurrency: 'BDT',
+                        price: String(product.price),
+                        availability: product.isAvailable === false || (Number.isSafeInteger(product.stockQuantity) && product.stockQuantity <= 0)
+                            ? 'https://schema.org/OutOfStock'
+                            : 'https://schema.org/InStock'
+                    }
+                };
+                const category = getCategories(selectedShop.id).find(({ id }) => id === product.category);
+                const categoryName = category?.name || 'Category';
+                const homeUrl = `${origin}/${selectedShop.slug === 'main' ? '' : `?shop=${encodeURIComponent(selectedShop.slug)}`}`;
+                const categoryUrl = `${origin}/category/${encodeURIComponent(product.category)}${selectedShop.slug === 'main' ? '' : `?shop=${encodeURIComponent(selectedShop.slug)}`}`;
+                pageEntities = [
+                    productSchema,
+                    {
+                        '@type': 'BreadcrumbList',
+                        itemListElement: [
+                            { '@type': 'ListItem', position: 1, name: selectedShop.name, item: homeUrl },
+                            { '@type': 'ListItem', position: 2, name: categoryName, item: categoryUrl },
+                            { '@type': 'ListItem', position: 3, name: product.name, item: productUrl }
+                        ]
+                    }
+                ];
             } else if (req.path.startsWith('/category/')) {
-                title = `${req.params.id} | Shopademia`;
-                description = `Browse ${req.params.id} products from independent shops on Shopademia.`;
+                const category = getCategories(selectedShop.id).find(({ id }) => id === req.params.id);
+                if (!category) return res.status(404).sendFile(join(root, '404.html'));
+                title = `${category.name} | ${selectedShop.name} | Shopademia`;
+                description = `Browse ${category.name} products from ${selectedShop.name} on Shopademia.`;
+                fallbackHtml = `<noscript><main><h1>${escapeHtml(category.name)}</h1><p>Browse ${escapeHtml(category.name.toLowerCase())} products from ${escapeHtml(selectedShop.name)} on Shopademia.</p></main></noscript>\n`;
             } else if (req.path === '/shops') {
                 title = 'Explore our shops | Shopademia';
                 description = 'Explore shop profiles, products, storefronts, and current deals on Shopademia.';
-            } else if (req.path.startsWith('/shops/')) {
-                title = `${req.params.slug} shop | Shopademia`;
-                description = `Visit the ${req.params.slug} shop profile and browse its products and offers on Shopademia.`;
+            } else if (shopProfileRoute) {
+                title = `${selectedShop.name} | Shopademia`;
+                description = `Visit ${selectedShop.name} on Shopademia to browse its shop profile, products, and current offers.`;
+                pageEntities.push({
+                    '@type': 'OnlineStore',
+                    '@id': `${siteOrigin(req)}${req.path}#store`,
+                    name: selectedShop.name,
+                    url: `${siteOrigin(req)}${req.path}`,
+                    parentOrganization: { '@id': `${siteOrigin(req)}/#organization` }
+                });
+                fallbackHtml = `<noscript><main><h1>${escapeHtml(selectedShop.name)}</h1><p>Visit ${escapeHtml(selectedShop.name)} on Shopademia to browse its products and current offers.</p></main></noscript>\n`;
             } else if (req.path === '/deals') {
-                title = 'Deals and offers | Shopademia';
-                description = 'Browse current deals, offers, and discounted products from Shopademia shops.';
+                title = `Deals and offers | ${selectedShop.name} | Shopademia`;
+                description = `Browse current offers and discounted products from ${selectedShop.name}.`;
             } else if (req.path === '/about') {
-                title = 'About Shopademia';
+                title = `About ${selectedShop.name} | Shopademia`;
                 description = 'Learn how Shopademia connects customers with independent shops and order requests.';
             } else if (req.path === '/find-order') {
-                title = 'Find my order | Shopademia';
+                title = `Find your order | ${selectedShop.name} | Shopademia`;
                 description = 'Look up your Shopademia order request using your order number and checkout phone number.';
             } else if (req.path === '/privacy') {
                 title = 'Privacy policy | Shopademia';
@@ -464,7 +617,7 @@ export function createApp({ pool, config }) {
                 title = 'Terms & conditions | Shopademia';
                 description = 'Review the terms for browsing Shopademia and submitting order requests to independent shops.';
             }
-            return await sendStorefrontShell(req, res, title, description);
+            return await sendStorefrontShell(req, res, title, description, pageEntities, fallbackHtml);
         } catch (error) {
             return next(error);
         }
@@ -477,7 +630,9 @@ export function createApp({ pool, config }) {
     });
     app.get('/robots.txt', (req, res) => {
         const origin = siteOrigin(req);
-        return res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: ${origin}/sitemap.xml\n`);
+        return res.type('text/plain').send(
+            `User-agent: *\nAllow: /\nAllow: /api/v1/products\nAllow: /api/v1/categories\nAllow: /api/v1/shops\nAllow: /api/v1/shops/\nDisallow: /admin\nDisallow: /api/v1/admin/\nDisallow: /api/v1/customer/\nDisallow: /api/v1/shops/*/push-subscriptions\nSitemap: ${origin}/sitemap.xml\n`
+        );
     });
     app.get('/sitemap.xml', async (req, res, next) => {
         try {
@@ -488,13 +643,14 @@ export function createApp({ pool, config }) {
             const urls = new Set(['/', '/shops', '/deals', '/about', '/find-order', '/privacy', '/terms']);
             for (const slug of shopSlugs) {
                 urls.add(`/shops/${encodeURIComponent(slug)}`);
-                urls.add(`/?shop=${encodeURIComponent(slug)}`);
+                if (slug !== 'main') urls.add(`/?shop=${encodeURIComponent(slug)}`);
             }
             for (const product of getAllProducts()) {
                 const shopSlug = slugByShopId.get(product.shopId);
                 if (!shopSlug) continue;
-                urls.add(`/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(shopSlug)}`);
-                urls.add(`/category/${encodeURIComponent(product.category)}?shop=${encodeURIComponent(shopSlug)}`);
+                const shopQuery = shopSlug === 'main' ? '' : `?shop=${encodeURIComponent(shopSlug)}`;
+                urls.add(`/product/${encodeURIComponent(product.id)}${shopQuery}`);
+                urls.add(`/category/${encodeURIComponent(product.category)}${shopQuery}`);
             }
             const xml = [...urls].map((path) => `  <url><loc>${escapeXml(`${origin}${path}`)}</loc></url>`).join('\n');
             return res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${xml}\n</urlset>\n`);
@@ -586,6 +742,11 @@ export function createApp({ pool, config }) {
                 id: product.id,
                 name: product.name,
                 description: product.description,
+                imageAlt: product.imageAlt || product.name,
+                seoTitle: product.seoTitle || product.name,
+                metaDescription: product.metaDescription || (product.description.length > 160
+                    ? `${product.description.slice(0, 157).trimEnd()}…`
+                    : product.description),
                 price: product.price,
                 oldPrice: product.oldPrice,
                 image: product.image ? new URL(product.image, siteOrigin(req)).href : null,
@@ -688,7 +849,9 @@ export function createApp({ pool, config }) {
     app.get('/api/v1/admin/products', authenticateAdmin, requireShopDashboard, async (req, res, next) => {
         try {
             const { rows } = await pool.query(
-                `SELECT id, name, description, price, old_price AS "oldPrice",
+                `SELECT id, name, description, image_alt AS "imageAlt",
+                        seo_title AS "seoTitle", meta_description AS "metaDescription",
+                        price, old_price AS "oldPrice",
                         category, image, stock_quantity AS "stockQuantity",
                         is_available AS "isAvailable", shop_id AS "shopId",
                         created_at AS "createdAt"
@@ -718,23 +881,27 @@ export function createApp({ pool, config }) {
             const { rows } = await pool.query(
                 `WITH saved AS (
                     INSERT INTO managed_products
-                    (id, name, description, price, old_price, category, image, stock_quantity, is_available, shop_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    (id, name, description, image_alt, seo_title, meta_description,
+                     price, old_price, category, image, stock_quantity, is_available, shop_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     RETURNING *
                  ), logged AS (
                     INSERT INTO shop_activity_logs (shop_id, actor_email, action, entity_type, entity_id, details)
-                    SELECT shop_id, $11, 'product.created', 'product', id,
+                    SELECT shop_id, $14, 'product.created', 'product', id,
                            jsonb_build_object('name', name)
                     FROM saved
                     RETURNING id
                  )
-                 SELECT saved.id, saved.name, saved.description, saved.price,
+                 SELECT saved.id, saved.name, saved.description,
+                        saved.image_alt AS "imageAlt", saved.seo_title AS "seoTitle",
+                        saved.meta_description AS "metaDescription", saved.price,
                         saved.old_price AS "oldPrice", saved.category, saved.image,
                         saved.stock_quantity AS "stockQuantity",
                         saved.is_available AS "isAvailable", saved.shop_id AS "shopId",
                         saved.created_at AS "createdAt"
                  FROM saved CROSS JOIN logged`,
-                [record.id, record.name, record.description, record.price, record.oldPrice, record.category,
+                [record.id, record.name, record.description, record.imageAlt, record.seoTitle,
+                    record.metaDescription, record.price, record.oldPrice, record.category,
                     record.image, record.stockQuantity, record.isAvailable, record.shopId, req.admin.sub]
             );
             const saved = rows[0];
@@ -767,9 +934,12 @@ export function createApp({ pool, config }) {
                      UPDATE managed_products
                      SET name = $1, description = $2, price = $3, old_price = $4,
                          category = $5, stock_quantity = $7, is_available = $8,
-                         image = COALESCE($9, image)
+                         image = COALESCE($9, image), image_alt = $12,
+                         seo_title = $13, meta_description = $14
                      WHERE id = $6 AND shop_id = $10
-                     RETURNING id, name, description, price, old_price AS "oldPrice",
+                     RETURNING id, name, description, image_alt AS "imageAlt",
+                               seo_title AS "seoTitle", meta_description AS "metaDescription",
+                               price, old_price AS "oldPrice",
                                category, image, stock_quantity AS "stockQuantity",
                                is_available AS "isAvailable", shop_id AS "shopId",
                                created_at AS "createdAt"
@@ -785,7 +955,8 @@ export function createApp({ pool, config }) {
                  SELECT updated.*, previous.image AS "previousImage"
                  FROM updated CROSS JOIN previous CROSS JOIN logged`,
                 [product.name, product.description, product.price, product.oldPrice, product.category, id,
-                    product.stockQuantity, product.isAvailable, imageUrl, req.shopId, req.admin.sub]
+                    product.stockQuantity, product.isAvailable, imageUrl, req.shopId, req.admin.sub,
+                    product.imageAlt, product.seoTitle, product.metaDescription]
             );
             const saved = rows[0];
             if (!saved) throw new ProductNotFoundError();

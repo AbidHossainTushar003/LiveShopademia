@@ -19,7 +19,7 @@ export class HeroView {
         homeVM.heroOffer.subscribe((p) => {
             if (!p) return;
             this.#renderOffer(card, p);
-            image.alt = p.name;
+            image.alt = p.imageAlt || p.name;
             if (isSafeProductImage(p.image)) {
                 image.src = p.image;
                 image.classList.remove('hidden');

@@ -47,7 +47,7 @@ export class NewArrivalsView {
                     <i class="${isWished ? 'fa-solid' : 'fa-regular'} fa-heart text-sm"></i>
                 </button>
                 <a href="/product/${encodeURIComponent(p.id)}?shop=${encodeURIComponent(this.shopSlug)}" aria-label="View details for ${escapeHtml(p.name)}" class="w-14 h-14 rounded-xl bg-${/^[a-z]+$/.test(p.tint) ? p.tint : 'slate'}-50 flex items-center justify-center text-${/^[a-z]+$/.test(p.tint) ? p.tint : 'slate'}-600 shrink-0 group-hover:scale-105 transition-transform overflow-hidden focus-visible:outline-2 focus-visible:outline-blue-600">
-                    ${imageUrl ? `<img data-product-image src="${escapeHtml(imageUrl)}" alt="${escapeHtml(p.name)}" loading="lazy" class="h-full w-full object-contain">` : ''}
+                    ${imageUrl ? `<img data-product-image src="${escapeHtml(imageUrl)}" alt="${escapeHtml(p.imageAlt || p.name)}" loading="lazy" class="h-full w-full object-contain">` : ''}
                     <i aria-hidden="true" class="fa-solid ${/^[a-z0-9-]+$/.test(p.icon) ? p.icon : 'fa-box'} ${imageUrl ? 'hidden' : ''} text-xl"></i>
                 </a>
                 <div class="overflow-hidden flex-1 self-stretch pt-7">

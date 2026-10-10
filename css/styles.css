@@ -133,6 +133,10 @@ body { background-color:#ebf3fa; color:#1e293b; overflow-x:hidden; font-family:'
 .route-about-grid h2 { color:#0f172a; font-size:1.05rem; font-weight:850; }
 .route-about-grid p { color:#64748b; font-size:.9rem; line-height:1.7; }
 .route-about-icon { display:grid; width:2.75rem; height:2.75rem; place-items:center; border-radius:.9rem; color:#2563eb; background:#dbeafe; }
+.route-faq details { margin-top:.75rem; border:1px solid #e2e8f0; border-radius:1rem; padding:1rem 1.2rem; background:rgba(255,255,255,.9); }
+.route-faq summary { color:#0f172a; font-weight:800; cursor:pointer; }
+.route-faq details p { margin:.7rem 0 0; color:#475569; font-size:.92rem; line-height:1.7; }
+.route-faq details a { color:#1d4ed8; font-weight:750; }
 .route-error { margin:3rem auto; max-width:40rem; border:1px solid #fecaca; border-radius:1.5rem; padding:2rem; background:rgba(255,255,255,.9); text-align:center; }
 .route-error[role="alert"] { border-color:#fde68a; }
 .customer-profile-standalone { width:100%; max-height:none; overflow:visible; padding:1.5rem; border:1px solid #e2e8f0; border-radius:1.25rem; background:#fff; box-shadow:0 12px 35px rgba(30,64,175,.06); }

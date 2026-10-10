@@ -15,8 +15,11 @@ test('homepage loads catalog and essential-only consent remains changeable', asy
 
     const response = await page.goto(storefrontPath);
     expect(response?.status()).toBe(200);
+    await expect(page).toHaveTitle('Shop products and deals | Main Shop | Shopademia');
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'http://localhost:3000/');
     await expect(page.getByRole('heading', { name: 'Shop Products' })).toBeVisible();
     await expect(page.locator('#productResultsStatus')).toContainText('Showing');
+    await expect(page.locator('#featuredProductGrid .fa-star')).toHaveCount(0);
     await page.getByRole('button', { name: 'Essential only' }).click();
     await expect(page.getByRole('button', { name: 'Essential only' })).toBeHidden();
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('shopademia.privacyConsent.v1'))))
@@ -85,6 +88,11 @@ test('public routes, product details, error page, and mobile layout work', async
         expect(response?.status(), path).toBe(200);
         await expect(page.getByRole('heading', { name: new RegExp(heading, 'i') }).first()).toBeVisible();
     }
+    await page.goto('/about?shop=main');
+    await expect(page.getByRole('heading', { name: 'Frequently asked questions' })).toBeVisible();
+    await expect(page.getByText('Is my order confirmed when I submit it?')).toBeVisible();
+    await page.locator('.route-faq details').nth(2).locator('summary').click();
+    await expect(page.locator('.route-faq a')).toHaveAttribute('href', '/find-order?shop=main');
 
     const lookupRequests = [];
     page.on('request', (request) => {
@@ -101,6 +109,18 @@ test('public routes, product details, error page, and mobile layout work', async
     const productResponse = await page.goto(`/product/${encodeURIComponent(product.id)}?shop=main`);
     expect(productResponse?.status()).toBe(200);
     await expect(page.getByRole('heading', { name: product.name, exact: true })).toBeVisible();
+    await expect(page).toHaveTitle(`${product.name} | Main Shop | Shopademia`);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', new RegExp(`/product/${encodeURIComponent(product.id)}$`));
+    const structuredData = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
+    expect(structuredData['@graph'].some(({ '@type': type }) => type === 'Product')).toBe(true);
+    expect(structuredData['@graph'].some(({ '@type': type }) => type === 'BreadcrumbList')).toBe(true);
+    expect(structuredData['@graph'].some(({ '@type': type }) => type === 'WebSite')).toBe(true);
+    expect(structuredData['@graph'].some(({ aggregateRating }) => aggregateRating)).toBe(false);
+    const productDescription = product.description?.trim().replace(/\s+/g, ' ');
+    const expectedMetaDescription = productDescription
+        ? (productDescription.length > 160 ? `${productDescription.slice(0, 157).trimEnd()}…` : productDescription)
+        : `Explore ${product.name} from Main Shop on Shopademia.`;
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', expectedMetaDescription);
 
     const missingResponse = await page.goto('/a-page-that-does-not-exist');
     expect(missingResponse?.status()).toBe(404);

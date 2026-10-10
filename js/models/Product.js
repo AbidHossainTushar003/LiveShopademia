@@ -2,11 +2,12 @@ export class Product {
     constructor({
         id, name, description = '', price, oldPrice = null, rating = 0, reviews = '0',
         icon = 'fa-box', tint = 'blue', category = 'more', image = '',
-        stockQuantity = null, isAvailable = true
+        stockQuantity = null, isAvailable = true, imageAlt = '', seoTitle = '', metaDescription = ''
     }) {
         Object.assign(this, {
             id, name, description, price, oldPrice, rating, reviews, icon, tint, category, image,
-            stockQuantity, isAvailable
+            stockQuantity, isAvailable, imageAlt: imageAlt || name,
+            seoTitle: seoTitle || name, metaDescription
         });
     }
     get hasDiscount() { return this.oldPrice != null && this.oldPrice > this.price; }
