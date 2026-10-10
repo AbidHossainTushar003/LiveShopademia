@@ -1,5 +1,5 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { mkdir, open, unlink } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -10,15 +10,28 @@ import multer from 'multer';
 import { hashAdminPassword, verifyAdminPassword } from './adminPassword.js';
 import {
     addManagedProduct,
+    DEFAULT_SHOP_ID,
     getCategories,
     getFeaturedProducts,
+    getAllProducts,
     getHeroProduct,
+    getHeroProductForShop,
     getNewArrivals,
+    getProductsForShop,
+    getUploadedProductsForShop,
     removeManagedProduct,
     updateManagedStock,
     updateManagedProduct
 } from './catalog.js';
-import { fingerprintOrder, normalizePhone, ORDER_STATUSES, OrderInputError, validateAndPriceOrder } from './orders.js';
+import {
+    canTransitionOrderStatus,
+    fingerprintOrder,
+    normalizePhone,
+    ORDER_STATUSES,
+    OrderInputError,
+    validateAndPriceOrder
+} from './orders.js';
+import { registerPlatformRoutes } from './platform.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const PRODUCT_CATEGORIES = new Set(['gadgets', 'accessories', 'clothing', 'more']);
@@ -27,6 +40,18 @@ const IMAGE_TYPES = new Map([
     ['image/png', { extension: '.png', signature: (bytes) => bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) }],
     ['image/webp', { extension: '.webp', signature: (bytes) => bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP' }]
 ]);
+
+function escapeXml(value) {
+    return String(value).replace(/[<>&'"]/g, (character) => ({
+        '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;'
+    })[character]);
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[character]);
+}
 
 class ProductInputError extends Error {
     constructor(message) {
@@ -59,7 +84,7 @@ function productUpload(uploadDirectory) {
                 callback(null, `${randomUUID()}${IMAGE_TYPES.get(file.mimetype).extension}`);
             }
         }),
-        limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 7, fieldSize: 4096, parts: 8 },
+        limits: { fileSize: 5 * 1024 * 1024, files: 2, fields: 7, fieldSize: 4096, parts: 10 },
         fileFilter(_req, file, callback) {
             if (!IMAGE_TYPES.has(file.mimetype)) return callback(new ProductInputError('Upload a JPEG, PNG, or WebP product image.'));
             callback(null, true);
@@ -90,6 +115,27 @@ function validateManagedProduct(body, image, { requireImage = true } = {}) {
     if (!PRODUCT_CATEGORIES.has(category)) throw new ProductInputError('Choose a valid product category.');
     if (requireImage && !image) throw new ProductInputError('Choose a product image to upload.');
     return { name, description, category, price, oldPrice, stockQuantity, isAvailable };
+}
+
+function isUuid(value) {
+    return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function revokeAdminSessions(pool, userId, shopId = null) {
+    if (typeof userId === 'string') {
+        if (shopId) {
+            await pool.query(
+                'UPDATE admin_sessions SET revoked_at = NOW() WHERE user_id = $1 AND shop_id = $2 AND revoked_at IS NULL',
+                [userId, shopId]
+            );
+            return;
+        }
+        await pool.query(
+            'UPDATE admin_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL',
+            [userId]
+        );
+        return;
+    }
 }
 
 function isManagedProductId(id) {
@@ -194,13 +240,6 @@ function removeUploadedFile(filePath) {
     });
 }
 
-function equalSecret(received, expected) {
-    const receivedBuffer = createHash('sha256').update(String(received)).digest();
-    const expectedBuffer = createHash('sha256').update(String(expected)).digest();
-    if (receivedBuffer.length !== expectedBuffer.length) return false;
-    return timingSafeEqual(receivedBuffer, expectedBuffer);
-}
-
 function adminAuth(pool, secret) {
     return (req, res, next) => {
         res.set('Cache-Control', 'no-store');
@@ -216,17 +255,47 @@ function adminAuth(pool, secret) {
             || !Number.isSafeInteger(req.admin.sessionVersion)) {
             return res.status(401).json({ error: 'Your admin session expired. Sign in again.' });
         }
+        const requestedShopId = req.get('x-shop-id');
+        if (requestedShopId != null && !isUuid(requestedShopId)) {
+            return res.status(400).json({ error: 'The selected shop ID is invalid.' });
+        }
+        if (typeof req.admin.userId !== 'string') {
+            return res.status(401).json({ error: 'Your admin session expired. Sign in again.' });
+        }
+        const isPlatformToken = req.admin.isPlatformAdmin === true;
+        const resolvedShopId = requestedShopId ?? req.admin.shopId ?? null;
+        if (resolvedShopId !== null && !isUuid(resolvedShopId)) {
+            return res.status(400).json({ error: 'The selected shop ID is invalid.' });
+        }
         pool.query(
-            `SELECT c.email, c.session_version
-             FROM admin_credentials c
-             JOIN admin_sessions s ON s.token_id = $1
-             WHERE c.id = TRUE AND s.revoked_at IS NULL AND s.expires_at > NOW()`,
-            [req.admin.jti]
+            `SELECT u.email, u.session_version AS "sessionVersion",
+                    (pa.user_id IS NOT NULL) AS "isPlatformAdmin",
+                    m.shop_id AS "shopId", m.role, sh.status
+             FROM admin_users u
+             JOIN admin_sessions s ON s.user_id = u.id
+             LEFT JOIN platform_admins pa ON pa.user_id = u.id
+             LEFT JOIN shop_memberships m ON m.user_id = u.id AND m.shop_id = $4
+             LEFT JOIN shops sh ON sh.id = $4
+             WHERE s.token_id = $1 AND s.revoked_at IS NULL AND s.expires_at > NOW()
+               AND u.id = $2 AND u.email = $3
+               AND s.shop_id IS NOT DISTINCT FROM $5
+               AND ((pa.user_id IS NOT NULL AND $6::boolean)
+                    OR (pa.user_id IS NULL AND m.shop_id IS NOT NULL))`,
+            [req.admin.jti, req.admin.userId, req.admin.sub, resolvedShopId, req.admin.shopId ?? null, isPlatformToken]
         ).then(({ rows }) => {
             const account = rows[0];
-            if (!account || req.admin.sub !== account.email || req.admin.sessionVersion !== Number(account.session_version)) {
-                return res.status(401).json({ error: 'Your admin session expired. Sign in again.' });
+            if (!account || req.admin.sessionVersion !== Number(account.sessionVersion)) {
+                return res.status(401).json({ error: 'Your admin session expired or shop access was removed.' });
             }
+            req.isPlatformAdmin = account.isPlatformAdmin;
+            if (!req.isPlatformAdmin && account.status !== 'active') {
+                return res.status(403).json({ error: 'This shop is suspended or archived. Contact the platform administrator.' });
+            }
+            if (resolvedShopId && !account.status) {
+                return res.status(404).json({ error: 'Shop not found.' });
+            }
+            req.shopId = account.shopId ?? (req.isPlatformAdmin ? resolvedShopId : undefined);
+            req.shopRole = account.role;
             return next();
         }).catch(next);
     };
@@ -235,6 +304,18 @@ function adminAuth(pool, secret) {
 export function createApp({ pool, config }) {
     const app = express();
     const authenticateAdmin = adminAuth(pool, config.jwtSecret);
+    const requireShopManager = (req, res, next) => {
+        if (req.isPlatformAdmin || !['owner', 'admin'].includes(req.shopRole)) {
+            return res.status(403).json({ error: 'Shop owner or admin permission is required.' });
+        }
+        return next();
+    };
+    const requireShopDashboard = (req, res, next) => {
+        if (req.isPlatformAdmin || !req.shopId) {
+            return res.status(403).json({ error: 'The platform administrator cannot access shop products or orders.' });
+        }
+        return next();
+    };
     const uploadsDirectory = config.uploadsDir ?? join(root, 'uploads');
     const uploadProductImage = productUpload(uploadsDirectory);
     const loginLimit = rateLimit({
@@ -265,6 +346,13 @@ export function createApp({ pool, config }) {
         legacyHeaders: false,
         message: { error: 'Too many product uploads. Please try again later.' }
     });
+    const publicCatalogLimit = rateLimit({
+        windowMs: 60 * 1000,
+        limit: 120,
+        standardHeaders: 'draft-7',
+        legacyHeaders: false,
+        message: { error: 'Too many catalog requests. Please try again shortly.' }
+    });
     const passwordChangeLimit = rateLimit({
         windowMs: 15 * 60 * 1000,
         limit: 5,
@@ -272,6 +360,29 @@ export function createApp({ pool, config }) {
         legacyHeaders: false,
         message: { error: 'Too many password changes. Try again later.' }
     });
+    const siteOrigin = (req) => config.siteUrl || `${req.protocol}://${req.get('host')}`;
+    const sendStorefrontShell = async (req, res, title, description) => {
+        const html = await readFile(join(root, 'index.html'), 'utf8');
+        const origin = siteOrigin(req);
+        const url = new URL(req.originalUrl, origin);
+        const includeShop = ['/','/product/','/category/','/deals','/about','/find-order'].some((path) => path === '/' ? url.pathname === '/' : url.pathname.startsWith(path));
+        const shop = includeShop ? url.searchParams.get('shop') : null;
+        const canonicalUrl = `${origin}${url.pathname}${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`;
+        const safeTitle = escapeHtml(title);
+        const safeDescription = escapeHtml(description);
+        const escapedUrl = escapeHtml(canonicalUrl);
+        const escapedImage = escapeHtml(`${origin}/public-assets/social-preview.png`);
+        const rendered = html
+            .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
+            .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${safeDescription}">`)
+            .replace(/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${safeTitle}">`)
+            .replace(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${safeDescription}">`)
+            .replace(/<meta property="og:image" content="[^"]*">/, `<meta property="og:image" content="${escapedImage}">`)
+            .replace(/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${escapedUrl}">`)
+            .replace(/<meta name="twitter:image" content="[^"]*">/, `<meta name="twitter:image" content="${escapedImage}">`)
+            .replace(/<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${escapedUrl}">`);
+        return res.type('html').send(rendered);
+    };
 
     app.disable('x-powered-by');
     app.set('trust proxy', config.trustProxyHops ?? 0);
@@ -289,7 +400,7 @@ export function createApp({ pool, config }) {
                 scriptSrc: ["'self'", 'https://www.googletagmanager.com', 'https://connect.facebook.net'],
                 styleSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 fontSrc: ["'self'", 'data:', 'https://cdnjs.cloudflare.com', 'https://fonts.gstatic.com'],
-                imgSrc: ["'self'", 'data:', 'blob:', 'https://fakestoreapi.com', 'https://www.facebook.com'],
+                imgSrc: ["'self'", 'data:', 'blob:', 'https://www.facebook.com'],
                 connectSrc: ["'self'", 'https://www.google-analytics.com', 'https://region1.google-analytics.com', 'https://www.googletagmanager.com', 'https://www.facebook.com'],
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
@@ -310,12 +421,93 @@ export function createApp({ pool, config }) {
     });
     app.use(express.json({ limit: '32kb', strict: true, type: 'application/json' }));
 
-    app.get('/', (_req, res) => res.sendFile(join(root, 'index.html')));
+    app.get('/', async (req, res, next) => {
+        try {
+            const slug = typeof req.query.shop === 'string' ? req.query.shop : 'main';
+            const { rows } = await pool.query('SELECT status FROM shops WHERE slug = $1', [slug]);
+            if (rows[0]?.status !== 'active') return res.status(404).sendFile(join(root, '404.html'));
+            return await sendStorefrontShell(req, res, `${slug} | Shopademia`, 'Discover products, deals, and independent shops on Shopademia. Submit an order request directly to a shop.');
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get(['/product/:id', '/category/:id', '/shops', '/shops/:slug', '/deals', '/about', '/find-order', '/privacy', '/terms'], async (req, res, next) => {
+        try {
+            let title = 'Shopademia | Discover independent shops';
+            let description = 'Explore independent shops, products, and deals on Shopademia.';
+            if (req.path.startsWith('/product/')) {
+                const product = getAllProducts().find(({ id }) => String(id) === req.params.id);
+                if (product) title = `${product.name} | Shopademia`;
+                description = product?.description || 'Discover product details and the shop selling this item on Shopademia.';
+            } else if (req.path.startsWith('/category/')) {
+                title = `${req.params.id} | Shopademia`;
+                description = `Browse ${req.params.id} products from independent shops on Shopademia.`;
+            } else if (req.path === '/shops') {
+                title = 'Explore our shops | Shopademia';
+                description = 'Explore shop profiles, products, storefronts, and current deals on Shopademia.';
+            } else if (req.path.startsWith('/shops/')) {
+                title = `${req.params.slug} shop | Shopademia`;
+                description = `Visit the ${req.params.slug} shop profile and browse its products and offers on Shopademia.`;
+            } else if (req.path === '/deals') {
+                title = 'Deals and offers | Shopademia';
+                description = 'Browse current deals, offers, and discounted products from Shopademia shops.';
+            } else if (req.path === '/about') {
+                title = 'About Shopademia';
+                description = 'Learn how Shopademia connects customers with independent shops and order requests.';
+            } else if (req.path === '/find-order') {
+                title = 'Find my order | Shopademia';
+                description = 'Look up your Shopademia order request using your order number and checkout phone number.';
+            } else if (req.path === '/privacy') {
+                title = 'Privacy policy | Shopademia';
+                description = 'Learn what information Shopademia processes and how browser storage and optional analytics work.';
+            } else if (req.path === '/terms') {
+                title = 'Terms & conditions | Shopademia';
+                description = 'Review the terms for browsing Shopademia and submitting order requests to independent shops.';
+            }
+            return await sendStorefrontShell(req, res, title, description);
+        } catch (error) {
+            return next(error);
+        }
+    });
     app.get('/admin', (_req, res) => res.sendFile(join(root, 'admin.html')));
+    app.get('/admin/platform', (_req, res) => res.sendFile(join(root, 'admin-platform.html')));
+    app.get('/service-worker.js', (_req, res) => {
+        res.set('Cache-Control', 'no-cache');
+        return res.sendFile(join(root, 'service-worker.js'));
+    });
+    app.get('/robots.txt', (req, res) => {
+        const origin = siteOrigin(req);
+        return res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: ${origin}/sitemap.xml\n`);
+    });
+    app.get('/sitemap.xml', async (req, res, next) => {
+        try {
+            const origin = siteOrigin(req);
+            const { rows } = await pool.query("SELECT id, slug FROM shops WHERE status = 'active'");
+            const slugByShopId = new Map(rows.map(({ id, slug }) => [id, slug]));
+            const shopSlugs = rows.map(({ slug }) => slug);
+            const urls = new Set(['/', '/shops', '/deals', '/about', '/find-order', '/privacy', '/terms']);
+            for (const slug of shopSlugs) {
+                urls.add(`/shops/${encodeURIComponent(slug)}`);
+                urls.add(`/?shop=${encodeURIComponent(slug)}`);
+            }
+            for (const product of getAllProducts()) {
+                const shopSlug = slugByShopId.get(product.shopId);
+                if (!shopSlug) continue;
+                urls.add(`/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(shopSlug)}`);
+                urls.add(`/category/${encodeURIComponent(product.category)}?shop=${encodeURIComponent(shopSlug)}`);
+            }
+            const xml = [...urls].map((path) => `  <url><loc>${escapeXml(`${origin}${path}`)}</loc></url>`).join('\n');
+            return res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${xml}\n</urlset>\n`);
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/404', (_req, res) => res.status(404).sendFile(join(root, '404.html')));
     app.get('/admin/', (_req, res) => res.redirect(308, '/admin'));
     app.use('/css', express.static(join(root, 'css'), { index: false, fallthrough: false, maxAge: 0 }));
     app.use('/js', express.static(join(root, 'js'), { index: false, fallthrough: false, maxAge: 0 }));
     app.use('/admin-assets', express.static(join(root, 'admin-assets'), { index: false, fallthrough: false, maxAge: 0 }));
+    app.use('/public-assets', express.static(join(root, 'public-assets'), { index: false, fallthrough: false, maxAge: '1d' }));
     app.use('/uploads', express.static(uploadsDirectory, {
         index: false,
         fallthrough: false,
@@ -323,38 +515,194 @@ export function createApp({ pool, config }) {
         maxAge: '1y'
     }));
 
-    app.get('/api/v1/products', (req, res) => {
-        if (req.query.featured === 'true') return res.json({ data: getFeaturedProducts() });
-        if (req.query.sort === 'newest') {
-            const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 5, 1), 50);
-            return res.json({ data: getNewArrivals().slice(0, limit) });
+    app.get('/api/v1/products', async (req, res, next) => {
+        try {
+            const { rows } = await pool.query("SELECT id FROM shops WHERE status = 'active'");
+            const activeShopIds = new Set(rows.map(({ id }) => id));
+            const allProducts = [...getFeaturedProducts(), ...getNewArrivals()]
+                .map((product) => ({ ...product, shopId: product.shopId ?? DEFAULT_SHOP_ID }))
+                .filter((product) => activeShopIds.has(product.shopId));
+            if (req.query.featured === 'true') {
+                return res.json({ data: allProducts.slice(0, Math.ceil(allProducts.length / 2)) });
+            }
+            if (req.query.sort === 'newest') {
+                const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 5, 1), 50);
+                return res.json({ data: allProducts.slice(-limit).reverse() });
+            }
+            return res.json({ data: allProducts });
+        } catch (error) {
+            return next(error);
         }
-        return res.json({ data: [...getFeaturedProducts(), ...getNewArrivals()] });
     });
-    app.get('/api/v1/categories', (_req, res) => res.json({ data: getCategories() }));
-    app.get('/api/v1/storefront-config', (_req, res) => {
-        res.set('Cache-Control', 'no-store');
-        return res.json({
-            delivery: { advanceCharge: config.advanceCharge },
-            demo: { usdToBdt: config.demoUsdToBdt ?? 120 }
-        });
-    });
-    app.get('/api/v1/products/hero-offer', (_req, res) => res.json({ data: getHeroProduct() }));
-    app.get('/api/v1/admin/products', authenticateAdmin, async (_req, res, next) => {
+    app.get('/api/v1/shops/:slug/products', async (req, res, next) => {
         try {
             const { rows } = await pool.query(
-                `SELECT id, name, description, price, old_price AS "oldPrice",
-                        category, image, stock_quantity AS "stockQuantity",
-                        is_available AS "isAvailable", created_at AS "createdAt"
-                 FROM managed_products
-                 ORDER BY created_at DESC, id DESC`
+                `SELECT id, slug, name FROM shops WHERE slug = $1 AND status = 'active'`,
+                [req.params.slug]
+            );
+            const shop = rows[0];
+            if (!shop) return res.status(404).json({ error: 'Shop not found.' });
+            const data = getProductsForShop(shop.id);
+            if (req.query.featured === 'true') {
+                return res.json({ data: data.slice(0, Math.ceil(data.length / 2)), shop: { id: shop.id, slug: shop.slug, name: shop.name } });
+            }
+            if (req.query.sort === 'newest') {
+                const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 5, 1), 50);
+                return res.json({ data: data.slice(-limit).reverse(), shop: { id: shop.id, slug: shop.slug, name: shop.name } });
+            }
+            return res.json({ data, shop: { id: shop.id, slug: shop.slug, name: shop.name } });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/api/v1/public/shops/:slug/products', publicCatalogLimit, async (req, res, next) => {
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.set('Cache-Control', 'public, max-age=30');
+        try {
+            const limitValue = req.query.limit === undefined ? '50' : req.query.limit;
+            const offsetValue = req.query.offset === undefined ? '0' : req.query.offset;
+            if (typeof limitValue !== 'string' || !/^[1-9]\d{0,2}$/.test(limitValue) || Number(limitValue) > 100) {
+                return res.status(400).json({ error: 'Limit must be a whole number from 1 to 100.' });
+            }
+            if (typeof offsetValue !== 'string' || !/^(0|[1-9]\d{0,7})$/.test(offsetValue)) {
+                return res.status(400).json({ error: 'Offset must be a non-negative whole number.' });
+            }
+            const category = req.query.category;
+            if (category !== undefined && (typeof category !== 'string' || !PRODUCT_CATEGORIES.has(category))) {
+                return res.status(400).json({ error: 'Choose a valid product category.' });
+            }
+            const { rows } = await pool.query(
+                `SELECT id, slug, name FROM shops WHERE slug = $1 AND status = 'active'`,
+                [req.params.slug]
+            );
+            const shop = rows[0];
+            if (!shop) return res.status(404).json({ error: 'Shop not found.' });
+            const offset = Number(offsetValue);
+            const limit = Number(limitValue);
+            const products = getUploadedProductsForShop(shop.id)
+                .filter((product) => category === undefined || product.category === category);
+            const data = products.slice(offset, offset + limit).map((product) => ({
+                id: product.id,
+                name: product.name,
+                description: product.description,
+                price: product.price,
+                oldPrice: product.oldPrice,
+                image: product.image ? new URL(product.image, siteOrigin(req)).href : null,
+                category: product.category,
+                stockQuantity: product.stockQuantity,
+                isAvailable: product.isAvailable,
+                isAvailableForPurchase: product.isAvailable && product.stockQuantity > 0
+            }));
+            return res.json({
+                shop: { slug: shop.slug, name: shop.name },
+                data,
+                pagination: { total: products.length, limit, offset, hasMore: offset + data.length < products.length }
+            });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/api/v1/shops/:slug/categories', async (req, res, next) => {
+        try {
+            const shop = await pool.query("SELECT id FROM shops WHERE slug = $1 AND status = 'active'", [req.params.slug]);
+            if (!shop.rows[0]) return res.status(404).json({ error: 'Shop not found.' });
+            return res.json({ data: getCategories(shop.rows[0].id) });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/api/v1/shops/:slug/products/hero-offer', async (req, res, next) => {
+        try {
+            const shop = await pool.query("SELECT id FROM shops WHERE slug = $1 AND status = 'active'", [req.params.slug]);
+            if (!shop.rows[0]) return res.status(404).json({ error: 'Shop not found.' });
+            return res.json({ data: getHeroProductForShop(shop.rows[0].id) });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/api/v1/shops/:slug', async (req, res, next) => {
+        try {
+            const { rows } = await pool.query(
+                `SELECT id, slug, name, hero_image AS "heroImage", banner_image AS "bannerImage",
+                        advance_charge AS "advanceCharge"
+                 FROM shops WHERE slug = $1 AND status = 'active'`,
+                [req.params.slug]
+            );
+            if (!rows[0]) return res.status(404).json({ error: 'Shop not found.' });
+            return res.json({ data: rows[0] });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/api/v1/shops', async (_req, res, next) => {
+        try {
+            const { rows } = await pool.query(
+                `SELECT slug, name, hero_image AS "heroImage", banner_image AS "bannerImage"
+                 FROM shops WHERE status = 'active' ORDER BY name, slug`
             );
             return res.json({ data: rows });
         } catch (error) {
             return next(error);
         }
     });
-    app.post('/api/v1/admin/products', authenticateAdmin, productUploadLimit, uploadProductImage.single('image'), async (req, res, next) => {
+    app.get('/api/v1/categories', (_req, res) => res.json({ data: getCategories() }));
+    app.get('/api/v1/storefront-config', async (_req, res, next) => {
+        res.set('Cache-Control', 'no-store');
+        try {
+            const { rows } = await pool.query(
+                `SELECT id AS "shopId", advance_charge AS "advanceCharge"
+                 FROM shops WHERE slug = 'main' AND status = 'active'`
+            );
+            if (!rows[0]) return res.status(404).json({ error: 'Shop not found or unavailable.' });
+            return res.json({ shop: rows[0], delivery: { advanceCharge: Number(rows[0].advanceCharge) } });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/api/v1/shops/:slug/config', async (req, res, next) => {
+        res.set('Cache-Control', 'no-store');
+        try {
+            const { rows } = await pool.query(
+                `SELECT id AS "shopId", slug, name, hero_image AS "heroImage",
+                        banner_image AS "bannerImage", advance_charge AS "advanceCharge"
+                 FROM shops WHERE slug = $1 AND status = 'active'`,
+                [req.params.slug]
+            );
+            if (!rows[0]) return res.status(404).json({ error: 'Shop not found.' });
+            const { rows: heroSlides } = await pool.query(
+                `SELECT id, position, image, mobile_image AS "mobileImage", headline, body_text AS "bodyText",
+                        button_text AS "buttonText", target_url AS "targetUrl"
+                 FROM shop_hero_slides WHERE shop_id = $1 ORDER BY position`,
+                [rows[0].shopId]
+            );
+            return res.json({
+                data: { ...rows[0], heroSlides },
+                delivery: { advanceCharge: Number(rows[0].advanceCharge) }
+            });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.get('/api/v1/products/hero-offer', (_req, res) => res.json({ data: getHeroProduct() }));
+    app.get('/api/v1/admin/products', authenticateAdmin, requireShopDashboard, async (req, res, next) => {
+        try {
+            const { rows } = await pool.query(
+                `SELECT id, name, description, price, old_price AS "oldPrice",
+                        category, image, stock_quantity AS "stockQuantity",
+                        is_available AS "isAvailable", shop_id AS "shopId",
+                        created_at AS "createdAt"
+                 FROM managed_products
+                 WHERE shop_id = $1
+                 ORDER BY created_at DESC, id DESC`
+                , [req.shopId]
+            );
+            return res.json({ data: rows });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.post('/api/v1/admin/products', authenticateAdmin, requireShopManager, productUploadLimit, uploadProductImage.single('image'), async (req, res, next) => {
         const imageFile = req.file;
         try {
             const product = validateManagedProduct(req.body, imageFile);
@@ -363,18 +711,31 @@ export function createApp({ pool, config }) {
             }
             const record = {
                 id: `admin-${randomUUID()}`,
+                shopId: req.shopId,
                 ...product,
                 image: `/uploads/${imageFile.filename}`
             };
             const { rows } = await pool.query(
-                `INSERT INTO managed_products
-                    (id, name, description, price, old_price, category, image, stock_quantity, is_available)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                 RETURNING id, name, description, price, old_price AS "oldPrice",
-                           category, image, stock_quantity AS "stockQuantity",
-                           is_available AS "isAvailable", created_at AS "createdAt"`,
+                `WITH saved AS (
+                    INSERT INTO managed_products
+                    (id, name, description, price, old_price, category, image, stock_quantity, is_available, shop_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    RETURNING *
+                 ), logged AS (
+                    INSERT INTO shop_activity_logs (shop_id, actor_email, action, entity_type, entity_id, details)
+                    SELECT shop_id, $11, 'product.created', 'product', id,
+                           jsonb_build_object('name', name)
+                    FROM saved
+                    RETURNING id
+                 )
+                 SELECT saved.id, saved.name, saved.description, saved.price,
+                        saved.old_price AS "oldPrice", saved.category, saved.image,
+                        saved.stock_quantity AS "stockQuantity",
+                        saved.is_available AS "isAvailable", saved.shop_id AS "shopId",
+                        saved.created_at AS "createdAt"
+                 FROM saved CROSS JOIN logged`,
                 [record.id, record.name, record.description, record.price, record.oldPrice, record.category,
-                    record.image, record.stockQuantity, record.isAvailable]
+                    record.image, record.stockQuantity, record.isAvailable, record.shopId, req.admin.sub]
             );
             const saved = rows[0];
             const published = addManagedProduct(saved);
@@ -388,7 +749,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.put('/api/v1/admin/products/:id', authenticateAdmin, productUploadLimit, uploadProductImage.single('image'), async (req, res, next) => {
+    app.put('/api/v1/admin/products/:id', authenticateAdmin, requireShopManager, productUploadLimit, uploadProductImage.single('image'), async (req, res, next) => {
         const imageFile = req.file;
         try {
             const id = req.params.id;
@@ -400,22 +761,31 @@ export function createApp({ pool, config }) {
             const imageUrl = imageFile ? `/uploads/${imageFile.filename}` : null;
             const { rows } = await pool.query(
                 `WITH previous AS MATERIALIZED (
-                     SELECT image FROM managed_products WHERE id = $6
+                     SELECT image FROM managed_products WHERE id = $6 AND shop_id = $10
                  ),
                  updated AS (
                      UPDATE managed_products
                      SET name = $1, description = $2, price = $3, old_price = $4,
                          category = $5, stock_quantity = $7, is_available = $8,
                          image = COALESCE($9, image)
-                     WHERE id = $6
+                     WHERE id = $6 AND shop_id = $10
                      RETURNING id, name, description, price, old_price AS "oldPrice",
                                category, image, stock_quantity AS "stockQuantity",
-                               is_available AS "isAvailable", created_at AS "createdAt"
+                               is_available AS "isAvailable", shop_id AS "shopId",
+                               created_at AS "createdAt"
+                 ),
+                 logged AS (
+                     INSERT INTO shop_activity_logs
+                         (shop_id, actor_email, action, entity_type, entity_id, details)
+                     SELECT "shopId", $11, 'product.updated', 'product', id,
+                            jsonb_build_object('name', name)
+                     FROM updated
+                     RETURNING id
                  )
                  SELECT updated.*, previous.image AS "previousImage"
-                 FROM updated CROSS JOIN previous`,
+                 FROM updated CROSS JOIN previous CROSS JOIN logged`,
                 [product.name, product.description, product.price, product.oldPrice, product.category, id,
-                    product.stockQuantity, product.isAvailable, imageUrl]
+                    product.stockQuantity, product.isAvailable, imageUrl, req.shopId, req.admin.sub]
             );
             const saved = rows[0];
             if (!saved) throw new ProductNotFoundError();
@@ -440,15 +810,24 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.delete('/api/v1/admin/products/:id', authenticateAdmin, productUploadLimit, async (req, res, next) => {
+    app.delete('/api/v1/admin/products/:id', authenticateAdmin, requireShopManager, productUploadLimit, async (req, res, next) => {
         try {
             const id = req.params.id;
             if (!isManagedProductId(id)) throw new ProductNotFoundError();
             const { rows } = await pool.query(
-                `DELETE FROM managed_products
-                 WHERE id = $1
-                 RETURNING id, image`,
-                [id]
+                `WITH deleted AS (
+                    DELETE FROM managed_products
+                    WHERE id = $1 AND shop_id = $2
+                    RETURNING id, image, shop_id
+                 ), logged AS (
+                    INSERT INTO shop_activity_logs
+                        (shop_id, actor_email, action, entity_type, entity_id, details)
+                    SELECT shop_id, $3, 'product.deleted', 'product', id, '{}'::jsonb
+                    FROM deleted
+                    RETURNING id
+                 )
+                 SELECT deleted.id, deleted.image FROM deleted CROSS JOIN logged`,
+                [id, req.shopId, req.admin.sub]
             );
             const deleted = rows[0];
             if (!deleted) throw new ProductNotFoundError();
@@ -477,20 +856,44 @@ export function createApp({ pool, config }) {
         }
     });
 
+    registerPlatformRoutes(app, {
+        pool,
+        authenticateAdmin,
+        uploadProductImage,
+        validImageSignature,
+        removeUploadedFile,
+        uploadsDirectory,
+        productUploadLimit,
+        vapidPublicKey: config.vapidPublicKey,
+        vapidPrivateKey: config.vapidPrivateKey,
+        vapidSubject: config.vapidSubject
+    });
+
     app.post('/api/v1/orders', orderLimit, async (req, res, next) => {
         let client;
         let transactionOpen = false;
+        let requestHash;
+        const shopId = req.body?.shopId ?? DEFAULT_SHOP_ID;
         try {
-            const order = validateAndPriceOrder(req.body, config.advanceCharge, { checkInventory: false });
-            const requestHash = createHash('sha256').update(fingerprintOrder(order)).digest('hex');
+            if (!isUuid(shopId)) {
+                return res.status(400).json({ error: 'Choose a valid shop before placing the order.' });
+            }
+            const shop = await pool.query(
+                `SELECT advance_charge FROM shops WHERE id = $1 AND status = 'active'`,
+                [shopId]
+            );
+            if (!shop.rows[0]) return res.status(404).json({ error: 'Shop not found or unavailable.' });
+            const advanceCharge = Number(shop.rows[0].advance_charge);
+            const order = validateAndPriceOrder(req.body, advanceCharge, { checkInventory: false, shopId });
+            requestHash = createHash('sha256').update(fingerprintOrder(order)).digest('hex');
             client = await pool.connect();
             await client.query('BEGIN');
             transactionOpen = true;
             const existing = await client.query(
                 `SELECT order_number, request_hash, customer_name, phone, address, bkash_number, items,
                         advance_amount, subtotal, advance_amount AS "advanceAmount", due_amount AS due
-                 FROM orders WHERE event_id = $1 FOR UPDATE`,
-                [order.eventId]
+                 FROM orders WHERE event_id = $1 AND shop_id = $2 FOR UPDATE`,
+                [order.eventId, shopId]
             );
             if (existing.rows[0]) {
                 await client.query('COMMIT');
@@ -501,12 +904,12 @@ export function createApp({ pool, config }) {
             const inserted = await client.query(
                 `INSERT INTO orders
                     (order_number, event_id, request_hash, customer_name, phone, address, bkash_number, items,
-                     subtotal, advance_amount, due_amount, inventory_reserved)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
-                 ON CONFLICT (event_id) DO NOTHING
+                     subtotal, advance_amount, due_amount, inventory_reserved, shop_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13)
+                 ON CONFLICT (shop_id, event_id) DO NOTHING
                  RETURNING order_number, request_hash, subtotal, advance_amount AS "advanceAmount", due_amount AS due`,
                 [order.orderNumber, order.eventId, requestHash, order.customerName, order.phone, order.address, order.bkashNumber,
-                    JSON.stringify(order.items), order.subtotal, order.advanceAmount, order.dueAmount, inventory.reserved]
+                    JSON.stringify(order.items), order.subtotal, order.advanceAmount, order.dueAmount, inventory.reserved, shopId]
             );
             if (!inserted.rows.length) {
                 await client.query('ROLLBACK');
@@ -514,11 +917,17 @@ export function createApp({ pool, config }) {
                 const saved = (await pool.query(
                     `SELECT order_number, request_hash, customer_name, phone, address, bkash_number, items,
                             advance_amount, subtotal, advance_amount AS "advanceAmount", due_amount AS due
-                     FROM orders WHERE event_id = $1`,
-                    [order.eventId]
+                     FROM orders WHERE event_id = $1 AND shop_id = $2`,
+                    [order.eventId, shopId]
                 )).rows[0];
                 return respondWithExistingOrder(res, saved, requestHash);
             }
+            await client.query(
+                `INSERT INTO shop_activity_logs
+                    (shop_id, actor_email, action, entity_type, entity_id, details)
+                 VALUES ($1, 'customer', 'order.created', 'order', $2, $3::jsonb)`,
+                [shopId, inserted.rows[0].order_number, JSON.stringify({ subtotal: order.subtotal, itemCount: order.items.length })]
+            );
             await client.query('COMMIT');
             transactionOpen = false;
             updateManagedStock(inventory.updates);
@@ -531,15 +940,18 @@ export function createApp({ pool, config }) {
                 console.error('Could not roll back checkout inventory reservation:', rollbackError.message);
             });
             if (error instanceof InventoryUnavailableError) {
-                const saved = (await pool.query(
-                    `SELECT order_number, request_hash, customer_name, phone, address, bkash_number, items,
-                            advance_amount, subtotal, advance_amount AS "advanceAmount", due_amount AS due
-                     FROM orders WHERE event_id = $1`,
-                    [req.body?.eventId]
-                )).rows[0];
-                if (saved) return respondWithExistingOrder(res, saved, createHash('sha256').update(fingerprintOrder(
-                    validateAndPriceOrder(req.body, config.advanceCharge, { checkInventory: false })
-                )).digest('hex'));
+                let saved;
+                try {
+                    saved = (await pool.query(
+                        `SELECT order_number, request_hash, customer_name, phone, address, bkash_number, items,
+                                advance_amount, subtotal, advance_amount AS "advanceAmount", due_amount AS due
+                         FROM orders WHERE event_id = $1 AND shop_id = $2`,
+                        [req.body?.eventId, shopId]
+                    )).rows[0];
+                } catch (lookupError) {
+                    return next(lookupError);
+                }
+                if (saved) return respondWithExistingOrder(res, saved, requestHash);
             }
             return next(error);
         } finally {
@@ -594,13 +1006,30 @@ export function createApp({ pool, config }) {
         const password = typeof req.body?.password === 'string' ? req.body.password : '';
         try {
             const { rows } = await pool.query(
-                'SELECT email, password_hash, session_version FROM admin_credentials WHERE id = TRUE'
+                `SELECT u.id, u.email, u.password_hash,
+                        u.session_version AS "sessionVersion",
+                        (pa.user_id IS NOT NULL) AS "isPlatformAdmin"
+                 FROM admin_users u
+                 LEFT JOIN platform_admins pa ON pa.user_id = u.id
+                 WHERE u.email = $1`,
+                [email]
             );
             const account = rows[0];
-            const validEmail = equalSecret(email, account?.email ?? config.adminEmail.toLowerCase());
-            const validPassword = await verifyAdminPassword(password, account?.password_hash);
-            if (!account || !validEmail || !validPassword) {
+            if (!account || !await verifyAdminPassword(password, account.password_hash)) {
                 return res.status(401).json({ error: 'Email or password is incorrect.' });
+            }
+            let shopId = null;
+            if (!account.isPlatformAdmin) {
+                const membership = await pool.query(
+                    `SELECT m.shop_id AS "shopId"
+                     FROM shop_memberships m
+                     JOIN shops s ON s.id = m.shop_id
+                     WHERE m.user_id = $1 AND s.status = 'active'
+                     ORDER BY s.created_at, s.id LIMIT 1`,
+                    [account.id]
+                );
+                shopId = membership.rows[0]?.shopId;
+                if (!shopId) return res.status(403).json({ error: 'This account has no active shop access.' });
             }
             await pool.query(
                 `DELETE FROM admin_sessions
@@ -610,28 +1039,44 @@ export function createApp({ pool, config }) {
             const token = jwt.sign({
                 sub: account.email,
                 role: 'admin',
-                sessionVersion: Number(account.session_version)
+                userId: account.id,
+                ...(shopId ? { shopId } : {}),
+                isPlatformAdmin: account.isPlatformAdmin,
+                sessionVersion: Number(account.sessionVersion)
             }, config.jwtSecret, {
                 algorithm: 'HS256', expiresIn: '8h', issuer: 'shopademia', jwtid: tokenId
             });
             await pool.query(
-                `INSERT INTO admin_sessions (token_id, expires_at)
-                 VALUES ($1, NOW() + INTERVAL '8 hours')`,
-                [tokenId]
+                `INSERT INTO admin_sessions (token_id, expires_at, user_id, shop_id)
+                 VALUES ($1, NOW() + INTERVAL '8 hours', $2, $3)`,
+                [tokenId, account.id, shopId]
             );
+            if (shopId) {
+                await pool.query(
+                    `INSERT INTO shop_activity_logs
+                        (shop_id, actor_email, action, entity_type, entity_id, details)
+                     VALUES ($1, $2, 'auth.login', 'admin_user', $3, '{}'::jsonb)`,
+                    [shopId, account.email, account.id]
+                );
+            }
             return res.json({ token, expiresIn: 28800 });
         } catch (error) {
             return next(error);
         }
     });
 
-    app.get('/api/v1/admin/profile', authenticateAdmin, async (_req, res, next) => {
+    app.get('/api/v1/admin/profile', authenticateAdmin, async (req, res, next) => {
         try {
-            const { rows } = await pool.query(
-                'SELECT email FROM admin_credentials WHERE id = TRUE'
-            );
+            const { rows } = await pool.query('SELECT email FROM admin_users WHERE id = $1', [req.admin.userId]);
             if (!rows[0]) return res.status(404).json({ error: 'Admin profile not found.' });
-            return res.json({ data: { email: rows[0].email } });
+            return res.json({
+                data: {
+                    email: rows[0].email,
+                    shopId: req.shopId,
+                    role: req.shopRole,
+                    isPlatformAdmin: req.isPlatformAdmin
+                }
+            });
         } catch (error) {
             return next(error);
         }
@@ -643,13 +1088,21 @@ export function createApp({ pool, config }) {
                 'UPDATE admin_sessions SET revoked_at = NOW() WHERE token_id = $1 AND revoked_at IS NULL',
                 [req.admin.jti]
             );
+            if (req.shopId) {
+                await pool.query(
+                    `INSERT INTO shop_activity_logs
+                        (shop_id, actor_email, action, entity_type, entity_id, details)
+                     VALUES ($1, $2, 'auth.logout', 'admin_user', $3, '{}'::jsonb)`,
+                    [req.shopId, req.admin.sub, req.admin.userId]
+                );
+            }
             return res.status(204).end();
         } catch (error) {
             return next(error);
         }
     });
 
-    app.get('/api/v1/admin/orders/:id/activity', authenticateAdmin, async (req, res, next) => {
+    app.get('/api/v1/admin/orders/:id/activity', authenticateAdmin, requireShopDashboard, async (req, res, next) => {
         const orderId = String(req.params.id);
         if (!/^\d{1,18}$/.test(orderId)) return res.status(404).json({ error: 'Order not found.' });
         try {
@@ -659,9 +1112,10 @@ export function createApp({ pool, config }) {
                         created_at AS "createdAt"
                  FROM admin_order_events
                  WHERE order_id = $1
+                   AND EXISTS (SELECT 1 FROM orders WHERE id = $1 AND shop_id = $2)
                  ORDER BY id DESC
                  LIMIT 100`,
-                [orderId]
+                [orderId, req.shopId]
             );
             return res.json({ data: rows });
         } catch (error) {
@@ -678,7 +1132,8 @@ export function createApp({ pool, config }) {
         }
         try {
             const { rows } = await pool.query(
-                'SELECT password_hash FROM admin_credentials WHERE id = TRUE'
+                'SELECT password_hash FROM admin_users WHERE id = $1',
+                [req.admin.userId]
             );
             const account = rows[0];
             if (!account || !await verifyAdminPassword(currentPassword, account.password_hash)) {
@@ -689,14 +1144,23 @@ export function createApp({ pool, config }) {
             }
             const passwordHash = await hashAdminPassword(newPassword);
             const updated = await pool.query(
-                `UPDATE admin_credentials
+                `UPDATE admin_users
                  SET password_hash = $1, session_version = session_version + 1, updated_at = NOW()
-                 WHERE id = TRUE AND password_hash = $2
-                 RETURNING email`,
-                [passwordHash, account.password_hash]
+                 WHERE id = $2 AND password_hash = $3
+                 RETURNING id, email`,
+                [passwordHash, req.admin.userId, account.password_hash]
             );
             if (!updated.rows[0]) {
                 return res.status(409).json({ error: 'Your password changed in another session. Sign in again and retry.' });
+            }
+            await revokeAdminSessions(pool, updated.rows[0].id, null);
+            if (req.shopId) {
+                await pool.query(
+                    `INSERT INTO shop_activity_logs
+                        (shop_id, actor_email, action, entity_type, entity_id, details)
+                     VALUES ($1, $2, 'account.password_changed', 'admin_user', $3, '{}'::jsonb)`,
+                    [req.shopId, req.admin.sub, updated.rows[0].id]
+                );
             }
             return res.json({ data: { email: updated.rows[0].email, sessionInvalidated: true } });
         } catch (error) {
@@ -704,15 +1168,15 @@ export function createApp({ pool, config }) {
         }
     });
 
-    app.get('/api/v1/admin/orders', authenticateAdmin, async (req, res, next) => {
+    app.get('/api/v1/admin/orders', authenticateAdmin, requireShopDashboard, async (req, res, next) => {
         try {
             const status = typeof req.query.status === 'string' ? req.query.status : '';
             if (status && !ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid order status filter.' });
             const page = Math.min(Math.max(Number.parseInt(req.query.page, 10) || 1, 1), 100000);
             const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
             const offset = (page - 1) * limit;
-            const where = status ? 'WHERE status = $1' : '';
-            const values = status ? [status] : [];
+            const where = status ? 'WHERE shop_id = $1 AND status = $2' : 'WHERE shop_id = $1';
+            const values = status ? [req.shopId, status] : [req.shopId];
             const [orders, counts] = await Promise.all([
                 pool.query(
                     `SELECT id, order_number AS "orderNumber", customer_name AS "customerName", phone, address,
@@ -733,7 +1197,7 @@ export function createApp({ pool, config }) {
         }
     });
 
-    app.patch('/api/v1/admin/orders/:id/advance-payment', authenticateAdmin, async (req, res, next) => {
+    app.patch('/api/v1/admin/orders/:id/advance-payment', authenticateAdmin, requireShopDashboard, async (req, res, next) => {
         try {
             const { status } = req.body ?? {};
             if (!['verified', 'rejected'].includes(status)) {
@@ -745,7 +1209,7 @@ export function createApp({ pool, config }) {
                 `WITH previous AS MATERIALIZED (
                      SELECT id, advance_payment_status
                      FROM orders
-                     WHERE id = $2
+                     WHERE id = $2 AND shop_id = $4
                      FOR UPDATE
                  ),
                  updated AS (
@@ -769,11 +1233,19 @@ export function createApp({ pool, config }) {
                      FROM updated
                      WHERE previous_status <> "advancePaymentStatus"
                      RETURNING id
+                 ), shop_logged AS (
+                     INSERT INTO shop_activity_logs
+                         (shop_id, actor_email, action, entity_type, entity_id, details)
+                     SELECT $4, $3, 'order.advance_payment_reviewed', 'order', id,
+                            jsonb_build_object('from', previous_status, 'to', "advancePaymentStatus")
+                     FROM updated
+                     WHERE previous_status <> "advancePaymentStatus"
+                     RETURNING id
                  )
                  SELECT id, "orderNumber", "advancePaymentStatus",
                         "advancePaymentCheckedAt", "advancePaymentCheckedBy"
                  FROM updated`,
-                [status, orderId, req.admin.sub]
+                [status, orderId, req.admin.sub, req.shopId]
             );
             if (!result.rows[0]) return res.status(404).json({ error: 'Order not found.' });
             return res.json({ data: result.rows[0] });
@@ -782,7 +1254,7 @@ export function createApp({ pool, config }) {
         }
     });
 
-    app.patch('/api/v1/admin/orders/:id/status', authenticateAdmin, async (req, res, next) => {
+    app.patch('/api/v1/admin/orders/:id/status', authenticateAdmin, requireShopDashboard, async (req, res, next) => {
         let client;
         let transactionOpen = false;
         try {
@@ -795,13 +1267,20 @@ export function createApp({ pool, config }) {
             transactionOpen = true;
             const previous = (await client.query(
                 `SELECT id, status, items, inventory_reserved AS "inventoryReserved"
-                 FROM orders WHERE id = $1 FOR UPDATE`,
-                [orderId]
+                 FROM orders WHERE id = $1 AND shop_id = $2 FOR UPDATE`,
+                [orderId, req.shopId]
             )).rows[0];
             if (!previous) {
                 await client.query('ROLLBACK');
                 transactionOpen = false;
                 return res.status(404).json({ error: 'Order not found.' });
+            }
+            if (!canTransitionOrderStatus(previous.status, status)) {
+                await client.query('ROLLBACK');
+                transactionOpen = false;
+                return res.status(409).json({
+                    error: `Order status cannot change from ${previous.status} to ${status}.`
+                });
             }
             let inventoryReserved = previous.inventoryReserved;
             let stockUpdates = [];
@@ -827,6 +1306,12 @@ export function createApp({ pool, config }) {
                      VALUES ($1, $2, 'status_changed', $3, $4)`,
                     [orderId, req.admin.sub, previous.status, status]
                 );
+                await client.query(
+                    `INSERT INTO shop_activity_logs
+                        (shop_id, actor_email, action, entity_type, entity_id, details)
+                     VALUES ($1, $2, 'order.status_changed', 'order', $3, $4::jsonb)`,
+                    [req.shopId, req.admin.sub, orderId, JSON.stringify({ from: previous.status, to: status })]
+                );
             }
             await client.query('COMMIT');
             transactionOpen = false;
@@ -842,7 +1327,12 @@ export function createApp({ pool, config }) {
         }
     });
 
-    app.use((req, res) => res.status(404).json({ error: `Not found: ${req.method} ${req.path}` }));
+    app.use((req, res) => {
+        if (req.method === 'GET' && !req.path.startsWith('/api/') && !/\.[^/]+$/.test(req.path) && req.accepts('html')) {
+            return res.status(404).sendFile(join(root, '404.html'));
+        }
+        return res.status(404).json({ error: `Not found: ${req.method} ${req.path}` });
+    });
     app.use((error, _req, res, _next) => {
         if (error instanceof OrderInputError) return res.status(400).json({ error: error.message });
         if (error instanceof ProductInputError) return res.status(400).json({ error: error.message });

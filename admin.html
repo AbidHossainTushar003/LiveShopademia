@@ -5,15 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0f172a">
     <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/svg+xml" href="/public-assets/favicon.svg">
+    <link rel="stylesheet" href="/css/site-chrome.css">
     <title>Admin orders | Shopademia</title>
     <link rel="stylesheet" href="/admin-assets/admin.css">
     <script type="module" src="/admin-assets/admin.js"></script>
 </head>
-<body>
+<body data-admin-site="true">
     <main class="shell">
         <header class="topbar">
             <a class="brand" href="/" aria-label="Shopademia storefront">
-                <span class="brand-mark" aria-hidden="true">S</span>
+                <img class="brand-mark" src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="">
                 <span>Shopademia <small>ADMIN</small></span>
             </a>
             <button id="logoutButton" class="button button-secondary hidden" type="button">Sign out</button>
@@ -22,7 +24,7 @@
         <section id="loginPanel" class="login-panel" aria-labelledby="loginTitle">
             <p class="eyebrow">ORDER MANAGEMENT</p>
             <h1 id="loginTitle">Admin sign in</h1>
-            <p class="muted">Sign in with the admin credentials configured on the server.</p>
+            <p class="muted">Sign in with your shop administrator or platform administrator account.</p>
             <form id="loginForm" class="form">
                 <label for="email">Admin email</label>
                 <input id="email" name="email" type="email" autocomplete="username" required maxlength="254">
@@ -46,7 +48,9 @@
                 <button class="button button-secondary" type="button" data-admin-view="orders" aria-pressed="true">Orders</button>
                 <button class="button button-secondary" type="button" data-admin-view="products" aria-pressed="false">Products</button>
                 <button class="button button-secondary" type="button" data-admin-view="profile" aria-pressed="false">Admin profile</button>
+                <a class="button button-secondary" href="/admin/platform">Shop management</a>
             </nav>
+            <p id="activeShopName" class="muted" aria-live="polite"></p>
             <p id="dashboardMessage" class="notice hidden" role="status"></p>
             <section id="ordersPanel" aria-label="Customer orders">
                 <div class="toolbar">
@@ -163,5 +167,6 @@
             </section>
         </section>
     </main>
+    <script type="module" src="/js/site-chrome.js"></script>
 </body>
 </html>

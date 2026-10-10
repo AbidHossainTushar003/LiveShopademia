@@ -82,12 +82,18 @@ test('checkout clears customer personal data after success and when dismissed af
     await checkout.submit();
     assert.deepEqual(checkout.fields.value, { name: '', phone: '', address: '', bkashNumber: '' });
     assert.equal(checkout.status.value, 'success');
+    assert.equal(checkout.result.value.orderNumber, 'SH-ABC123-1A2B');
+    assert.deepEqual(checkout.result.value.receipt.items, [{ name: 'Test product', quantity: 1, lineTotal: 100 }]);
+    assert.equal(checkout.result.value.receipt.customer.name, 'Test Customer');
+    assert.equal(checkout.result.value.receipt.advanceAmount, 10);
+    assert.equal(Object.hasOwn(checkout.result.value.receipt.customer, 'bkashNumber'), false);
 
     shouldFail = true;
     checkout.open();
     checkout.fields.set(customerDetails);
     await checkout.submit();
     assert.deepEqual(checkout.fields.value, customerDetails);
+    assert.equal(checkout.result.value.receipt, null);
     checkout.close();
     assert.deepEqual(checkout.fields.value, { name: '', phone: '', address: '', bkashNumber: '' });
     assert.equal(checkout.isOpen.value, false);

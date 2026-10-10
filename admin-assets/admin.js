@@ -1,8 +1,17 @@
 import { fetchWithTimeout } from '../js/utils/fetchWithTimeout.js';
+import { optimizedFormData } from '../js/utils/optimizeUploadImage.js';
 
 const tokenKey = 'shopademia.adminToken';
+const shopKey = 'shopademia.adminShopId';
 const pageSize = 20;
-const statuses = ['new', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+const statusTransitions = {
+    new: ['confirmed', 'cancelled'],
+    confirmed: ['processing', 'cancelled'],
+    processing: ['shipped', 'cancelled'],
+    shipped: ['delivered'],
+    delivered: [],
+    cancelled: ['new']
+};
 const loginPanel = document.getElementById('loginPanel');
 const dashboardPanel = document.getElementById('dashboardPanel');
 const ordersList = document.getElementById('ordersList');
@@ -18,6 +27,7 @@ let ordersRequestId = 0;
 let profileRequestId = 0;
 let productsRequestId = 0;
 let productImagePreviewUrl = null;
+let activeShopId = null;
 
 function showMessage(message, isError = false) {
     dashboardMessage.textContent = message;
@@ -33,6 +43,7 @@ function setAuthenticated(authenticated) {
 
 function clearSession(message = '') {
     sessionStorage.removeItem(tokenKey);
+    activeShopId = null;
     ordersRequestId += 1;
     profileRequestId += 1;
     productsRequestId += 1;
@@ -45,6 +56,7 @@ function clearSession(message = '') {
     document.getElementById('productFormError').classList.add('hidden');
     document.getElementById('productsList').replaceChildren();
     document.getElementById('productCount').textContent = '';
+    document.getElementById('activeShopName').textContent = '';
     ordersList.replaceChildren();
     orderCount.textContent = '';
     pagination.classList.add('hidden');
@@ -57,7 +69,10 @@ async function api(path, options = {}) {
     const headers = new Headers(options.headers);
     if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
     const token = sessionStorage.getItem(tokenKey);
-    if (token) headers.set('Authorization', `Bearer ${token}`);
+    if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+        if (activeShopId && path !== '/admin/shops') headers.set('X-Shop-Id', activeShopId);
+    }
     const response = await fetchWithTimeout(`/api/v1${path}`, { ...options, headers });
     const body = await response.json().catch(() => ({}));
     if (response.status === 401 && token) {
@@ -65,6 +80,19 @@ async function api(path, options = {}) {
     }
     if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
     return body;
+}
+
+async function resolveActiveShop() {
+    const { data } = await api('/admin/shops');
+    if (!Array.isArray(data) || !data.length) {
+        throw new Error('Your account is not a member of any shops. Ask a shop owner to restore access.');
+    }
+    const savedShopId = sessionStorage.getItem(shopKey);
+    const shop = data.find(({ id }) => id === savedShopId) || data[0];
+    activeShopId = shop.id;
+    sessionStorage.setItem(shopKey, shop.id);
+    const label = document.getElementById('activeShopName');
+    if (label) label.textContent = `Managing ${shop.name} (${shop.slug})`;
 }
 
 function setAdminView(view) {
@@ -330,7 +358,7 @@ function renderOrder(order) {
     label.textContent = 'Update status';
     const select = document.createElement('select');
     select.setAttribute('aria-label', `Update status for order ${order.orderNumber}`);
-    for (const status of statuses) {
+    for (const status of [order.status, ...(statusTransitions[order.status] || [])]) {
         const option = document.createElement('option');
         option.value = status;
         option.textContent = status[0].toUpperCase() + status.slice(1);
@@ -443,10 +471,17 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
         });
         sessionStorage.setItem(tokenKey, result.token);
         document.getElementById('password').value = '';
-        setAuthenticated(true);
+        const profile = await api('/admin/profile');
+        if (profile.data.isPlatformAdmin) {
+            window.location.assign('/admin/platform');
+            return;
+        }
         page = 1;
+        await resolveActiveShop();
+        setAuthenticated(true);
         await loadOrders();
     } catch (requestError) {
+        if (sessionStorage.getItem(tokenKey)) clearSession(requestError.message);
         error.textContent = requestError.message;
         error.classList.remove('hidden');
     } finally {
@@ -500,7 +535,7 @@ document.getElementById('productForm').addEventListener('submit', async (event) 
         if (productId) {
             const update = await api(`/admin/products/${encodeURIComponent(productId)}`, {
                 method: 'PUT',
-                body: new FormData(form)
+                body: await optimizedFormData(form)
             });
             cancelProductEdit();
             showMessage(
@@ -510,7 +545,7 @@ document.getElementById('productForm').addEventListener('submit', async (event) 
         } else {
             const result = await api('/admin/products', {
                 method: 'POST',
-                body: new FormData(form)
+                body: await optimizedFormData(form)
             });
             form.reset();
             clearProductImagePreview();
@@ -570,9 +605,24 @@ document.getElementById('nextPage').addEventListener('click', () => {
 });
 
 if (sessionStorage.getItem(tokenKey)) {
-    setAuthenticated(true);
+    setAuthenticated(false);
     setAdminView('orders');
-    loadOrders();
+    api('/admin/profile')
+        .then(({ data }) => {
+            if (data.isPlatformAdmin) {
+                window.location.replace('/admin/platform');
+                return null;
+            }
+            return resolveActiveShop();
+        })
+        .then((shop) => {
+            if (!shop) return;
+            setAuthenticated(true);
+            loadOrders();
+        })
+        .catch((error) => {
+            clearSession(error.message);
+        });
 } else {
     setAuthenticated(false);
 }

@@ -3,13 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shopademia - Discover What Fits Your Life</title>
-    <link rel="stylesheet" href="css/tailwind.generated.css">
+    <title>Shopademia | Discover what fits your life</title>
+    <meta name="description" content="Discover products, deals, and independent shops on Shopademia. Explore local storefronts and submit an order request directly to a shop.">
+    <meta name="theme-color" content="#0f172a">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Shopademia">
+    <meta property="og:title" content="Shopademia | Discover what fits your life">
+    <meta property="og:description" content="Discover products, deals, and independent shops on Shopademia.">
+    <meta property="og:image" content="/public-assets/social-preview.png">
+    <meta property="og:url" content="/">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="/public-assets/social-preview.png">
+    <link rel="canonical" href="/">
+    <link rel="icon" type="image/svg+xml" href="/public-assets/favicon.svg">
+    <link rel="stylesheet" href="/css/tailwind.generated.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Reenie+Beanie&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="/css/site-chrome.css">
 </head>
 <body class="relative min-h-screen text-slate-800 antialiased selection:bg-blue-500 selection:text-white">
     <p id="appStartupError" role="alert" class="hidden mx-auto mt-6 max-w-3xl rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800"></p>
@@ -23,40 +36,53 @@
 
     <!-- Header -->
     <header class="sticky top-4 z-50 px-4 md:px-8 max-w-7xl mx-auto">
-        <nav class="glass-nav rounded-full px-4 py-3 md:px-6 md:py-3.5 flex items-center justify-between gap-4 shadow-glass transition-all duration-300">
+        <nav aria-label="Primary" class="glass-nav rounded-full px-4 py-3 md:px-6 md:py-3.5 flex items-center justify-between gap-2 md:gap-4 shadow-glass transition-all duration-300">
             <a href="#home" class="flex items-center gap-2.5 shrink-0 group">
-                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 via-blue-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 group-hover:scale-105 transition-transform duration-300">
-                    <i class="fa-solid fa-bag-shopping text-lg"></i>
-                </div>
-                <span class="text-xl md:text-2xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-950 to-blue-800 bg-clip-text text-transparent tracking-tight">Shopademia</span>
+                <img src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="" class="w-10 h-10 rounded-2xl shadow-md shadow-blue-500/30 group-hover:scale-105 transition-transform duration-300">
+                <span class="hidden min-[400px]:inline text-base md:text-2xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-950 to-blue-800 bg-clip-text text-transparent tracking-tight">Shopademia</span>
             </a>
             <div class="hidden lg:flex items-center gap-8 font-semibold text-sm text-slate-600">
-                <a href="#home" class="text-blue-600 font-bold border-b-2 border-blue-600 pb-0.5">Home</a>
-                <a href="#shop" class="hover:text-blue-600 transition-colors">Shop</a>
-                <a href="#categories" class="hover:text-blue-600 transition-colors">Categories</a>
-                <a href="#deals" class="hover:text-blue-600 transition-colors">Deals</a>
-                <a href="#about" class="hover:text-blue-600 transition-colors">About</a>
+                <a data-primary-nav href="/" class="hover:text-blue-600 transition-colors">Home</a>
+                <a data-primary-nav href="/?shop=main#shop" class="hover:text-blue-600 transition-colors">Shop</a>
+                <a data-primary-nav href="/category/gadgets" class="hover:text-blue-600 transition-colors">Categories</a>
+                <a data-primary-nav href="/deals" class="hover:text-blue-600 transition-colors">Deals</a>
+                <a data-primary-nav href="/shops" class="hover:text-blue-600 transition-colors">Stores</a>
+                <a data-primary-nav href="/about" class="hover:text-blue-600 transition-colors">About</a>
             </div>
             <div class="relative flex-1 max-w-xs md:max-w-md hidden sm:block">
                 <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
-                <input type="text" id="searchInput" aria-label="Search products" placeholder="Search for products..."
+                <input type="search" id="searchInput" aria-label="Search products" placeholder="Search for products..."
                     class="w-full bg-slate-100/70 border border-slate-200/80 rounded-full pl-10 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:bg-white transition-all">
             </div>
             <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-                <button id="mobileSearchToggle" aria-label="Search products" aria-expanded="false" class="sm:hidden w-10 h-10 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
+                <button id="mobileNavigationToggle" type="button" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobileNavigationPanel" class="lg:hidden w-9 h-9 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+                <button id="mobileSearchToggle" aria-label="Search products" aria-expanded="false" aria-controls="mobileSearchPanel" class="sm:hidden w-9 h-9 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
-                <button id="wishlistBtn" aria-label="Wishlist" class="relative w-10 h-10 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
+                <button id="wishlistBtn" aria-label="Wishlist" class="relative w-9 h-9 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
                     <i class="fa-regular fa-heart text-lg"></i>
                     <span id="wishlistBadge" class="absolute top-1.5 right-1.5 bg-rose-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">0</span>
                 </button>
-                <button id="customerProfileBtn" data-open-customer-profile type="button" aria-label="Find my order" title="Find my order" class="w-10 h-10 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
+                <button id="customerProfileBtn" data-open-customer-profile type="button" aria-label="Find my order" title="Find my order" class="hidden sm:flex w-10 h-10 rounded-full hover:bg-slate-100/80 items-center justify-center text-slate-700 transition-colors">
                     <i class="fa-regular fa-user text-lg"></i>
                 </button>
-                <button id="cartDrawerBtn" aria-label="Open cart" class="relative w-10 h-10 rounded-full bg-blue-50/80 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors">
+                <button id="cartDrawerBtn" aria-label="Open cart" class="relative w-9 h-9 rounded-full bg-blue-50/80 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors">
                     <i class="fa-solid fa-cart-shopping text-base"></i>
                     <span id="cartBadge" class="absolute -top-1 -right-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm">0</span>
                 </button>
+            </div>
+        </nav>
+        <nav id="mobileNavigationPanel" aria-label="Mobile navigation" class="hidden lg:hidden mt-2 rounded-2xl bg-white p-3 shadow-glass">
+            <div class="grid grid-cols-2 gap-1 font-semibold text-sm">
+                <a data-primary-nav href="/" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Home</a>
+                <a data-primary-nav href="/?shop=main#shop" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Shop</a>
+                <a data-primary-nav href="/category/gadgets" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Categories</a>
+                <a data-primary-nav href="/deals" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Deals</a>
+                <a data-primary-nav href="/shops" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Stores</a>
+                <a data-primary-nav href="/about" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">About</a>
+                <a data-primary-nav href="/find-order" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Find my order</a>
             </div>
         </nav>
         <div id="mobileSearchPanel" class="hidden sm:hidden mt-2 rounded-2xl bg-white p-3 shadow-glass">
@@ -66,106 +92,107 @@
         </div>
     </header>
 
+    <div id="shopBannerPanel" class="shop-banner hidden" aria-label="Store banner">
+        <img id="shopBannerImage" alt="" fetchpriority="high">
+    </div>
+    <section id="shopOffersPanel" class="shop-offers hidden" aria-labelledby="shopOffersTitle">
+        <div class="shop-offers-heading">
+            <div>
+                <p class="eyebrow">STORE ANNOUNCEMENTS</p>
+                <h2 id="shopOffersTitle">Latest deals and offers</h2>
+            </div>
+            <div>
+                <button id="dealNotificationsButton" class="deal-notification-button" type="button">Get deal alerts</button>
+                <p id="dealNotificationStatus" role="status" aria-live="polite"></p>
+            </div>
+        </div>
+        <div id="shopOfferList" class="shop-offer-list"></div>
+    </section>
+
     <!-- Hero -->
-    <section id="home" class="max-w-7xl mx-auto px-4 md:px-8 pt-6 pb-12">
+    <main id="routePage" class="route-page hidden max-w-7xl mx-auto px-4 md:px-8 py-8" tabindex="-1"></main>
+
+    <section id="home" data-home-section class="max-w-7xl mx-auto px-4 md:px-8 pt-6 pb-12">
         <div class="glass-panel rounded-3xl md:rounded-[2.5rem] p-6 md:p-10 lg:p-12 relative overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-10">
             <div class="lg:w-1/2 space-y-6 text-center lg:text-left z-10">
-                <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-100/80 text-blue-700 text-xs font-bold tracking-wider uppercase">
+                <div class="hero-eyebrow inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-100/80 text-blue-700 text-xs font-bold tracking-wider uppercase">
                     <span class="w-2 h-2 rounded-full bg-blue-600 animate-ping"></span>
                     YOUR ONE-STOP ONLINE STORE
                 </div>
-                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.15]">
+                <h1 id="heroTitle" class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.15]">
                     Discover What <br class="hidden sm:inline" />
                     <span class="bg-gradient-to-r from-blue-600 via-cyan-500 to-amber-500 bg-clip-text text-transparent">Fits Your Life.</span>
                 </h1>
-                <p class="text-slate-600 text-base sm:text-lg max-w-lg mx-auto lg:mx-0 font-medium">
+                <p id="heroDescription" class="text-slate-600 text-base sm:text-lg max-w-lg mx-auto lg:mx-0 font-medium">
                     Browse a sample catalog of gadgets, baby-care products and everyday items. Prices are estimates, and each order request is reviewed before payment.
                 </p>
-                <div class="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-                    <a href="#shop" class="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold text-base shadow-lg shadow-blue-500/30 flex items-center justify-center gap-3 transition-all hover:scale-105">
-                        <span>Shop Now</span><i class="fa-solid fa-arrow-right text-sm"></i>
+                <div class="hero-actions pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+                    <a id="heroButton" href="#shop" class="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold text-base shadow-lg shadow-blue-500/30 flex items-center justify-center gap-3 transition-all hover:scale-105">
+                        <span id="heroButtonText">Shop Now</span><i class="fa-solid fa-arrow-right text-sm"></i>
                     </a>
                 </div>
-                <div class="pt-6 border-t border-slate-200/60 grid grid-cols-3 gap-2 sm:gap-4 text-center lg:text-left">
-                    <div class="flex flex-col sm:flex-row items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0"><i class="fa-solid fa-truck-fast text-xs"></i></div>
-                        <div><p class="text-xs font-bold text-slate-800">Demo catalog</p><p class="text-[11px] text-slate-500 hidden sm:block">Prices are estimates</p></div>
-                    </div>
-                    <div class="flex flex-col sm:flex-row items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 shrink-0"><i class="fa-solid fa-headset text-xs"></i></div>
-                        <div><p class="text-xs font-bold text-slate-800">Order review</p><p class="text-[11px] text-slate-500 hidden sm:block">Requests reviewed by staff</p></div>
-                    </div>
-                    <div class="flex flex-col sm:flex-row items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 shrink-0"><i class="fa-solid fa-rotate-left text-xs"></i></div>
-                        <div><p class="text-xs font-bold text-slate-800">Manual payment review</p><p class="text-[11px] text-slate-500 hidden sm:block">A sender number is only a reference</p></div>
-                    </div>
-                </div>
+                <figure class="hero-mobile-image" aria-hidden="true">
+                    <img id="heroSlideMobileImage" alt="">
+                </figure>
             </div>
 
             <div class="lg:w-1/2 relative w-full flex justify-center items-center">
-                <button id="heroPrevBtn" aria-label="Previous showcase" class="absolute -left-2 sm:left-2 z-20 w-10 h-10 rounded-full glass-card flex items-center justify-center text-slate-700 hover:bg-white hover:text-blue-600 transition-all shadow-md"><i class="fa-solid fa-chevron-left text-sm"></i></button>
                 <div class="relative w-full max-w-md aspect-square rounded-3xl bg-gradient-to-b from-white/80 via-blue-50/40 to-cyan-50/60 p-6 flex flex-col items-center justify-center border border-white/80 shadow-inner">
                     <div class="absolute inset-10 bg-gradient-to-tr from-cyan-400/30 to-blue-500/30 rounded-full blur-2xl -z-10"></div>
-                    <div id="heroSlideContainer" class="relative w-full h-full flex items-center justify-center transition-all duration-500">
-                        <div class="relative w-full h-64 flex items-center justify-center">
-                            <svg class="w-52 h-52 text-slate-800 drop-shadow-2xl z-10 animate-pulse-slow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-                                <path d="M3 14v3a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-3" stroke-linecap="round"/>
-                                <path d="M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" fill="rgba(255,255,255,0.9)" stroke="#1e293b"/>
-                                <path d="M2 12v5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H2" fill="rgba(255,255,255,0.9)" stroke="#1e293b"/>
-                            </svg>
-                            <div class="absolute -bottom-2 right-4 z-20 bg-slate-900 rounded-2xl p-2.5 shadow-xl border border-slate-700 flex flex-col items-center">
-                                <div class="w-10 h-12 bg-slate-800 rounded-xl border border-slate-600 flex flex-col items-center justify-center text-cyan-400 font-mono text-[10px] font-bold">
-                                    <span>10:42</span><i class="fa-solid fa-heart-pulse text-rose-500 text-[10px] mt-1 animate-ping"></i>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="relative w-full h-full flex items-center justify-center">
+                        <img id="heroSlideImage" alt="" class="hidden max-h-full max-w-full rounded-2xl object-contain">
+                        <img id="heroProductImage" alt="" fetchpriority="high" class="hidden max-h-[72%] max-w-[72%] object-contain drop-shadow-xl">
+                        <i id="heroProductFallback" aria-hidden="true" class="fa-solid fa-box text-8xl text-slate-700 drop-shadow-xl"></i>
                         <!-- Filled by HeroView -->
-                        <div id="heroOfferCard" class="absolute top-2 right-0 sm:-right-4 z-30 max-w-[210px] glass-card rounded-2xl p-3.5 shadow-xl border border-white/90"></div>
-                    </div>
-                    <div class="absolute bottom-3 flex items-center gap-2">
-                        <span class="w-6 h-2 rounded-full bg-blue-600"></span>
-                        <span class="w-2 h-2 rounded-full bg-slate-300"></span>
-                        <span class="w-2 h-2 rounded-full bg-slate-300"></span>
+                        <div id="heroOfferCard" class="absolute top-2 right-0 sm:-right-4 z-30 w-[min(210px,75%)] glass-card rounded-2xl p-3.5 shadow-xl border border-white/90"></div>
+                        <div id="heroSliderControls" class="hero-slider-controls hidden" aria-label="Hero slides">
+                            <button id="heroSlidePrevious" type="button" aria-label="Previous hero slide">‹</button>
+                            <div id="heroSlideIndicators" class="hero-slide-indicators"></div>
+                            <button id="heroSlideNext" type="button" aria-label="Next hero slide">›</button>
+                        </div>
                     </div>
                 </div>
-                <button id="heroNextBtn" aria-label="Next showcase" class="absolute -right-2 sm:right-2 z-20 w-10 h-10 rounded-full glass-card flex items-center justify-center text-slate-700 hover:bg-white hover:text-blue-600 transition-all shadow-md"><i class="fa-solid fa-chevron-right text-sm"></i></button>
             </div>
         </div>
     </section>
 
     <!-- Categories -->
-    <section id="categories" class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+    <section id="categories" data-home-section class="max-w-7xl mx-auto px-4 md:px-8 py-8">
         <div class="flex items-end justify-between mb-6">
             <div>
                 <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Shop by Category</h2>
                 <p class="text-slate-500 text-sm mt-1">Find what you need, all in one place.</p>
             </div>
-            <button id="allProductsBtn" type="button" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></button>
+            <button data-show-all-products type="button" aria-label="View all products in the catalog" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All Products</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></button>
         </div>
-        <div id="categoryGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3.5"></div>
+        <div id="categoryGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5"></div>
     </section>
 
     <!-- Featured -->
-    <section id="shop" class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+    <section id="shop" data-home-section class="max-w-7xl mx-auto px-4 md:px-8 py-8">
         <div class="flex items-end justify-between mb-6">
             <div>
-                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Featured Products</h2>
-                <p class="text-slate-500 text-sm mt-1">Demo products and ratings from Fake Store API. Prices are estimates converted from USD, not local retail quotes. <span id="demoPriceRate"></span></p>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Shop Products</h2>
+                <p class="text-slate-500 text-sm mt-1">Browse products from our catalog with prices in BDT.</p>
+                <p id="productResultsStatus" role="status" aria-live="polite" tabindex="-1" class="mt-2 text-xs font-medium text-slate-500"></p>
             </div>
-            <a href="#shop" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></a>
+            <div class="flex shrink-0 items-center gap-3">
+                <button id="clearProductFilters" type="button" class="hidden text-xs font-bold text-slate-600 underline underline-offset-2 hover:text-blue-700">Clear filters</button>
+                <button data-show-all-products type="button" aria-label="View all products in the catalog" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></button>
+            </div>
         </div>
         <div id="featuredProductGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"></div>
     </section>
 
     <!-- Promo banner -->
-    <section id="deals" class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+    <section id="deals" data-home-section class="max-w-7xl mx-auto px-4 md:px-8 py-8">
         <div class="relative rounded-3xl overflow-hidden bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white p-8 md:p-12 shadow-2xl border border-blue-400/30 flex flex-col md:flex-row items-center justify-between gap-8">
             <div class="absolute -left-10 -top-10 w-60 h-60 bg-blue-500/30 rounded-full blur-3xl"></div>
             <div class="absolute -right-10 -bottom-10 w-60 h-60 bg-cyan-400/30 rounded-full blur-3xl"></div>
             <div class="z-10 max-w-lg text-center md:text-left">
                 <span class="px-3.5 py-1 rounded-full bg-orange-500 text-white text-xs font-bold uppercase tracking-wider inline-block mb-3 shadow-md">Shop the collection</span>
                 <h2 class="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white leading-tight">Find Your Next Favorite</h2>
-                <p class="text-blue-100 text-sm sm:text-base mt-2 font-medium">Explore gadgets and accessories selected for everyday life.</p>
+                <p class="text-blue-100 text-sm sm:text-base mt-2 font-medium">Browse the catalog for current price reductions across everyday items.</p>
                 <button id="dealsButton" class="mt-6 px-8 py-3.5 rounded-full bg-white text-blue-900 hover:bg-blue-50 font-bold text-sm shadow-xl flex items-center gap-2.5 mx-auto md:mx-0 transition-transform hover:scale-105">
                     <span>Explore Deals</span><i class="fa-solid fa-arrow-right text-xs"></i>
                 </button>
@@ -187,19 +214,19 @@
     </section>
 
     <!-- New arrivals -->
-    <section class="max-w-7xl mx-auto px-4 md:px-8 py-8">
+    <section id="newArrivals" data-home-section class="max-w-7xl mx-auto px-4 md:px-8 py-8">
         <div class="flex items-end justify-between mb-6">
             <div>
-                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">New Arrivals</h2>
-                <p class="text-slate-500 text-sm mt-1">Fresh picks for a brighter tomorrow.</p>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">More Products</h2>
+                <p class="text-slate-500 text-sm mt-1">Explore more items from the catalog.</p>
             </div>
-            <a href="#shop" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></a>
+            <button data-show-all-products type="button" aria-label="View all products in the catalog" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All Products</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></button>
         </div>
-        <div id="newArrivalsGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4"></div>
+        <div id="newArrivalsGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"></div>
     </section>
 
     <!-- Trust bar -->
-    <section class="max-w-7xl mx-auto px-4 md:px-8 py-6">
+    <section id="trustSection" data-home-section class="max-w-7xl mx-auto px-4 md:px-8 py-6">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div class="glass-panel rounded-2xl p-4 flex items-center gap-3.5"><div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm"><i class="fa-solid fa-tag"></i></div><div><h4 class="text-xs font-bold text-slate-900">Demo pricing</h4><p class="text-[11px] text-slate-500">Converted from USD</p></div></div>
             <div class="glass-panel rounded-2xl p-4 flex items-center gap-3.5"><div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm"><i class="fa-solid fa-clipboard-check"></i></div><div><h4 class="text-xs font-bold text-slate-900">Order requests</h4><p class="text-[11px] text-slate-500">Reviewed before confirmation</p></div></div>
@@ -207,43 +234,6 @@
             <div class="glass-panel rounded-2xl p-4 flex items-center gap-3.5"><div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm"><i class="fa-solid fa-headset"></i></div><div><h4 class="text-xs font-bold text-slate-900">Customer care</h4><p class="text-[11px] text-slate-500">Email, phone and WhatsApp</p></div></div>
         </div>
     </section>
-
-    <!-- Footer -->
-    <footer id="about" class="bg-slate-950 text-slate-300 pt-16 pb-8 border-t border-slate-800 mt-12">
-        <div class="max-w-7xl mx-auto px-4 md:px-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 pb-12 border-b border-slate-800">
-            <div class="lg:col-span-2 space-y-4">
-                <a href="#home" class="flex items-center gap-2.5">
-                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-white font-bold shadow-md"><i class="fa-solid fa-bag-shopping text-lg"></i></div>
-                    <span class="text-2xl font-black text-white tracking-tight">Shopademia</span>
-                </a>
-                <p class="text-slate-400 text-xs max-w-sm">Smart Choices, Better Living. Your ultimate destination for modern gadgets, electronics, and daily lifestyle essentials.</p>
-                <div class="pt-2 text-xs text-slate-500">© 2026 Shopademia. All rights reserved.</div>
-            </div>
-            <div class="space-y-3">
-                <h4 class="text-sm font-bold text-white uppercase tracking-wider">Quick Links</h4>
-                <ul class="space-y-2 text-xs text-slate-400">
-                    <li><a href="#home" class="hover:text-white transition-colors">Home</a></li>
-                    <li><a href="#shop" class="hover:text-white transition-colors">Shop</a></li>
-                    <li><a href="#categories" class="hover:text-white transition-colors">Categories</a></li>
-                    <li><a href="#deals" class="hover:text-white transition-colors">Deals</a></li>
-                    <li><a href="#about" class="hover:text-white transition-colors">About Us</a></li>
-                    <li><button type="button" data-open-customer-profile class="hover:text-white transition-colors">Find my order</button></li>
-                </ul>
-            </div>
-            <div class="space-y-3">
-                <h4 class="text-sm font-bold text-white uppercase tracking-wider">Customer Care</h4>
-                <ul class="space-y-2 text-xs text-slate-400">
-                    <li><a href="mailto:shopademia.official@gmail.com" class="hover:text-white transition-colors">shopademia.official@gmail.com</a></li>
-                    <li><a href="tel:+8801560024777" class="hover:text-white transition-colors">Call 01560024777</a></li>
-                    <li><a href="https://wa.me/8801560024777" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">WhatsApp support</a></li>
-                </ul>
-            </div>
-        </div>
-        <div class="max-w-7xl mx-auto px-4 md:px-8 pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-            <p>Privacy and purchase terms must be published before the store accepts customer orders.</p>
-            <p>Manual bKash payments are arranged after order review; this site does not process card payments.</p>
-        </div>
-    </footer>
 
     <dialog id="customerProfileDialog" class="customer-profile-dialog" aria-labelledby="customerProfileTitle">
         <div class="customer-profile-content">
@@ -257,7 +247,7 @@
             <form id="customerProfileForm" class="mt-5 space-y-3" novalidate>
                 <div>
                     <label for="lookupOrderNumber" class="text-xs font-bold text-slate-700">Order number</label>
-                    <input id="lookupOrderNumber" name="orderNumber" type="text" maxlength="21" autocomplete="off" autocapitalize="characters" aria-describedby="lookupOrderNumberError" placeholder="SH-ABC123-1A2B3C4D5E6F" required class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                    <input id="lookupOrderNumber" name="orderNumber" type="text" maxlength="28" autocomplete="off" autocapitalize="characters" aria-describedby="lookupOrderNumberError" placeholder="SH-ABC123-1A2B3C4D5E6F" required class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-500/40">
                     <p id="lookupOrderNumberError" class="hidden mt-1 text-xs text-rose-600"></p>
                 </div>
                 <div>
@@ -270,6 +260,16 @@
             </form>
             <section id="customerProfileResult" aria-live="polite" class="hidden mt-5 border-t border-slate-200 pt-4"></section>
             <p class="mt-4 text-xs text-slate-500">For your privacy, order details are shown only when both details match. Your phone number is used for this lookup only and is not saved by this page.</p>
+        </div>
+    </dialog>
+
+    <dialog id="productDetailsDialog" class="product-details-dialog" aria-labelledby="productDetailsTitle">
+        <div class="product-details-content">
+            <div class="mb-5 flex items-center justify-between gap-4">
+                <h2 id="productDetailsTitle" class="text-xl font-extrabold text-slate-900">Product details</h2>
+                <button id="productDetailsCloseBtn" type="button" aria-label="Close product details" class="w-9 h-9 shrink-0 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="productDetailsContent"></div>
         </div>
     </dialog>
 
@@ -352,7 +352,8 @@
                         <div class="flex justify-between"><dt>Advance requested (not paid)</dt><dd id="coConfirmedAdvance" class="font-bold"></dd></div>
                         <div class="flex justify-between"><dt>Products due on delivery</dt><dd id="coConfirmedDue" class="font-bold"></dd></div>
                     </dl>
-                    <button id="checkoutDoneBtn" class="mt-6 px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm">Continue Shopping</button>
+                    <button id="downloadReceiptBtn" type="button" disabled class="mt-5 w-full rounded-xl border border-blue-200 bg-blue-50 px-6 py-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">Download receipt</button>
+                    <button id="checkoutDoneBtn" class="mt-3 px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm">Continue Shopping</button>
                 </div>
             </div>
         </div>
@@ -364,6 +365,7 @@
         <span id="toastMessage" class="text-xs font-bold text-slate-800"></span>
     </div>
 
-    <script type="module" src="js/main.js"></script>
+    <script type="module" src="/js/main.js"></script>
+    <script type="module" src="/js/site-chrome.js"></script>
 </body>
 </html>

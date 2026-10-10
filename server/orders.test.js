@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fingerprintOrder, OrderInputError, normalizePhone, validateAndPriceOrder } from './orders.js';
+import {
+    canTransitionOrderStatus,
+    fingerprintOrder,
+    OrderInputError,
+    normalizePhone,
+    validateAndPriceOrder
+} from './orders.js';
 import { findProduct, getHeroProduct, setManagedProducts } from './catalog.js';
 
 const validOrder = {
@@ -10,6 +16,19 @@ const validOrder = {
     eventId: 'event-12345678',
     source: 'storefront'
 };
+
+test('order status transitions follow the fulfillment lifecycle', () => {
+    assert.equal(canTransitionOrderStatus('new', 'confirmed'), true);
+    assert.equal(canTransitionOrderStatus('new', 'cancelled'), true);
+    assert.equal(canTransitionOrderStatus('processing', 'shipped'), true);
+    assert.equal(canTransitionOrderStatus('shipped', 'delivered'), true);
+    assert.equal(canTransitionOrderStatus('cancelled', 'new'), true);
+    assert.equal(canTransitionOrderStatus('new', 'new'), true);
+    assert.equal(canTransitionOrderStatus('new', 'shipped'), false);
+    assert.equal(canTransitionOrderStatus('shipped', 'cancelled'), false);
+    assert.equal(canTransitionOrderStatus('delivered', 'cancelled'), false);
+    assert.equal(canTransitionOrderStatus('cancelled', 'delivered'), false);
+});
 
 test('normalizes Bangladesh phone numbers with country codes', () => {
     assert.equal(normalizePhone('+880 1712-345678'), '01712345678');
@@ -44,6 +63,13 @@ test('rejects an invalid phone, unavailable product, and excessive quantity', ()
 test('rejects missing idempotency identifiers and invalid delivery config', () => {
     assert.throws(() => validateAndPriceOrder({ ...validOrder, eventId: '' }, 100), OrderInputError);
     assert.throws(() => validateAndPriceOrder(validOrder, -1), /DELIVERY_ADVANCE_CHARGE/);
+});
+
+test('rejects malformed payloads without crashing with TypeError', () => {
+    assert.throws(() => validateAndPriceOrder(undefined, 100), OrderInputError);
+    assert.throws(() => validateAndPriceOrder({ customer: {}, payment: {}, items: [] }, 100), OrderInputError);
+    assert.throws(() => validateAndPriceOrder({ ...validOrder, payment: {} }, 100), OrderInputError);
+    assert.throws(() => validateAndPriceOrder({ ...validOrder, source: 'bogus' }, 100), OrderInputError);
 });
 
 test('order retry fingerprints change when customer or item details change', () => {

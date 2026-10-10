@@ -42,7 +42,7 @@ export class CheckoutViewModel {
     fields = new Observable({ name: '', phone: '', address: '', bkashNumber: '' });
     errors = new Observable({});
     summary = new Observable({ subtotal: 0, advance: 0, due: 0 });
-    result = new Observable({ orderNumber: '', error: '' });
+    result = new Observable({ orderNumber: '', error: '', receipt: null });
 
     constructor({ cartService, orderRepository, analytics, toast, config }) {
         Object.assign(this, { cart: cartService, orders: orderRepository, analytics, toast, config });
@@ -56,7 +56,7 @@ export class CheckoutViewModel {
         }
         const subtotal = this.cart.total, advance = this.config.delivery.advanceCharge;
         this.summary.set({ subtotal, advance, due: subtotal });
-        this.errors.set({}); this.status.set('idle'); this.result.set({ orderNumber: '', error: '' });
+        this.errors.set({}); this.status.set('idle'); this.result.set({ orderNumber: '', error: '', receipt: null });
         this.isOpen.set(true);
         this.analytics.track('begin_checkout', AnalyticsService.fromLines(this.cart.lines.value));
     }
@@ -77,6 +77,12 @@ export class CheckoutViewModel {
         if (Object.keys(errors).length) return;
 
         const f = this.fields.value, lines = this.cart.lines.value;
+        const receipt = {
+            customer: { name: f.name.trim(), phone: CheckoutValidator.normalizePhone(f.phone), address: f.address.trim() },
+            items: lines.map(({ product, quantity }) => ({ name: product.name, quantity, lineTotal: product.price * quantity })),
+            shopName: this.config.shopName || 'Shopademia',
+            issuedAt: new Date().toISOString()
+        };
         const retryKey = eventStorageKey;
         const request = new OrderRequest({
             name: f.name.trim(), address: f.address.trim(),
@@ -99,11 +105,11 @@ export class CheckoutViewModel {
             clearEventId(retryKey);
             this.fields.set({ name: '', phone: '', address: '', bkashNumber: '' });
             this.errors.set({});
-            this.result.set({ orderNumber, error: '' });
+            this.result.set({ orderNumber, error: '', receipt: { ...receipt, orderNumber, subtotal, advanceAmount, due } });
             this.status.set('success');
         } catch (err) {
             if (err?.status === 409) clearEventId(retryKey);
-            this.result.set({ orderNumber: '', error: err.message || 'Could not place order. Please try again.' });
+            this.result.set({ orderNumber: '', error: err.message || 'Could not place order. Please try again.', receipt: null });
             this.status.set('error');
         }
     }

@@ -37,6 +37,7 @@ export class CustomerProfileView {
     constructor({ apiBaseUrl }) {
         this.apiBaseUrl = apiBaseUrl;
         this.dialog = document.getElementById('customerProfileDialog');
+        this.content = this.dialog.querySelector('.customer-profile-content');
         this.form = document.getElementById('customerProfileForm');
         this.error = document.getElementById('customerProfileError');
         this.result = document.getElementById('customerProfileResult');
@@ -45,6 +46,7 @@ export class CustomerProfileView {
         this.phoneInput = this.form.elements.phone;
         this.controller = null;
         this.requestId = 0;
+        this.standalone = false;
 
         for (const trigger of document.querySelectorAll('[data-open-customer-profile]')) {
             trigger.addEventListener('click', () => {
@@ -60,6 +62,21 @@ export class CustomerProfileView {
         this.form.addEventListener('submit', (event) => this.lookup(event));
         this.orderNumberInput.addEventListener('input', () => this.clearFieldError(this.orderNumberInput, 'lookupOrderNumberError'));
         this.phoneInput.addEventListener('input', () => this.clearFieldError(this.phoneInput, 'lookupPhoneError'));
+    }
+
+    showStandalone(container) {
+        this.standalone = true;
+        document.getElementById('customerProfileCloseBtn').classList.add('hidden');
+        this.content.classList.add('customer-profile-standalone');
+        container.append(this.content);
+    }
+
+    restoreDialog() {
+        if (!this.standalone) return;
+        this.standalone = false;
+        document.getElementById('customerProfileCloseBtn').classList.remove('hidden');
+        this.content.classList.remove('customer-profile-standalone');
+        this.dialog.append(this.content);
     }
 
     clear() {
@@ -134,7 +151,7 @@ export class CustomerProfileView {
                 signal: controller.signal
             });
             const payload = await response.json().catch(() => null);
-            if (requestId !== this.requestId || !this.dialog.open) return;
+            if (requestId !== this.requestId || (!this.dialog.open && !this.standalone)) return;
             if (!response.ok) {
                 throw new Error(typeof payload?.error === 'string'
                     ? payload.error
@@ -145,13 +162,13 @@ export class CustomerProfileView {
             }
             this.renderOrder(payload.data);
         } catch (error) {
-            if (requestId !== this.requestId || error?.name === 'AbortError' || !this.dialog.open) return;
+            if (requestId !== this.requestId || error?.name === 'AbortError' || (!this.dialog.open && !this.standalone)) return;
             this.error.textContent = error?.name === 'TimeoutError'
                 ? 'The order lookup timed out. Check your connection and try again.'
                 : error instanceof Error ? error.message : 'Order lookup failed. Please try again later.';
             this.error.classList.remove('hidden');
         } finally {
-            if (requestId === this.requestId && this.dialog.open) {
+            if (requestId === this.requestId && (this.dialog.open || this.standalone)) {
                 this.submitButton.disabled = false;
                 this.submitButton.textContent = 'Look up order';
                 this.form.removeAttribute('aria-busy');

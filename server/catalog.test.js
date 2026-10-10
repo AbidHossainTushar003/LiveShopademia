@@ -5,64 +5,17 @@ import {
     getHeroProduct,
     getManagedProducts,
     getNewArrivals,
-    loadFakeStoreCatalog,
-    mapFakeStoreProducts,
     removeManagedProduct,
     setManagedProducts,
     updateManagedProduct
 } from './catalog.js';
 
-const products = [
-    {
-        id: 1,
-        title: 'Laptop demo',
-        description: 'Demo description',
-        price: 109.95,
-        category: 'electronics',
-        image: 'https://fakestoreapi.com/img/demo.png',
-        rating: { rate: 4.5, count: 20 }
-    },
-    {
-        id: 2,
-        title: 'Ring demo',
-        price: 10,
-        category: 'jewelery',
-        image: 'https://fakestoreapi.com/img/ring.png',
-        rating: { rate: 3, count: 7 }
-    }
-];
-
-test('maps Fake Store products to safe BDT demo products and supported categories', () => {
-    const mapped = mapFakeStoreProducts(products, 120);
-    assert.equal(mapped[0].price, 13194);
-    assert.equal(mapped[0].category, 'gadgets');
-    assert.equal(mapped[0].rating, 4.5);
-    assert.equal(mapped[1].price, 1200);
-    assert.equal(mapped[1].category, 'accessories');
-    assert.equal(mapped[1].oldPrice, null);
-});
-
-test('rejects unsafe images, duplicate identifiers, empty data, and invalid rates', () => {
-    assert.throws(() => mapFakeStoreProducts([], 120), /no products/);
-    assert.throws(() => mapFakeStoreProducts(products, 0), /DEMO_USD_TO_BDT/);
-    assert.throws(() => mapFakeStoreProducts([{ ...products[0], image: 'https://attacker.example/p.png' }], 120), /untrusted image/);
-    assert.throws(() => mapFakeStoreProducts([products[0], products[0]], 120), /duplicate product ID/);
-});
-
-test('loads the full demo catalog without duplicating the hero product in the product grid', async () => {
-    const count = await loadFakeStoreCatalog({
-        url: 'https://example.test/products',
-        usdToBdt: 120,
-        fetchImpl: async (url, { signal }) => {
-            assert.equal(url, 'https://example.test/products');
-            assert.ok(signal);
-            return { ok: true, json: async () => products };
-        }
-    });
+test('serves the bundled starter catalog without an external product API', () => {
     const visible = [...getFeaturedProducts(), ...getNewArrivals(), getHeroProduct()];
-    assert.equal(count, products.length);
-    assert.equal(visible.length, products.length);
-    assert.equal(new Set(visible.map((product) => product.id)).size, products.length);
+    assert.equal(getFeaturedProducts().length, 6);
+    assert.equal(getNewArrivals().length, 5);
+    assert.equal(visible.length, 12);
+    assert.equal(new Set(visible.map((product) => product.id)).size, visible.length);
 });
 
 test('updates managed products without changing their catalog order and removes them from checkout lookup', () => {

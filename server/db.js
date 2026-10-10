@@ -5,7 +5,7 @@ export async function initializeDatabase(pool, admin) {
         CREATE TABLE IF NOT EXISTS orders (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             order_number TEXT NOT NULL UNIQUE,
-            event_id TEXT NOT NULL UNIQUE,
+            event_id TEXT NOT NULL,
             request_hash TEXT NOT NULL,
             customer_name TEXT NOT NULL,
             phone TEXT NOT NULL,
@@ -86,13 +86,195 @@ export async function initializeDatabase(pool, admin) {
          ON CONFLICT (id) DO NOTHING`,
         [admin.email.trim().toLowerCase(), passwordHash]
     );
+    await initializeShopPlatform(pool, admin);
+}
+
+async function initializeShopPlatform(pool, admin) {
+    const defaultShopId = '00000000-0000-4000-8000-000000000001';
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shops (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            slug TEXT NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,47}$'),
+            name TEXT NOT NULL CHECK (char_length(name) BETWEEN 2 AND 120),
+            hero_image TEXT,
+            banner_image TEXT,
+            advance_charge BIGINT NOT NULL DEFAULT 100 CHECK (advance_charge >= 0),
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'archived')),
+            status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'");
+    await pool.query('ALTER TABLE shops ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+    await pool.query(`
+        DO $$ BEGIN
+            ALTER TABLE shops ADD CONSTRAINT shops_status_check
+                CHECK (status IN ('active', 'suspended', 'archived'));
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS admin_users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            session_version BIGINT NOT NULL DEFAULT 1,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shop_memberships (
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            user_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (shop_id, user_id)
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS platform_admins (
+            user_id UUID PRIMARY KEY REFERENCES admin_users(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query(`
+        INSERT INTO shops (id, slug, name, advance_charge)
+        VALUES ($1, 'main', 'Main Shop', $2)
+        ON CONFLICT (id) DO NOTHING
+    `, [defaultShopId, Number.isSafeInteger(admin.advanceCharge) ? admin.advanceCharge : 100]);
+    await pool.query(`
+        INSERT INTO admin_users (email, password_hash)
+        SELECT email, password_hash FROM admin_credentials WHERE id = TRUE
+        ON CONFLICT (email) DO NOTHING
+    `);
+    await pool.query(`
+        INSERT INTO platform_admins (user_id)
+        SELECT u.id
+        FROM admin_users u
+        JOIN admin_credentials c ON c.email = u.email
+        WHERE c.id = TRUE
+        ON CONFLICT (user_id) DO NOTHING
+    `);
+    await pool.query(`
+        DELETE FROM shop_memberships
+        WHERE user_id IN (SELECT user_id FROM platform_admins)
+    `);
+    await pool.query(`
+        UPDATE admin_sessions SET revoked_at = NOW()
+        WHERE user_id IN (SELECT user_id FROM platform_admins) AND revoked_at IS NULL
+    `);
+    await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES admin_users(id) ON DELETE CASCADE');
+    await pool.query('ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS shop_id UUID REFERENCES shops(id) ON DELETE CASCADE');
+
+    await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS shop_id UUID');
+    await pool.query('UPDATE managed_products SET shop_id = $1 WHERE shop_id IS NULL', [defaultShopId]);
+    await pool.query('ALTER TABLE managed_products ALTER COLUMN shop_id SET NOT NULL');
+    await pool.query(`
+        DO $$ BEGIN
+            ALTER TABLE managed_products ADD CONSTRAINT managed_products_shop_id_fkey
+                FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE;
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS managed_products_shop_created_idx ON managed_products (shop_id, created_at DESC)');
+
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS shop_id UUID');
+    await pool.query('UPDATE orders SET shop_id = $1 WHERE shop_id IS NULL', [defaultShopId]);
+    await pool.query('ALTER TABLE orders ALTER COLUMN shop_id SET NOT NULL');
+    await pool.query(`
+        DO $$ BEGIN
+            ALTER TABLE orders ADD CONSTRAINT orders_shop_id_fkey
+                FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE RESTRICT;
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS orders_shop_created_idx ON orders (shop_id, created_at DESC, id DESC)');
+    await pool.query('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_event_id_key');
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS orders_shop_event_id_idx ON orders (shop_id, event_id)');
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shop_transactions (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
+            transaction_type TEXT NOT NULL CHECK (transaction_type IN ('payment', 'refund', 'expense', 'adjustment')),
+            method TEXT NOT NULL CHECK (char_length(method) BETWEEN 2 AND 40),
+            amount BIGINT NOT NULL CHECK (amount > 0),
+            reference TEXT NOT NULL CHECK (char_length(reference) BETWEEN 1 AND 160),
+            status TEXT NOT NULL CHECK (status IN ('pending', 'verified', 'rejected')),
+            notes TEXT NOT NULL DEFAULT '' CHECK (char_length(notes) <= 1000),
+            recorded_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS shop_transactions_shop_created_idx ON shop_transactions (shop_id, created_at DESC, id DESC)');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shop_offers (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            title TEXT NOT NULL CHECK (char_length(title) BETWEEN 2 AND 120),
+            message TEXT NOT NULL CHECK (char_length(message) BETWEEN 2 AND 1000),
+            image TEXT,
+            starts_at TIMESTAMPTZ,
+            ends_at TIMESTAMPTZ,
+            is_published BOOLEAN NOT NULL DEFAULT FALSE,
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at > starts_at)
+        )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS shop_offers_public_idx ON shop_offers (shop_id, is_published, starts_at, ends_at)');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shop_hero_slides (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 4),
+            image TEXT NOT NULL,
+            headline TEXT NOT NULL CHECK (char_length(headline) BETWEEN 2 AND 120),
+            body_text TEXT NOT NULL CHECK (char_length(body_text) BETWEEN 2 AND 500),
+            button_text TEXT NOT NULL CHECK (char_length(button_text) BETWEEN 2 AND 40),
+            target_url TEXT NOT NULL CHECK (char_length(target_url) BETWEEN 1 AND 2048),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (shop_id, position) DEFERRABLE INITIALLY DEFERRED
+        )
+    `);
+    await pool.query('ALTER TABLE shop_hero_slides ADD COLUMN IF NOT EXISTS mobile_image TEXT');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shop_push_subscriptions (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            endpoint TEXT NOT NULL,
+            subscription JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query('ALTER TABLE shop_push_subscriptions DROP CONSTRAINT IF EXISTS shop_push_subscriptions_endpoint_key');
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS shop_push_subscriptions_shop_endpoint_idx ON shop_push_subscriptions (shop_id, endpoint)');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shop_activity_logs (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            actor_email TEXT NOT NULL,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT,
+            details JSONB NOT NULL DEFAULT '{}'::JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS shop_activity_logs_shop_created_idx ON shop_activity_logs (shop_id, created_at DESC, id DESC)');
 }
 
 export async function loadManagedProducts(pool) {
     const { rows } = await pool.query(
         `SELECT id, name, description, price, old_price AS "oldPrice",
                 category, image, stock_quantity AS "stockQuantity", is_available AS "isAvailable",
-                created_at AS "createdAt"
+                shop_id AS "shopId", created_at AS "createdAt"
          FROM managed_products
          ORDER BY created_at DESC, id DESC`
     );

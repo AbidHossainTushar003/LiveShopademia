@@ -9,8 +9,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY admin-assets ./admin-assets
 COPY css ./css
 COPY js ./js
+COPY public-assets ./public-assets
 COPY server ./server
-COPY admin.html index.html ./
+COPY 404.html admin.html admin-platform.html index.html ./
 RUN mkdir -p /app/uploads && chown node:node /app/uploads
 
 USER node

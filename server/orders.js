@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { findProduct } from './catalog.js';
+import { DEFAULT_SHOP_ID, findProductForShop } from './catalog.js';
 
 const BD_MOBILE = /^01[3-9]\d{8}$/;
 const EVENT_ID = /^[\w-]{8,100}$/;
 export const ORDER_STATUSES = ['new', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+export const ORDER_STATUS_TRANSITIONS = Object.freeze({
+    new: ['confirmed', 'cancelled'],
+    confirmed: ['processing', 'cancelled'],
+    processing: ['shipped', 'cancelled'],
+    shipped: ['delivered'],
+    delivered: [],
+    cancelled: ['new']
+});
 
 export class OrderInputError extends Error {
     constructor(message) {
@@ -12,26 +20,30 @@ export class OrderInputError extends Error {
     }
 }
 
+export function canTransitionOrderStatus(currentStatus, nextStatus) {
+    return currentStatus === nextStatus || ORDER_STATUS_TRANSITIONS[currentStatus]?.includes(nextStatus) === true;
+}
+
 export function normalizePhone(value) {
     const digits = String(value ?? '').replace(/[\s\-()]/g, '').replace(/^\+/, '');
     return digits.startsWith('880') ? digits.slice(2) : digits;
 }
 
-export function validateAndPriceOrder(payload, advanceCharge, { checkInventory = true } = {}) {
-    const customer = payload?.customer;
-    const payment = payload?.payment;
+export function validateAndPriceOrder(payload, advanceCharge, { checkInventory = true, shopId = DEFAULT_SHOP_ID } = {}) {
+    const customer = payload?.customer ?? {};
+    const payment = payload?.payment ?? {};
     const items = payload?.items;
 
     if (typeof customer?.name !== 'string' || customer.name.trim().length < 3 || customer.name.trim().length > 120) {
         throw new OrderInputError('Enter a valid customer name.');
     }
-    if (!BD_MOBILE.test(normalizePhone(customer.phone))) {
+    if (!BD_MOBILE.test(normalizePhone(customer?.phone ?? ''))) {
         throw new OrderInputError('Enter a valid Bangladesh mobile number.');
     }
-    if (typeof customer.address !== 'string' || customer.address.trim().length < 10 || customer.address.trim().length > 1000) {
+    if (typeof customer?.address !== 'string' || customer.address.trim().length < 10 || customer.address.trim().length > 1000) {
         throw new OrderInputError('Enter a delivery address between 10 and 1000 characters.');
     }
-    if (payment?.method !== 'bkash' || !BD_MOBILE.test(normalizePhone(payment.bkashNumber))) {
+    if (payment?.method !== 'bkash' || !BD_MOBILE.test(normalizePhone(payment?.bkashNumber ?? ''))) {
         throw new OrderInputError('Enter a valid bKash sender number.');
     }
     if (!Array.isArray(items) || items.length < 1 || items.length > 50) {
@@ -40,13 +52,13 @@ export function validateAndPriceOrder(payload, advanceCharge, { checkInventory =
     if (!Number.isSafeInteger(advanceCharge) || advanceCharge < 0) {
         throw new Error('DELIVERY_ADVANCE_CHARGE must be a non-negative integer.');
     }
-    if (payload.source !== 'storefront' || !EVENT_ID.test(String(payload.eventId ?? ''))) {
+    if (payload?.source !== 'storefront' || !EVENT_ID.test(String(payload?.eventId ?? ''))) {
         throw new OrderInputError('Invalid order request. Please refresh and try again.');
     }
 
     const requestedStock = new Map();
     const pricedItems = items.map((item) => {
-        const product = findProduct(item?.productId);
+        const product = findProductForShop(item?.productId, shopId);
         if (!product || !Number.isInteger(item?.quantity) || item.quantity < 1 || item.quantity > 99) {
             throw new OrderInputError('An order contains an invalid product or quantity.');
         }
@@ -66,7 +78,7 @@ export function validateAndPriceOrder(payload, advanceCharge, { checkInventory =
         };
     });
     for (const [productId, quantity] of requestedStock) {
-        const product = findProduct(productId);
+        const product = findProductForShop(productId, shopId);
         if (!checkInventory || !Number.isSafeInteger(product.stockQuantity)) continue;
         if (quantity > product.stockQuantity) {
             throw new OrderInputError('An order quantity exceeds available stock.');
@@ -76,6 +88,7 @@ export function validateAndPriceOrder(payload, advanceCharge, { checkInventory =
     if (!Number.isSafeInteger(subtotal)) throw new OrderInputError('Order total exceeds the allowed amount.');
 
     return {
+        shopId,
         orderNumber: `SH-${Date.now().toString(36).toUpperCase()}-${randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`,
         eventId: payload.eventId,
         customerName: customer.name.trim(),
@@ -91,6 +104,7 @@ export function validateAndPriceOrder(payload, advanceCharge, { checkInventory =
 
 export function fingerprintOrder(order) {
     return JSON.stringify({
+        shopId: order.shopId ?? DEFAULT_SHOP_ID,
         customerName: order.customerName,
         phone: order.phone,
         address: order.address,

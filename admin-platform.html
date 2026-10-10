@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/svg+xml" href="/public-assets/favicon.svg">
+    <link rel="stylesheet" href="/css/site-chrome.css">
+    <title>Shop management | Shopademia</title>
+    <link rel="stylesheet" href="/admin-assets/admin.css">
+    <script type="module" src="/admin-assets/platform.js"></script>
+</head>
+<body class="platform-page" data-admin-site="true">
+    <main class="shell">
+        <header class="topbar">
+            <a class="brand" href="/admin" aria-label="Back to orders">
+                <img class="brand-mark" src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="">
+                <span>Shopademia <small>SHOP MANAGEMENT</small></span>
+            </a>
+            <a id="dashboardLink" class="button button-secondary" href="/admin">Back to orders</a>
+        </header>
+        <section class="dashboard">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">MULTI-SHOP CONTROL PANEL</p>
+                    <h1>Shop management</h1>
+                    <p id="platformDescription" class="muted">Manage shop access, brand assets, transactions, offers, and business activity.</p>
+                </div>
+                <label class="shop-picker-label" for="shopPicker">Active shop
+                    <select id="shopPicker" aria-label="Select active shop"></select>
+                </label>
+                <div id="shopLifecycle" data-platform-only class="shop-lifecycle">
+                    <p id="shopStatus" class="muted"></p>
+                    <button id="suspendShopButton" class="button button-secondary" type="button" hidden>Suspend shop</button>
+                    <button id="reactivateShopButton" class="button button-primary" type="button" hidden>Reactivate shop</button>
+                    <button id="archiveShopButton" class="button button-danger" type="button">Archive shop</button>
+                </div>
+            </div>
+            <p id="platformMessage" class="notice hidden" role="status"></p>
+            <section class="platform-grid">
+                <article class="profile-panel shop-settings-panel" data-platform-only>
+                    <p class="eyebrow">SHOP PROFILE</p>
+                    <h2>Shop details</h2>
+                    <form id="shopSettingsForm" class="form">
+                        <label for="shopName">Shop name</label>
+                        <input id="shopName" name="name" minlength="2" maxlength="120" required>
+                        <label for="shopAdvanceCharge">Delivery advance (BDT)</label>
+                        <input id="shopAdvanceCharge" name="advanceCharge" type="number" min="0" step="1" required>
+                        <button class="button button-primary" type="submit">Save shop settings</button>
+                    </form>
+                </article>
+                <article class="profile-panel create-shop-panel" data-platform-only>
+                    <p class="eyebrow">CREATE A SHOP</p>
+                    <h2>New storefront</h2>
+                    <form id="createShopForm" class="form">
+                        <label for="newShopName">Shop name</label>
+                        <input id="newShopName" name="name" minlength="2" maxlength="120" required>
+                        <label for="newShopSlug">Shop ID / public URL ID</label>
+                        <input id="newShopSlug" name="slug" pattern="[a-z0-9][a-z0-9\-]{1,47}" maxlength="48" required>
+                        <label for="newShopAdvance">Delivery advance (BDT)</label>
+                        <input id="newShopAdvance" name="advanceCharge" type="number" min="0" step="1" value="100" required>
+                        <button class="button button-primary" type="submit">Create shop</button>
+                    </form>
+                </article>
+                <article class="profile-panel team-panel">
+                    <p class="eyebrow">TEAM ACCESS</p>
+                    <h2>Shop members</h2>
+                    <form id="memberForm" class="form">
+                        <label for="memberEmail">Email</label>
+                        <input id="memberEmail" name="email" type="email" maxlength="254" required>
+                        <label for="memberRole">Role</label>
+                        <select id="memberRole" name="role" required>
+                            <option value="staff">Staff</option>
+                            <option value="admin" hidden>Admin (new account requires a password)</option>
+                        </select>
+                        <label for="memberPassword">Temporary password (new account only)</label>
+                        <input id="memberPassword" name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password">
+                        <button class="button button-primary" type="submit">Add to this shop</button>
+                    </form>
+                    <div id="membersList" class="platform-list" aria-live="polite"></div>
+                </article>
+                <article class="profile-panel shop-api-panel">
+                    <p class="eyebrow">PUBLIC PRODUCT API</p>
+                    <h2>Use this shop’s products on your website</h2>
+                    <p class="muted">This read-only API lists only products uploaded by the selected shop. It needs no API key and supports cross-origin website requests. Do not put private customer or order data here.</p>
+                    <label for="shopProductApiUrl">Shop product API URL</label>
+                    <div class="shop-api-url-row">
+                        <input id="shopProductApiUrl" type="url" readonly aria-describedby="shopProductApiStatus">
+                        <button id="copyShopProductApiUrl" class="button button-secondary" type="button">Copy URL</button>
+                    </div>
+                    <p id="shopProductApiStatus" class="muted" role="status" aria-live="polite"></p>
+                    <label for="shopProductApiExample">Example website integration</label>
+                    <pre id="shopProductApiExample" class="shop-api-code"></pre>
+                    <button id="copyShopProductApiExample" class="button button-primary" type="button">Copy example code</button>
+                </article>
+                <article class="profile-panel branding-panel" data-platform-only>
+                    <p class="eyebrow">STORE BRANDING</p>
+                    <h2>Store banner</h2>
+                    <p class="muted">Upload JPEG, PNG, or WebP images up to 5 MB.</p>
+                    <form class="form branding-form" data-kind="banner">
+                        <label for="bannerImage">Banner image</label>
+                        <input id="bannerImage" name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
+                        <button class="button button-primary" type="submit">Upload banner image</button>
+                    </form>
+                    <div id="brandingPreview" class="platform-list"></div>
+                </article>
+                <article class="profile-panel hero-slides-panel" data-platform-only>
+                    <p class="eyebrow">STOREFRONT HERO</p>
+                    <h2>Hero slider</h2>
+                    <p class="muted">Add up to 5 slides. Each slide has its own image, headline, description, and Buy Now link.</p>
+                    <form id="heroSlideForm" class="form hero-slide-form">
+                        <label for="heroSlideHeadline">Headline</label>
+                        <input id="heroSlideHeadline" name="headline" minlength="2" maxlength="120" required>
+                        <label for="heroSlideDescription">Description</label>
+                        <textarea id="heroSlideDescription" name="bodyText" minlength="2" maxlength="500" rows="3" required></textarea>
+                        <label for="heroSlideButton">Button text</label>
+                        <input id="heroSlideButton" name="buttonText" minlength="2" maxlength="40" value="Buy Now" required>
+                        <label for="heroSlideUrl">Buy Now URL</label>
+                        <input id="heroSlideUrl" name="targetUrl" type="text" maxlength="2048" placeholder="/#shop or https://example.com/product" required>
+                        <label for="heroSlideImage">Desktop slide image</label>
+                        <input id="heroSlideImage" name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
+                        <label for="heroSlideMobileImage">Mobile slide image (optional)</label>
+                        <input id="heroSlideMobileImage" name="mobileImage" type="file" accept="image/jpeg,image/png,image/webp">
+                        <p class="muted">Upload a portrait image for phones. If omitted, the desktop image is used on mobile.</p>
+                        <label id="clearHeroSlideMobileImageLabel" hidden>
+                            <input id="clearHeroSlideMobileImage" name="clearMobileImage" type="checkbox" value="true">
+                            Remove the current mobile image and use the desktop image instead
+                        </label>
+                        <button class="button button-primary" type="submit">Add hero slide</button>
+                        <button id="cancelHeroSlideEdit" class="button button-secondary" type="button" hidden>Cancel editing</button>
+                    </form>
+                    <div id="heroSlidesList" class="platform-list hero-slides-list" aria-live="polite"></div>
+                </article>
+                <article class="profile-panel transactions-panel" data-platform-only>
+                    <p class="eyebrow">PAYMENT LEDGER</p>
+                    <h2>Transactions</h2>
+                    <form id="transactionForm" class="form">
+                        <label for="transactionType">Type</label>
+                        <select id="transactionType" name="type">
+                            <option value="payment">Payment</option><option value="refund">Refund</option>
+                            <option value="expense">Expense</option><option value="adjustment">Adjustment</option>
+                        </select>
+                        <label for="transactionMethod">Method</label>
+                        <input id="transactionMethod" name="method" maxlength="40" placeholder="Cash, bKash, bank" required>
+                        <label for="transactionAmount">Amount (whole BDT)</label>
+                        <input id="transactionAmount" name="amount" type="number" min="1" step="1" required>
+                        <label for="transactionReference">Transaction/reference number</label>
+                        <input id="transactionReference" name="reference" maxlength="160" required>
+                        <label for="transactionOrderId">Order ID (optional)</label>
+                        <input id="transactionOrderId" name="orderId" inputmode="numeric">
+                        <label for="transactionNotes">Notes</label>
+                        <textarea id="transactionNotes" name="notes" maxlength="1000" rows="2"></textarea>
+                        <button class="button button-primary" type="submit">Record transaction</button>
+                    </form>
+                    <div id="transactionsList" class="platform-list" aria-live="polite"></div>
+                </article>
+                <article class="profile-panel offers-panel" data-platform-only>
+                    <p class="eyebrow">DEALS AND NOTIFICATIONS</p>
+                    <h2>Publish a deal</h2>
+                    <form id="offerForm" class="form">
+                        <label for="offerTitle">Offer title</label>
+                        <input id="offerTitle" name="title" minlength="2" maxlength="120" required>
+                        <label for="offerMessage">Offer details</label>
+                        <textarea id="offerMessage" name="message" minlength="2" maxlength="1000" required></textarea>
+                        <label for="offerStartsAt">Starts at (optional)</label>
+                        <input id="offerStartsAt" name="startsAt" type="datetime-local">
+                        <label for="offerEndsAt">Ends at (optional)</label>
+                        <input id="offerEndsAt" name="endsAt" type="datetime-local">
+                        <label><input id="offerPublished" name="isPublished" type="checkbox"> Publish now and notify subscribers</label>
+                        <button class="button button-primary" type="submit">Create offer</button>
+                    </form>
+                    <div id="offersList" class="platform-list" aria-live="polite"></div>
+                </article>
+                <article class="profile-panel reports-panel" data-platform-only>
+                    <p class="eyebrow">BUSINESS INTELLIGENCE</p>
+                    <h2>Reports and analytics</h2>
+                    <label for="reportDays">Reporting period</label>
+                    <select id="reportDays"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
+                    <div id="reportSummary" class="platform-list" aria-live="polite"></div>
+                </article>
+                <article class="profile-panel activity-panel" data-platform-only>
+                    <p class="eyebrow">ADMIN AUDIT TRAIL</p>
+                    <h2>Recent activity</h2>
+                    <div id="activityList" class="platform-list" aria-live="polite"></div>
+                </article>
+            </section>
+        </section>
+    </main>
+    <script type="module" src="/js/site-chrome.js"></script>
+</body>
+</html>
