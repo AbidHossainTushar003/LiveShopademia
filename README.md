@@ -40,6 +40,10 @@ For production, set `DOMAIN` to the public hostname; Docker passes `https://${DO
 
 The server creates the order tables, admin credential table, and indexes at startup. The PostgreSQL Docker volume persists when the app restarts. Back up the database and product-image volumes for disaster recovery. `npm run build:css` regenerates the checked-in production stylesheet when frontend styles change.
 
+### Browser tests
+
+Start the app locally, then set `PLAYWRIGHT_BASE_URL` to that local URL before running `npm run test:e2e`. The default command runs Chromium; `npm run test:e2e:all` runs every configured engine and requires the corresponding Playwright browser dependencies on the host. Do not point the tests at a production service.
+
 ## Catalog and API
 
 The storefront uses this application's same-origin API; it does not fetch catalog or checkout data from a third-party demo API. The product endpoints (`GET /api/v1/products`, `/api/v1/products?featured=true`, `/api/v1/products?sort=newest`, `/api/v1/products/hero-offer`, and `/api/v1/categories`) serve the bundled starter catalog together with products published through the admin API. Product additions, edits, stock, availability, and uploaded images are managed through authenticated `/api/v1/admin/products` endpoints and persisted in PostgreSQL. Checkout uses the server-owned catalog prices; the browser cannot set order prices.
@@ -162,12 +166,12 @@ This deployment targets a single Linux VM with Docker Compose and a public DNS n
    BACKUP_DIR=/var/backups/shopademia scripts/backup-production.sh
    ```
 
-   Schedule it with the host's systemd timer or cron, retain backups according to your policy, and copy encrypted files to an off-host backup provider. Keep the age private key separately; without it, backups cannot be decrypted. Regularly test restore into a separate empty database before relying on backups.
+   The script creates a paired, timestamped, encrypted PostgreSQL dump and product-upload archive. Schedule it with the host's systemd timer or cron, retain both files together according to your policy, and copy the encrypted files to an off-host backup provider. Keep the age private key separately; without it, backups cannot be decrypted. Regularly test restore into a separate empty database before relying on backups.
 6. Configure an external uptime monitor to request `https://<your-domain>/healthz`, alert on non-200 responses, and check service logs. Configure log retention, host patching, secret rotation, and an incident contact before opening the service to customers. The PostgreSQL volume is persistent but is not itself a backup.
 
 The database runs as an unprivileged `shopademia_app` role; the separate bootstrap role is used only by PostgreSQL initialization. The init script runs only when the database volume is first created. This production Compose stack uses a dedicated volume; do not point it at an existing database volume without planning a role/ownership migration. The app has no published host port, and `TRUST_PROXY_HOPS=1` is correct only while Caddy is its sole trusted proxy. If you add another proxy/load balancer, update the hop count and ensure the proxy chain strips client-supplied forwarding headers.
 
-Login and checkout are limited to 8 and 30 requests per client IP per 15 minutes, respectively. These limits are in-memory and reset on restart; do not scale to multiple app replicas without adding a shared rate-limit store, and add edge-level abuse controls if traffic warrants them.
+Login and checkout are limited to 8 and 30 requests per client IP per 15 minutes, respectively. Order lookup allows 5 requests and product uploads 10 per IP per 15 minutes; public catalog reads allow 120 per minute. These limits are in-memory and reset on restart; do not scale to multiple app replicas without adding a shared rate-limit store, and add edge-level abuse controls if traffic warrants them.
 
 ### Launch blockers for real commerce
 

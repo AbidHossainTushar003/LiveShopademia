@@ -664,6 +664,13 @@ test('order lookup validates inputs and applies a strict rate limit', async () =
         .send({ orderNumber: 'SH-ABC123-1A2B', phone: '01712345678' })
         .expect(429);
     assert.equal(limited.headers['cache-control'], 'no-store');
+
+    const catalogApp = createApp({ pool: fakePool(), config });
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+        await request(catalogApp).get('/api/v1/categories').expect(200);
+    }
+    const limitedCatalog = await request(catalogApp).get('/api/v1/categories').expect(429);
+    assert.match(limitedCatalog.body.error, /too many catalog requests/i);
 });
 
 test('admin product management supports authenticated create, update, replacement, and removal', async (t) => {

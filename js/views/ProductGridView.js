@@ -92,7 +92,7 @@ export class ProductGridView {
             ? products.map((p) => this.#card(p, wished.has(String(p.id)))).join('')
             : `<div class="sm:col-span-2 lg:col-span-5 rounded-2xl border border-dashed border-slate-300 bg-white/50 p-8 text-center">
                 <p class="font-bold text-slate-700">${emptyMessage}</p>
-                <p class="mt-1 text-sm text-slate-500">${emptyHint}</p>
+                <p class="mt-1 text-sm text-slate-600">${emptyHint}</p>
                 <button data-action="show-all-products" class="mt-4 rounded-full bg-blue-600 px-5 py-2 text-sm font-bold text-white hover:bg-blue-700">Browse all products</button>
             </div>`;
     }
@@ -114,12 +114,12 @@ export class ProductGridView {
             </a>
             <div>
                 <h3 class="font-bold text-slate-800 text-sm leading-snug line-clamp-1"><a href="/product/${encodeURIComponent(p.id)}?shop=${encodeURIComponent(this.shopSlug)}" aria-label="View details for ${escapeHtml(p.name)}" class="text-left hover:text-blue-700 focus-visible:outline-blue-600">${escapeHtml(p.name)}</a></h3>
-                ${p.description ? `<p class="mt-1 text-xs leading-5 text-slate-500 line-clamp-2">${escapeHtml(p.description)}</p>` : ''}
+                ${p.description ? `<p class="mt-1 text-xs leading-5 text-slate-600 line-clamp-2">${escapeHtml(p.description)}</p>` : ''}
                 <div class="mt-1 flex items-baseline gap-2">
                     <span class="text-base font-extrabold text-blue-700">${formatPrice(p.price)}</span>
-                    ${p.hasDiscount ? `<span class="text-xs text-slate-400 line-through">${formatPrice(p.oldPrice)}</span>` : ''}
+                    ${p.hasDiscount ? `<span class="text-xs text-slate-600 line-through">${formatPrice(p.oldPrice)}</span>` : ''}
                 </div>
-                <div class="flex items-center gap-1 mt-1.5 text-xs text-slate-500">
+                <div class="flex items-center gap-1 mt-1.5 text-xs text-slate-600">
                     <i class="fa-solid fa-star text-amber-400 text-[11px]"></i>
                     <span class="font-bold text-slate-800">${p.rating}</span><span>(${escapeHtml(p.reviews)})</span>
                 </div>

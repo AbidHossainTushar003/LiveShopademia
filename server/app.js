@@ -515,7 +515,7 @@ export function createApp({ pool, config }) {
         maxAge: '1y'
     }));
 
-    app.get('/api/v1/products', async (req, res, next) => {
+    app.get('/api/v1/products', publicCatalogLimit, async (req, res, next) => {
         try {
             const { rows } = await pool.query("SELECT id FROM shops WHERE status = 'active'");
             const activeShopIds = new Set(rows.map(({ id }) => id));
@@ -534,7 +534,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/shops/:slug/products', async (req, res, next) => {
+    app.get('/api/v1/shops/:slug/products', publicCatalogLimit, async (req, res, next) => {
         try {
             const { rows } = await pool.query(
                 `SELECT id, slug, name FROM shops WHERE slug = $1 AND status = 'active'`,
@@ -603,7 +603,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/shops/:slug/categories', async (req, res, next) => {
+    app.get('/api/v1/shops/:slug/categories', publicCatalogLimit, async (req, res, next) => {
         try {
             const shop = await pool.query("SELECT id FROM shops WHERE slug = $1 AND status = 'active'", [req.params.slug]);
             if (!shop.rows[0]) return res.status(404).json({ error: 'Shop not found.' });
@@ -612,7 +612,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/shops/:slug/products/hero-offer', async (req, res, next) => {
+    app.get('/api/v1/shops/:slug/products/hero-offer', publicCatalogLimit, async (req, res, next) => {
         try {
             const shop = await pool.query("SELECT id FROM shops WHERE slug = $1 AND status = 'active'", [req.params.slug]);
             if (!shop.rows[0]) return res.status(404).json({ error: 'Shop not found.' });
@@ -621,7 +621,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/shops/:slug', async (req, res, next) => {
+    app.get('/api/v1/shops/:slug', publicCatalogLimit, async (req, res, next) => {
         try {
             const { rows } = await pool.query(
                 `SELECT id, slug, name, hero_image AS "heroImage", banner_image AS "bannerImage",
@@ -635,7 +635,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/shops', async (_req, res, next) => {
+    app.get('/api/v1/shops', publicCatalogLimit, async (_req, res, next) => {
         try {
             const { rows } = await pool.query(
                 `SELECT slug, name, hero_image AS "heroImage", banner_image AS "bannerImage"
@@ -646,8 +646,8 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/categories', (_req, res) => res.json({ data: getCategories() }));
-    app.get('/api/v1/storefront-config', async (_req, res, next) => {
+    app.get('/api/v1/categories', publicCatalogLimit, (_req, res) => res.json({ data: getCategories() }));
+    app.get('/api/v1/storefront-config', publicCatalogLimit, async (_req, res, next) => {
         res.set('Cache-Control', 'no-store');
         try {
             const { rows } = await pool.query(
@@ -660,7 +660,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/shops/:slug/config', async (req, res, next) => {
+    app.get('/api/v1/shops/:slug/config', publicCatalogLimit, async (req, res, next) => {
         res.set('Cache-Control', 'no-store');
         try {
             const { rows } = await pool.query(
@@ -684,7 +684,7 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/api/v1/products/hero-offer', (_req, res) => res.json({ data: getHeroProduct() }));
+    app.get('/api/v1/products/hero-offer', publicCatalogLimit, (_req, res) => res.json({ data: getHeroProduct() }));
     app.get('/api/v1/admin/products', authenticateAdmin, requireShopDashboard, async (req, res, next) => {
         try {
             const { rows } = await pool.query(

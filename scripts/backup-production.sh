@@ -34,13 +34,24 @@ mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup_file="$BACKUP_DIR/shopademia-$timestamp.dump.age"
-temporary_file="$(mktemp "$BACKUP_DIR/.shopademia-$timestamp.XXXXXX")"
-trap 'rm -f -- "$temporary_file"' EXIT
+backup_id="$timestamp-$$"
+backup_file="$BACKUP_DIR/shopademia-$backup_id.dump.age"
+images_backup_file="$BACKUP_DIR/shopademia-$backup_id-uploads.tar.gz.age"
+temporary_database_file="$(mktemp "$BACKUP_DIR/.shopademia-$backup_id-database.XXXXXX")"
+temporary_images_file="$(mktemp "$BACKUP_DIR/.shopademia-$backup_id-uploads.XXXXXX")"
+backup_pair_complete=false
+trap 'rm -f -- "$temporary_database_file" "$temporary_images_file"; if [[ "$backup_pair_complete" != true ]]; then rm -f -- "$backup_file" "$images_backup_file"; fi' EXIT
 
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T database \
     sh -c 'pg_dump --format=custom --username="$POSTGRES_USER" "$POSTGRES_DB"' \
-    | age --recipient "$BACKUP_AGE_RECIPIENT" > "$temporary_file"
+    | age --recipient "$BACKUP_AGE_RECIPIENT" > "$temporary_database_file"
 
-mv -- "$temporary_file" "$backup_file"
-printf 'Encrypted backup created: %s\n' "$backup_file"
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T app \
+    tar -C /app -czf - uploads \
+    | age --recipient "$BACKUP_AGE_RECIPIENT" > "$temporary_images_file"
+
+mv -- "$temporary_database_file" "$backup_file"
+mv -- "$temporary_images_file" "$images_backup_file"
+backup_pair_complete=true
+printf 'Encrypted database backup created: %s\n' "$backup_file"
+printf 'Encrypted uploaded-images backup created: %s\n' "$images_backup_file"

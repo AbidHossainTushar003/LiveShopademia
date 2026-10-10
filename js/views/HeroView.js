@@ -140,10 +140,10 @@ export class HeroView {
         card.innerHTML = `
             <span class="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider">Featured product</span>
             <h4 class="text-xs font-bold text-slate-900 mt-1.5 leading-tight line-clamp-2"><a href="/product/${encodeURIComponent(p.id)}?shop=${encodeURIComponent(this.shopSlug)}" aria-label="View details for ${escapeHtml(p.name)}" class="text-left hover:text-blue-700 focus-visible:outline-blue-600">${escapeHtml(p.name)}</a></h4>
-            <p class="text-[10px] text-slate-500 mt-0.5">${escapeHtml(p.category)}</p>
+            <p class="text-[10px] text-slate-600 mt-0.5">${escapeHtml(p.category)}</p>
             <div class="mt-2 flex items-baseline gap-1.5">
                 <span class="text-sm font-extrabold text-blue-700">${formatPrice(p.price)}</span>
-                ${p.hasDiscount ? `<span class="text-[10px] text-slate-400 line-through">${formatPrice(p.oldPrice)}</span>
+                ${p.hasDiscount ? `<span class="text-[10px] text-slate-600 line-through">${formatPrice(p.oldPrice)}</span>
                 <span class="text-[10px] font-bold text-rose-500 bg-rose-50 px-1 rounded">-${p.discountPercent}%</span>` : ''}
             </div>
             <button data-action="add" ${available ? '' : 'disabled'} title="${escapeHtml(p.name)}" class="w-full mt-2.5 py-1.5 rounded-lg ${available ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-400 cursor-not-allowed'} text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-colors shadow-sm">

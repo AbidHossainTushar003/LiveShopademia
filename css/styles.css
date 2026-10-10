@@ -40,8 +40,9 @@ body { background-color:#ebf3fa; color:#1e293b; overflow-x:hidden; font-family:'
 .hero-slider-controls { position:absolute; right:.75rem; bottom:.75rem; left:.75rem; z-index:30; display:flex; align-items:center; justify-content:center; gap:.65rem; }
 .hero-slider-controls button { display:grid; min-width:2.25rem; min-height:2.25rem; place-items:center; border:1px solid rgba(255,255,255,.8); border-radius:999px; color:#1e40af; background:rgba(255,255,255,.9); box-shadow:0 2px 8px rgba(15,23,42,.12); font-size:1.25rem; font-weight:800; cursor:pointer; }
 .hero-slide-indicators { display:flex; align-items:center; justify-content:center; gap:.4rem; }
-.hero-slide-indicators button { min-width:.6rem; min-height:.6rem; width:.6rem; height:.6rem; padding:0; border:0; background:#94a3b8; }
-.hero-slide-indicators button[aria-current="true"] { width:1.35rem; border-radius:999px; background:#2563eb; }
+.hero-slide-indicators button { position:relative; display:grid; min-width:2rem; min-height:2rem; width:2rem; height:2rem; place-items:center; padding:0; border:0; border-radius:999px; background:transparent; cursor:pointer; }
+.hero-slide-indicators button::before { width:.6rem; height:.6rem; border-radius:999px; background:#64748b; content:""; }
+.hero-slide-indicators button[aria-current="true"]::before { width:1.35rem; background:#2563eb; }
 .hero-slider-controls.hidden { display:none; }
 #heroProductFallback.hidden { display:none; }
 @media(max-width:40rem) {
