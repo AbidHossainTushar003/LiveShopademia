@@ -49,27 +49,25 @@
                 <label class="shop-picker-label" for="shopPicker">Active shop
                     <select id="shopPicker" aria-label="Select active shop"></select>
                 </label>
-                <div id="shopLifecycle" data-platform-only class="shop-lifecycle">
-                    <p id="shopStatus" class="muted"></p>
-                    <button id="suspendShopButton" class="button button-secondary" type="button" hidden>Suspend shop</button>
-                    <button id="reactivateShopButton" class="button button-primary" type="button" hidden>Reactivate shop</button>
-                    <button id="archiveShopButton" class="button button-danger" type="button">Archive shop</button>
-                </div>
             </div>
             <p id="platformMessage" class="notice hidden" role="status"></p>
+            <article id="platformOverviewPanel" class="profile-panel platform-feature-panel is-active">
+                <p class="eyebrow">ADMIN WORKSPACE</p>
+                <h2>Choose a feature</h2>
+                <p class="muted">Use the navigation menu to open shop settings, team access, storefront content, reports, and other available tools. Each feature opens on its own to keep the workspace focused.</p>
+            </article>
             <div class="platform-sections">
-                <section id="shopManagementSection" class="platform-section" aria-labelledby="shopManagementHeading">
-                    <header class="platform-section-heading">
-                        <div>
-                            <p class="eyebrow">WORKSPACE</p>
-                            <h2 id="shopManagementHeading">Shop and team</h2>
-                            <p class="muted">Choose a shop, maintain its profile, and manage access for the people who run it.</p>
-                        </div>
-                    </header>
+                <section id="shopManagementSection" class="platform-section">
                     <div class="platform-grid">
-                <article id="shopSettingsPanel" class="profile-panel shop-settings-panel" data-platform-only>
+                <article id="shopSettingsPanel" class="profile-panel shop-settings-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">SHOP PROFILE</p>
                     <h2>Shop details</h2>
+                    <div id="shopLifecycle" class="shop-lifecycle" data-platform-only>
+                        <p id="shopStatus" class="muted"></p>
+                        <button id="suspendShopButton" class="button button-secondary" type="button" hidden>Suspend shop</button>
+                        <button id="reactivateShopButton" class="button button-primary" type="button" hidden>Reactivate shop</button>
+                        <button id="archiveShopButton" class="button button-danger" type="button">Archive shop</button>
+                    </div>
                     <form id="shopSettingsForm" class="form">
                         <label for="shopName">Shop name</label>
                         <input id="shopName" name="name" minlength="2" maxlength="120" required>
@@ -78,7 +76,7 @@
                         <button class="button button-primary" type="submit">Save shop settings</button>
                     </form>
                 </article>
-                <article class="profile-panel create-shop-panel" data-platform-only>
+                <article id="createShopPanel" class="profile-panel create-shop-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">CREATE A SHOP</p>
                     <h2>New storefront</h2>
                     <form id="createShopForm" class="form">
@@ -91,7 +89,7 @@
                         <button class="button button-primary" type="submit">Create shop</button>
                     </form>
                 </article>
-                <article id="teamPanel" class="profile-panel team-panel">
+                <article id="teamPanel" class="profile-panel team-panel platform-feature-panel">
                     <p class="eyebrow">TEAM ACCESS</p>
                     <h2>Shop members</h2>
                     <form id="memberForm" class="form">
@@ -110,16 +108,9 @@
                 </article>
                     </div>
                 </section>
-                <section id="storefrontSection" class="platform-section" aria-labelledby="storefrontHeading">
-                    <header class="platform-section-heading">
-                        <div>
-                            <p class="eyebrow">CUSTOMER EXPERIENCE</p>
-                            <h2 id="storefrontHeading">Storefront and content</h2>
-                            <p class="muted">Manage the public product feed, store branding, and homepage slides.</p>
-                        </div>
-                    </header>
+                <section id="storefrontSection" class="platform-section">
                     <div class="platform-grid">
-                <article class="profile-panel shop-api-panel">
+                <article id="shopProductApiPanel" class="profile-panel shop-api-panel platform-feature-panel">
                     <p class="eyebrow">PUBLIC PRODUCT API</p>
                     <h2>Use this shop’s products on your website</h2>
                     <p class="muted">This read-only API lists only products uploaded by the selected shop. It needs no API key and supports cross-origin website requests. Do not put private customer or order data here.</p>
@@ -133,7 +124,7 @@
                     <pre id="shopProductApiExample" class="shop-api-code"></pre>
                     <button id="copyShopProductApiExample" class="button button-primary" type="button">Copy example code</button>
                 </article>
-                <article id="brandingPanel" class="profile-panel branding-panel" data-platform-only>
+                <article id="brandingPanel" class="profile-panel branding-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">STORE BRANDING</p>
                     <h2>Store banner</h2>
                     <p class="muted">Upload JPEG, PNG, or WebP images up to 5 MB.</p>
@@ -144,7 +135,7 @@
                     </form>
                     <div id="brandingPreview" class="platform-list"></div>
                 </article>
-                <article id="heroSlidesPanel" class="profile-panel hero-slides-panel" data-platform-only>
+                <article id="heroSlidesPanel" class="profile-panel hero-slides-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">STOREFRONT HERO</p>
                     <h2>Hero slider</h2>
                     <p class="muted">Add up to 5 slides. Each slide has its own image, headline, description, and Buy Now link.</p>
@@ -173,16 +164,9 @@
                 </article>
                     </div>
                 </section>
-                <section id="businessSection" class="platform-section" data-platform-only aria-labelledby="businessHeading">
-                    <header class="platform-section-heading">
-                        <div>
-                            <p class="eyebrow">SHOP OPERATIONS</p>
-                            <h2 id="businessHeading">Transactions, offers and reports</h2>
-                            <p class="muted">Review the existing transaction log, publish deals, and inspect activity summaries.</p>
-                        </div>
-                    </header>
+                <section id="businessSection" class="platform-section" data-platform-only>
                     <div class="platform-grid">
-                <article class="profile-panel transactions-panel" data-platform-only>
+                <article id="transactionsPanel" class="profile-panel transactions-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">PAYMENT LEDGER</p>
                     <h2>Transactions</h2>
                     <form id="transactionForm" class="form">
@@ -205,7 +189,7 @@
                     </form>
                     <div id="transactionsList" class="platform-list" aria-live="polite"></div>
                 </article>
-                <article id="offersPanel" class="profile-panel offers-panel" data-platform-only>
+                <article id="offersPanel" class="profile-panel offers-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">DEALS AND NOTIFICATIONS</p>
                     <h2>Publish a deal</h2>
                     <form id="offerForm" class="form">
@@ -222,7 +206,7 @@
                     </form>
                     <div id="offersList" class="platform-list" aria-live="polite"></div>
                 </article>
-                <article id="reportsPanel" class="profile-panel reports-panel" data-platform-only>
+                <article id="reportsPanel" class="profile-panel reports-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">BUSINESS INTELLIGENCE</p>
                     <h2>Reports and analytics</h2>
                     <label for="reportDays">Reporting period</label>
@@ -231,16 +215,9 @@
                 </article>
                     </div>
                 </section>
-                <section id="governanceSection" class="platform-section" data-platform-only aria-labelledby="governanceHeading">
-                    <header class="platform-section-heading">
-                        <div>
-                            <p class="eyebrow">PLATFORM GOVERNANCE</p>
-                            <h2 id="governanceHeading">Settings, access and audit</h2>
-                            <p class="muted">Review platform settings, the current permission foundation, and administrative activity.</p>
-                        </div>
-                    </header>
+                <section id="governanceSection" class="platform-section" data-platform-only>
                     <div class="platform-grid">
-                <article id="adminSettingsPanel" class="profile-panel admin-settings-panel" data-platform-only>
+                <article id="adminSettingsPanel" class="profile-panel admin-settings-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">ADMIN FOUNDATIONS</p>
                     <h2>Settings</h2>
                     <p class="muted">Secret values are encrypted at rest and never returned by read APIs. Configure <code>ADMIN_SETTINGS_ENCRYPTION_KEY</code> before saving secrets.</p>
@@ -257,19 +234,19 @@
                     </form>
                     <div id="adminSettingsList" class="platform-list" aria-live="polite"></div>
                 </article>
-                <article id="permissionMatrixPanel" class="profile-panel permissions-panel" data-platform-only>
+                <article id="permissionMatrixPanel" class="profile-panel permissions-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">ACCESS CONTROL</p>
                     <h2>Role and action permissions</h2>
                     <p class="muted">Unresolved roles are default-deny. The missing V2 role matrix must be reconciled before additional permissions can be granted.</p>
                     <div id="permissionMatrix" class="platform-list" aria-live="polite"></div>
                 </article>
-                <article id="adminAuditPanel" class="profile-panel audit-panel" data-platform-only>
+                <article id="adminAuditPanel" class="profile-panel audit-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">IMMUTABLE ADMIN AUDIT</p>
                     <h2>Security audit trail</h2>
                     <p class="muted">Records of administrative setting changes. Values and secrets are intentionally excluded.</p>
                     <div id="adminAuditList" class="platform-list" aria-live="polite"></div>
                 </article>
-                <article class="profile-panel activity-panel" data-platform-only>
+                <article id="activityPanel" class="profile-panel activity-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">ADMIN AUDIT TRAIL</p>
                     <h2>Recent activity</h2>
                     <div id="activityList" class="platform-list" aria-live="polite"></div>

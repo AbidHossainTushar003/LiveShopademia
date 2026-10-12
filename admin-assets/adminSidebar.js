@@ -15,9 +15,14 @@ export function adminSidebarGroups({ page, isPlatformAdmin, shopRole, permission
         {
             label: 'Dashboard',
             icon: 'grid',
-            items: [item('Overview', page === 'platform' ? '#pageTop' : '/admin?view=orders', {
-                view: page === 'orders' ? 'orders' : undefined
-            })]
+            items: [
+                item('Overview', page === 'platform' ? '#platformOverviewPanel' : '/admin?view=orders', {
+                    view: page === 'orders' ? 'orders' : undefined
+                }),
+                ...(page === 'platform' && isPlatformAdmin
+                    ? [item('Create shop', '#createShopPanel')]
+                    : [])
+            ]
         },
         {
             label: 'Orders',
@@ -38,16 +43,28 @@ export function adminSidebarGroups({ page, isPlatformAdmin, shopRole, permission
         {
             label: 'Accounts',
             icon: 'accounts',
-            items: [
-                unavailable('Income'),
-                unavailable('Expense'),
-                unavailable('Due'),
-                unavailable('Balance'),
-                unavailable('Fund Transfer'),
-                unavailable('Account Purpose'),
-                unavailable('Employee Salary'),
-                unavailable('Bill Statements')
-            ]
+            items: page === 'platform' && isPlatformAdmin
+                ? [
+                    item('Transactions', '#transactionsPanel'),
+                    unavailable('Income'),
+                    unavailable('Expense'),
+                    unavailable('Due'),
+                    unavailable('Balance'),
+                    unavailable('Fund Transfer'),
+                    unavailable('Account Purpose'),
+                    unavailable('Employee Salary'),
+                    unavailable('Bill Statements')
+                ]
+                : [
+                    unavailable('Income'),
+                    unavailable('Expense'),
+                    unavailable('Due'),
+                    unavailable('Balance'),
+                    unavailable('Fund Transfer'),
+                    unavailable('Account Purpose'),
+                    unavailable('Employee Salary'),
+                    unavailable('Bill Statements')
+                ]
         },
         {
             label: 'Products',
@@ -90,8 +107,13 @@ export function adminSidebarGroups({ page, isPlatformAdmin, shopRole, permission
                 ? [view('Shop Profile', 'shop')]
                 : [
                     ...(isPlatformAdmin
-                        ? [item('Header & Footer', '#brandingPanel'), item('Theme Color', '#brandingPanel'), item('Pages', '#brandingPanel')]
-                        : [unavailable('Header & Footer'), unavailable('Theme Color'), unavailable('Pages')])
+                        ? [
+                            item('Header & Footer', '#brandingPanel'),
+                            item('Theme Color', '#brandingPanel'),
+                            item('Pages', '#brandingPanel')
+                        ]
+                        : [unavailable('Header & Footer'), unavailable('Theme Color'), unavailable('Pages')]),
+                    item('Public product API', '#shopProductApiPanel')
                 ]
         },
         {
@@ -135,7 +157,8 @@ export function adminSidebarGroups({ page, isPlatformAdmin, shopRole, permission
                         : []),
                     ...(isPlatformAdmin && builtPermissions.has('audit.read')
                         ? [item('Security Audit', '#adminAuditPanel', { permission: 'audit.read' })]
-                        : [])
+                        : []),
+                    ...(isPlatformAdmin ? [item('Recent Activity', '#activityPanel')] : [])
                 ]
                 : [view('Account Profile', 'profile'), item('Shop Management', '/admin/platform')]
         },
@@ -176,6 +199,22 @@ function makeIcon(name) {
     icon.setAttribute('aria-hidden', 'true');
     icon.innerHTML = paths[name] || paths.grid;
     return icon;
+}
+
+function activatePlatformFeature() {
+    const requested = document.getElementById(window.location.hash.slice(1));
+    const overview = document.getElementById('platformOverviewPanel');
+    const activePanel = requested?.matches('.platform-feature-panel') && !requested.hidden
+        ? requested
+        : overview;
+
+    document.querySelectorAll('.platform-feature-panel').forEach((panel) => {
+        panel.classList.toggle('is-active', panel === activePanel);
+    });
+    document.querySelectorAll('#adminSidebarNav a[href^="#"]').forEach((link) => {
+        if (link.hash === `#${activePanel?.id}`) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+    });
 }
 
 export function mountAdminSidebar({ page, email, role, isPlatformAdmin = false, shopRole = '', permissions = [], onView }) {
@@ -254,6 +293,14 @@ export function mountAdminSidebar({ page, email, role, isPlatformAdmin = false, 
         details.append(list);
         nav.append(details);
     });
+
+    if (page === 'platform') {
+        if (document.body.dataset.platformNavigationBound !== 'true') {
+            window.addEventListener('hashchange', activatePlatformFeature);
+            document.body.dataset.platformNavigationBound = 'true';
+        }
+        activatePlatformFeature();
+    }
 
     const applySearch = () => {
         const query = search.value.trim().toLocaleLowerCase();

@@ -86,24 +86,68 @@ test('platform-admin sidebar reveals only permission-granted built links', async
     expect(pageErrors).toEqual([]);
 });
 
-test('platform workspace groups existing panels into responsive sections', async ({ page }) => {
+test('shop-admin can open shop features without platform-only controls', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await disablePageController(page, 'platform');
     await page.goto('/admin/platform');
+    await renderMockedSidebar(page, {
+        page: 'platform',
+        email: 'shop-admin@example.test',
+        role: 'owner · Demo Shop',
+        shopRole: 'owner'
+    });
 
-    const sections = page.locator('.platform-section');
-    await expect(sections).toHaveCount(4);
-    await expect(sections.nth(0).locator('.platform-section-heading h2')).toHaveText('Shop and team');
-    await expect(sections.nth(1).locator('.platform-section-heading h2')).toHaveText('Storefront and content');
-    await expect(sections.nth(2).locator('.platform-section-heading h2')).toHaveText('Transactions, offers and reports');
-    await expect(sections.nth(3).locator('.platform-section-heading h2')).toHaveText('Settings, access and audit');
-    await expect(sections.nth(0).locator('#shopSettingsPanel')).toBeAttached();
-    await expect(sections.nth(1).locator('#heroSlidesPanel')).toBeAttached();
-    await expect(sections.nth(2).locator('.transactions-panel')).toBeAttached();
+    const toggle = page.getByRole('button', { name: 'Open admin navigation' });
+    await toggle.click();
+    const sidebar = page.getByRole('dialog', { name: 'Admin navigation' });
+    await sidebar.getByText('Website Setup', { exact: true }).click();
+    await expect(sidebar.getByRole('link', { name: 'Public product API' })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Header & Footer' })).toBeDisabled();
+    await expect(sidebar.getByRole('link', { name: 'Create shop' })).toHaveCount(0);
+    await sidebar.getByRole('link', { name: 'Public product API' }).click();
+    await expect(page).toHaveURL(/#shopProductApiPanel$/);
+    await expect(page.locator('#shopProductApiPanel')).toBeVisible();
+    await expect(page.locator('.platform-feature-panel.is-active:visible')).toHaveCount(1);
+});
+
+test('platform workspace shows one selected feature and navigates to it from the sidebar', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await disablePageController(page, 'platform');
+    await page.goto('/admin/platform');
+    await renderMockedSidebar(page, {
+        page: 'platform',
+        email: 'platform-admin@example.test',
+        role: 'Super Admin',
+        isPlatformAdmin: true,
+        shopRole: 'owner',
+        permissions: ['settings.read', 'permissions.read', 'audit.read'].map((permissionKey) => ({
+            roleKey: 'super_admin',
+            permissionKey,
+            granted: true
+        }))
+    });
+
+    await expect(page.locator('#platformOverviewPanel')).toBeVisible();
+    await expect(page.locator('.platform-feature-panel.is-active:visible')).toHaveCount(1);
+    const toggle = page.getByRole('button', { name: 'Open admin navigation' });
+    await toggle.click();
+    const sidebar = page.getByRole('dialog', { name: 'Admin navigation' });
+    await sidebar.getByRole('link', { name: 'Create shop' }).click();
+    await expect(page).toHaveURL(/#createShopPanel$/);
+    await expect(page.locator('#createShopPanel')).toBeVisible();
+    await expect(page.locator('#platformOverviewPanel')).toBeHidden();
+
+    await toggle.click();
+    await sidebar.getByText('Website Setup', { exact: true }).click();
+    await sidebar.getByRole('link', { name: 'Public product API' }).click();
+    await expect(page).toHaveURL(/#shopProductApiPanel$/);
+    await expect(page.locator('#shopProductApiPanel')).toBeVisible();
+    await expect(page.locator('#createShopPanel')).toBeHidden();
+    await expect(page.locator('.platform-feature-panel.is-active:visible')).toHaveCount(1);
     const layout = await page.evaluate(() => ({
         viewportWidth: document.documentElement.clientWidth,
         pageWidth: document.documentElement.scrollWidth,
-        gridColumns: getComputedStyle(document.querySelector('#shopManagementSection .platform-grid')).gridTemplateColumns
+        gridColumns: getComputedStyle(document.querySelector('#storefrontSection .platform-grid')).gridTemplateColumns
     }));
     expect(layout.pageWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.gridColumns.split(' ').length).toBe(1);

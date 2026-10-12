@@ -8,9 +8,9 @@
 | Check | Result | Evidence and limits |
 |---|---|---|
 | `npm.cmd test` | **PASS — 100/100** | Full Node test suite completed with 100 passed, 0 failed, 0 skipped. Test doubles/local test setup do not establish production integration. |
-| `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'; .\node_modules\.bin\playwright.cmd test adminSidebar.spec.js --project=chromium --workers=1` | **PASS — 3/3** | Shop and platform sidebar component tests plus a responsive platform-workspace layout check at 390×844. Covers drawer behavior, search, unavailable entries, permission-filtered destinations, focus restoration, four dashboard section headings, and one-column/no-horizontal-overflow layout. Sidebar identity and permissions are mocked; this does not authenticate to the real admin API. |
+| `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'; .\node_modules\.bin\playwright.cmd test adminSidebar.spec.js --project=chromium --workers=1` | **PASS — 4/4** | Covers sidebar drawer/search/keyboard behavior, permission-filtered destinations, shop-admin access boundaries, and platform single-feature navigation at 390×844 with mocked identities and permissions. Confirms only the selected feature panel is visible and the one-column layout has no horizontal overflow. Does not authenticate to the real admin API. |
 | `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'; .\node_modules\.bin\playwright.cmd test adminLogin.spec.js --project=chromium --workers=1` | **PASS — 1/1** | Exercises the development email/password-only admin UI with intercepted API calls. It does not validate the real local account credentials or session persistence. |
-| `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'; .\node_modules\.bin\playwright.cmd test --project=chromium --workers=1` | **PASS — 9 passed, 1 skipped, 0 failed** | Serial Chromium suite after the login change. Product-detail E2E was skipped because the local database contains no shop catalog item; run predates the new platform section-layout test. |
+| `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'; .\node_modules\.bin\playwright.cmd test --project=chromium --workers=1` | **PASS — 9 passed, 1 skipped, 0 failed** | Serial Chromium suite after the login change. Product-detail E2E was skipped because the local database contains no shop catalog item; run predates the new feature-navigation tests. |
 | Manual local Chromium admin sign-in using the account holder's supplied credentials | **PASS** | Submitted the actual `/admin` form to the local backend; login and authenticated profile returned HTTP 200, redirected to `/admin/platform` with the “Shop management” heading, and logout returned HTTP 204. Development-only MFA bypass was active. The session was revoked; credentials are not recorded here. |
 | `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'; .\node_modules\.bin\playwright.cmd test --workers=1` | **PARTIAL — Chromium 9 passed, 1 skipped; Firefox/WebKit unavailable** | Chromium completed; Firefox's installed binary exited immediately with Windows process exit code `3236495362`, so its tests and WebKit did not run. This is a local browser-launch limitation, not a passing cross-browser result. |
 | Playwright axe WCAG 2.1 AA checks | **PASS — 3 pages** | `/`, `/privacy`, and `/terms` report no violations after darkening empty/loading category and product messages. This does not establish full-site or manual assistive-technology conformance. |
@@ -31,7 +31,7 @@
 - Development platform-admin login now uses email and password only. The server still enforces MFA in production regardless of configuration; stored MFA enrollment has not been changed. A server/API boundary test and updated browser test cover this behavior.
 - Verified local `/healthz` and `/admin` return HTTP 200; the rendered local login page carries the development-only MFA-off setting. The actual supplied local account credentials also passed the Chromium form flow; profile returned 200, redirect reached the Platform Admin page, and logout revoked the session.
 - The shared browser tool repeatedly timed out on `/api/v1/admin/*`, while a clean local Chromium browser completed the real form login, authenticated profile redirect, and logout. The remaining timeout appears isolated to the shared browser session/tool context.
-- Platform Admin panels are now grouped under Shop and team, Storefront and content, Transactions/offers/reports, and Settings/access/audit. The focused mobile browser check confirms these four headings render without horizontal overflow at 390 px; it does not test real API actions within those panels.
+- Platform Admin now opens one feature panel at a time, selected by the sidebar or a deep-link fragment. The focused mobile browser check confirms feature switching, role-specific API navigation, a single visible panel, and no horizontal overflow at 390 px; it does not test real API actions within those panels.
 
 ## Not tested
 
@@ -43,6 +43,6 @@
 
 ## Regression and release assessment
 
-The latest full Node suite passed, and the focused admin login/sidebar/layout browser checks passed (4/4 combined). This is a limited regression result; it is not evidence that untested flows work.
+The latest full Node suite passed (100/100), and the focused admin login/sidebar feature-navigation browser checks passed (5/5 combined). This is a limited regression result; it is not evidence that untested flows work.
 
 **Production decision: NO-GO.** See [AUDIT_REPORT.md](../AUDIT_REPORT.md), [ADMIN-GAP-REPORT.md](./ADMIN-GAP-REPORT.md), and [FEATURE_MATRIX.md](./FEATURE_MATRIX.md) for blockers and per-area status. Do not infer payment, shipment, data migration, or production readiness from these test results.

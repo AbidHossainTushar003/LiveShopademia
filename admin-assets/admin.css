@@ -200,27 +200,18 @@ body.platform-page {
 .platform-page .notice { margin: 0; padding: 14px 16px; border: 1px solid #bbf7d0; }
 .platform-page .notice.error { border-color: #fecaca; }
 
-.platform-sections { display: grid; gap: 28px; }
-.platform-section { min-width: 0; scroll-margin-top: 20px; }
+.platform-sections { display: grid; gap: 0; }
+.platform-section { min-width: 0; }
 .platform-section[hidden] { display: none; }
-.platform-section-heading {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 16px;
-    margin: 0 2px 13px;
-}
-.platform-section-heading h2 {
-    margin: 7px 0 0;
-    color: #172033;
-    font-size: clamp(20px, 2.3vw, 25px);
-    letter-spacing: -.03em;
-}
-.platform-section-heading .muted { max-width: 680px; margin: 6px 0 0; }
+.platform-feature-panel:not(.is-active) { display: none; }
+.platform-feature-panel.is-active { display: block; grid-column: 1 / -1; }
+.platform-feature-panel[hidden] { display: none; }
+.platform-page #platformOverviewPanel { max-width: 900px; }
 .platform-page .platform-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
-    gap: 18px;
+    gap: 0;
+    max-width: 900px;
 }
 
 .platform-page .profile-panel[id] { scroll-margin-top: 20px; }
@@ -232,6 +223,7 @@ body.platform-page {
     box-shadow: 0 8px 26px #17203308;
     transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
+.platform-page .platform-feature-panel.is-active { scroll-margin-top: 20px; }
 
 .platform-page .profile-panel:hover {
     border-color: #cbd9ec;
@@ -411,9 +403,8 @@ body.platform-page {
     .platform-page .shop-picker-label { width: 100%; }
     .platform-page .shop-lifecycle { grid-column: auto; justify-content: start; }
     .platform-page .shop-lifecycle .muted { text-align: left; }
-    .platform-page .platform-sections { gap: 22px; }
-    .platform-page .platform-section-heading { margin: 0 2px 11px; }
-    .platform-page .platform-grid { grid-template-columns: 1fr; gap: 13px; }
+    .platform-page .platform-sections { gap: 0; }
+    .platform-page .platform-grid { grid-template-columns: 1fr; gap: 0; }
     .platform-page .profile-panel { padding: 20px; }
     .platform-page .hero-slides-panel { grid-column: auto; }
     .platform-page .shop-api-panel { grid-column: auto; }
