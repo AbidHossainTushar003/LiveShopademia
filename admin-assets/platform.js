@@ -82,6 +82,7 @@ async function loadShops() {
 function applyRolePermissions() {
     const canManageTeam = isPlatformAdmin || ['owner', 'admin'].includes(activeShop?.role);
     document.querySelectorAll('[data-platform-only]').forEach((element) => { element.hidden = !isPlatformAdmin; });
+    document.getElementById('teamPanel').hidden = !canManageTeam;
     const memberForm = document.getElementById('memberForm');
     memberForm.hidden = !canManageTeam;
     const adminRoleOption = memberForm.elements.role.querySelector('option[value="admin"]');
@@ -160,7 +161,7 @@ async function loadShopDetails() {
             loadPermissionMatrix(),
             loadAdminAudit()
         ]);
-    } else {
+    } else if (['owner', 'admin'].includes(activeShop.role)) {
         await loadMembers();
     }
     refreshAdminSidebar();

@@ -112,3 +112,12 @@ The existing partial features are not yet acceptance-tested against the V3 requi
 3. Agree the role matrix and self-demotion/last-super-admin safeguards before building role assignment or expanding non-platform grants.
 4. Approve audit coverage, secret rotation/recovery, and retention requirements before extending those security-sensitive foundation services.
 5. After each decision gate, update the feature matrix, implement only approved scope, run acceptance checks in isolated test environments, and stop for review before advancing; keep deployment blocked until restore and host verification pass.
+
+## Latest task: interaction audit and staff workspace authorization
+
+- Added [INTERACTION_AUDIT.md](./INTERACTION_AUDIT.md), covering static button/form counts and labels, generated storefront/admin controls, all 16 sidebar groups and disabled destinations, accessibility research, ranked findings, and explicitly unverified/blocked work.
+- Confirmed shop-team authorization allows platform admins and shop `owner`/`admin`, not staff. Updated `admin-assets/platform.js` so staff do not request the team-members endpoint and do not see the team-management panel. Added a mocked Chromium regression test.
+- Clarified in `admin-platform.html` that the transaction screen is a manual transaction register, not double-entry accounting or provider verification.
+- Verification: Node tests **100/100 passed**; focused sidebar Chromium tests **5/5 passed**; modified JavaScript syntax and `git diff --check` passed.
+- The final full Chromium rerun was attempted but blocked before assertions: local app startup failed with PostgreSQL authentication error `28P01` for the isolated port-5433 test database, leaving 13 E2E cases unable to connect. The isolated test cluster started for diagnosis was stopped cleanly. No production system was accessed or changed.
+- Current audit, exact verification limits, production NO-GO status, and next actions are documented in [TEST_REPORT.md](./TEST_REPORT.md) and [INTERACTION_AUDIT.md](./INTERACTION_AUDIT.md).

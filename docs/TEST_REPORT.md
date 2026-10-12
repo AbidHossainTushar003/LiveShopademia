@@ -3,6 +3,19 @@
 **Updated:** 2026-10-12
 **Environment:** Local Windows development workspace; local app at `http://localhost:3000`; isolated development PostgreSQL cluster as recorded in [PROGRESS.md](./PROGRESS.md). No production service or database was accessed.
 
+## Interaction audit verification (2026-10-12)
+
+| Check | Result | Evidence and limits |
+|---|---|---|
+| `npm.cmd test` | **PASS — 100/100** | Rerun after the staff-role fix and audit report; 100 passed, 0 failed, 0 skipped. |
+| Focused `adminSidebar.spec.js` Chromium run | **PASS — 5/5** | Includes the new shop-staff regression: a staff-role workspace load makes no `/api/v1/admin/shop/members` request and hides the team-management panel. API responses are mocked. |
+| Complete Chromium E2E rerun | **BLOCKED — 13 setup failures** | The runner could not connect to `http://localhost:3000` (`ERR_CONNECTION_REFUSED`). Starting the app failed with PostgreSQL authentication error `28P01` against the isolated local database on port 5433. No E2E assertion ran to a meaningful pass/fail result. This is not counted as a test regression or pass. |
+| `node --check admin-assets/platform.js` and `node --check tests/e2e/adminSidebar.spec.js` | **PASS** | Modified JavaScript files parse. |
+| `git diff --check` | **PASS** | No whitespace errors in the current diff. |
+| Interaction inventory/report | **COMPLETE** | [INTERACTION_AUDIT.md](./INTERACTION_AUDIT.md) inventories 56 static buttons, 16 static forms, generated controls, all 16 sidebar groups, external UX/accessibility guidance, scope limits, and ranked findings. |
+
+The current complete-suite browser result remains **NOT VERIFIED** due to the unavailable local API server. The earlier passing full Chromium run recorded below predates this audit's changes; the focused 5/5 run does verify the authorization/UI fix.
+
 ## Executed checks
 
 | Check | Result | Evidence and limits |

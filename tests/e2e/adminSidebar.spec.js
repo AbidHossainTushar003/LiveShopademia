@@ -116,6 +116,37 @@ test('shop-admin can open shop features without platform-only controls', async (
     await expect(page.locator('.platform-feature-panel.is-active:visible')).toHaveCount(1);
 });
 
+test('shop staff can use platform workspace without requesting team-management data', async ({ page }) => {
+    const requests = [];
+    await page.route('**/api/v1/admin/**', async (route) => {
+        const url = new URL(route.request().url());
+        requests.push(url.pathname);
+        if (url.pathname === '/api/v1/admin/profile') {
+            await route.fulfill({ json: { data: { email: 'staff@example.test', isPlatformAdmin: false } } });
+            return;
+        }
+        if (url.pathname === '/api/v1/admin/shops') {
+            await route.fulfill({
+                json: {
+                    data: [{ id: '7', slug: 'demo-shop', name: 'Demo Shop', status: 'active', role: 'staff', advanceCharge: 100 }]
+                }
+            });
+            return;
+        }
+        if (url.pathname === '/api/v1/admin/shop/members') {
+            await route.fulfill({ status: 403, json: { error: 'Shop admin permission is required.' } });
+            return;
+        }
+        await route.fulfill({ status: 404, json: { error: 'Unexpected admin API request.' } });
+    });
+    await page.goto('/admin/platform');
+
+    await expect(page.locator('#platformMessage')).toBeHidden();
+    await expect(page.locator('#teamPanel')).toBeHidden();
+    await expect(page.locator('#adminSidebarToggle')).toBeVisible();
+    expect(requests).not.toContain('/api/v1/admin/shop/members');
+});
+
 test('platform workspace shows one selected feature and navigates to it from the sidebar', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await disablePageController(page, 'platform');
