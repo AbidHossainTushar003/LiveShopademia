@@ -15,6 +15,20 @@ Do not push to `main`, enable the cPanel workflow, apply migrations to a product
 - A protected production backup has been taken and an isolated restore has been completed and reviewed. Backup/restore scripts and their success are not assumed to be valid merely because they exist.
 - A reviewed release commit, tested migration/rollback-or-forward-repair plan, monitoring/alerting owner, incident contact, and recovery authority are established.
 
+## 1.1 Current evidence and unresolved external blockers (2026-10-12)
+
+The feature branch was clean at `808871045abf6ab0369b1d1ccdbce51468b3a755` before this evidence update. It contains logout fix commit `dccff169b207cc4d5b8c18e3e81dd769446df4fc` and evidence commit `808871045abf6ab0369b1d1ccdbce51468b3a755`. GitHub Actions runs [38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) and [38270844665](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270844665) passed for those exact commits. CI verifies Node tests and dependency audit only; deployment was skipped on the feature branch.
+
+Read-only reachability checks at 2026-10-12 21:33 +06 resolved `shopademia.store` to `122.173.84.249`. HTTP port 80 connected and returned a redirect to HTTPS for `/healthz` and `/`; HTTPS port 443 timed out before an HTTP response. A TCP 443 check to `github.com` connected. This proves only that HTTPS to this hostname was unreachable from this test vantage at that time. It does not establish an origin outage or locate the fault in the origin, CDN/proxy, firewall, or route. No origin/hosting logs or independent network-vantage test were available. Do not make a speculative firewall, DNS, TLS, or service change; obtain authorized host/CDN logs and provider-side listener/firewall status first.
+
+Repository inspection found no staging workflow or stage target. The only deploy job in [ci.yml](../.github/workflows/ci.yml) is gated on `main`, successful CI, and `CPANEL_DEPLOY_ENABLED=true`, and targets the cPanel production app. It syncs files in place with `rsync --delete`, restarts the existing Node app, and checks the production health endpoint. It does not provision staging, back up data, run migrations, or preserve/switch to a previous release for application rollback. The configured `origin` remote points to the cPanel production host and was not contacted.
+
+No backup artifact, paired uploads archive, decryption identity, checksums, timestamps, restore logs, or isolated restore environment was available in the workspace. Docker, `age`, and `rsync` were unavailable locally; `.env` was not read, and no `.env.production` or `.env.staging` was present. The existing backup/restore scripts were not run. Accordingly, neither backup integrity nor restoration/recovery time is verified.
+
+The repository provides a database-backed `/healthz` endpoint and a Compose container healthcheck. External uptime monitoring/alerting appears as a recommendation, not a configured or delivery-tested integration; no provider evidence, alert destination, named on-call contact, or SLO was supplied. Application rollback and database migration recovery are likewise not demonstrated.
+
+These are evidence gaps, not completed repairs. Continue to block release until the owner/operator supplies authorized staging host and isolated PostgreSQL access, separate stage credentials configured through the approved secret store, a real paired backup plus separately held decryption identity and isolated restore target, hosting/CDN logs for the HTTPS failure, and monitoring/rollback ownership and procedures. Never send credentials or private keys in this runbook or chat.
+
 ## 2. Existing deployment paths (not interchangeable)
 
 The repository documents two deployment shapes. Select and verify one; do not combine instructions or infer that either is production-ready:
