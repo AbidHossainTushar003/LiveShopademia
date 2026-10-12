@@ -1,0 +1,74 @@
+# Shopademia deployment and recovery runbook
+
+**Status:** Documentation only; deployment is **BLOCKED / NOT AUTHORIZED** by this runbook.
+**Updated:** 2026-10-12
+**Current release decision:** **NO-GO** until the gates below are closed and an owner explicitly authorizes deployment.
+
+## 1. Stop gates
+
+Do not push to `main`, enable the cPanel workflow, apply migrations to a production database, or alter production data until all of these are resolved:
+
+- The authoritative MGS, full V2 module annex, explicit approval record, and required owner decisions are recorded.
+- PostgreSQL versus MySQL/MariaDB is explicitly resolved. This checkout's app, migration code, and production Compose use PostgreSQL; the supplied V3 hosting requirement names MySQL/MariaDB.
+- D1–D12 and any dependent compatibility/data/status mappings are answered, especially checkout/payment, refunds, inventory, costing, returns, hosting, and repository location.
+- Intended host/runtime, database version, native `sharp` compatibility, DNS/TLS, environment variables, and operator access are independently verified.
+- A protected production backup has been taken and an isolated restore has been completed and reviewed. Backup/restore scripts and their success are not assumed to be valid merely because they exist.
+- A reviewed release commit, tested migration/rollback-or-forward-repair plan, monitoring/alerting owner, incident contact, and recovery authority are established.
+
+## 2. Existing deployment paths (not interchangeable)
+
+The repository documents two deployment shapes. Select and verify one; do not combine instructions or infer that either is production-ready:
+
+1. **Docker Compose + PostgreSQL + Caddy:** single Linux VM, one public `DOMAIN`, app and database services, one-shot migration service, and Caddy TLS proxy. See [docker-compose.production.yml](../docker-compose.production.yml) and the deployment section in [README.md](../README.md).
+2. **cPanel GitHub Actions:** push to `main` can deploy when `CPANEL_DEPLOY_ENABLED=true`; workflow uses SSH/rsync and a Node 20 virtual environment path. The workflow is not a backup or database migration system and must remain disabled until its documented prerequisites and live environment are verified. See [ci.yml](../.github/workflows/ci.yml).
+
+The V3 request for MySQL/MariaDB conflicts with the currently documented PostgreSQL stack; migration/deployment steps are therefore conditional on resolving database authority.
+
+## 3. Configuration and secrets
+
+- Use the chosen host's approved configuration template and exact runtime contract. For the Compose PostgreSQL path, current documented values include `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_MIGRATION_PASSWORD`, `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `DOMAIN`, `JWT_SECRET`, and `MFA_ENCRYPTION_KEY`.
+- Keep real environment files, private SSH keys, MFA keys, backup decryption identities, and settings encryption keys outside version control. Never paste them into chat, logs, or this runbook.
+- `ADMIN_SETTINGS_ENCRYPTION_KEY` is optional for local settings-secret writes; it must be a distinct, protected 64-character hexadecimal key before using that capability. Losing it prevents decryption of saved secrets; key rotation/recovery tooling is not implemented.
+- Production platform administrators must enroll TOTP and use an authenticator. The local development environment permits password-only platform-admin login for convenience; this mode is disabled in production, where the server enforces MFA regardless of the development setting. Establish an independent, documented recovery process before launch.
+- Validate proxy trust, HTTPS, hostnames, database TLS, filesystem permissions, and secret backup without exposing secret values.
+
+## 4. Pre-deployment and backup sequence
+
+Only after the stop gates are signed off by the responsible owner/operator:
+
+1. Identify the exact release commit, deployment target, maintenance window, operator, and rollback decision-maker.
+2. Verify target host/runtime/database versions and confirm application/DB hosts and database name are the intended target. Refuse destructive or migration work if target identity is ambiguous.
+3. Run CI and approved phase acceptance tests on an isolated environment built from the release commit.
+4. Take paired database and uploads backups using the approved host-specific procedure. Store encrypted copies off-host, retain the decryption identity separately, and record checksums and timestamps.
+5. Restore the pair into a newly named isolated database and a new directory; verify tables, counts, application assets, and recovery time. Never restore over production as a test.
+6. Review the migration plan and its failure behavior. Current migration support is PostgreSQL-specific and does not yet provide dry-run/data reconciliation or a demonstrated rollback workflow. Do not proceed until a reviewed recovery path exists.
+7. Obtain explicit authorization for the exact deployment/migration operation; verify the feature flag and secrets out of band. Do not enable automatic deployment merely to test it.
+
+README documents scripts at [backup-production.sh](../scripts/backup-production.sh), [restore-production.sh](../scripts/restore-production.sh), and [upgrade-database-role.sh](../scripts/upgrade-database-role.sh). Their production execution and restore success are **UNVERIFIED**. Never run the role-upgrade or migration scripts against production as an exploratory check.
+
+## 5. Deployment and smoke tests
+
+After separate deployment authorization and a completed rehearsal:
+
+- Follow only the selected deployment path and its reviewed change ticket. Do not run both deployment paths.
+- Confirm migration service completion and inspect its status/logs before starting application traffic.
+- Verify the public health endpoint returns HTTP 200 and `{"status":"ok"}`; check the storefront shell and admin sign-in page return successfully.
+- Verify TLS certificate, canonical host, static assets, public catalog, database readiness, and service logs. Treat an unauthenticated admin API `401` as the expected boundary, not proof of admin business flows.
+- Use only synthetic data for approved smoke tests; do not create a real financial transaction, verify real payment, or create a shipment without explicit authorization.
+- Confirm alerts, backup schedule, and the on-call/rollback operator before announcing service availability.
+
+## 6. Monitoring and ongoing operations
+
+The repo README recommends an external uptime monitor on `/healthz`, service log review, host patching, log retention, secret custody/rotation, off-host encrypted backups, and periodic isolated restore drills. The health endpoint is database-backed. Rate limits are in-process; the README says not to horizontally scale without a shared rate-limit store.
+
+Before launch, assign named owners and measurable targets for availability, alert response, retention, backup cadence, RPO/RTO, log access, incident escalation, and key recovery. These operational values are not approved by this runbook.
+
+## 7. Recovery and rollback
+
+- Stop rollout and preserve logs if health, migration, permissions, or smoke checks fail.
+- Do not automatically reverse a schema or restore over a live database. Use only the pre-reviewed, target-specific forward-repair or isolated restore procedure approved for that release.
+- Preserve the failed release identifier, migration IDs/checksums, timestamps, relevant redacted logs, and backup pair. Avoid copying customer or secret values into incident notes.
+- Restore to an isolated target first; compare integrity and confirm the chosen recovery point before an authorized operator makes any production switch.
+- Record recovery duration, data-loss window, integrity checks, and follow-up actions. Reopen launch only after the owner reviews the evidence.
+
+No production deployment or recovery operation was performed in preparing this document.

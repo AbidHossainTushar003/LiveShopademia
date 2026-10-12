@@ -434,3 +434,17 @@ The user authorized starting the local development server and initializing its c
 - The concurrent all-browser result indicates the test suite can collectively consume the shared public-catalog request limit; no limit or test configuration was changed.
 
 The original scorecard and **NO-GO** launch decision remain unchanged. Apart from the approved WEB-001 development configuration fix and the narrowly scoped product SEO metadata fix, this addendum records evidence only; no other remediation was performed.
+
+## 12. Current admin-program status addendum — 2026-10-12
+
+This addendum updates implementation and test evidence after the historical Phase 0 audit. It does **not** silently recalculate the original 77-criterion scorecard; the scorecard describes its stated baseline. For current admin-program work, see the linked progress and feature-matrix documents.
+
+- B0 repository reconciliation/documentation is complete. The user later authorized safe local B1 foundation work on branch `feature/admin-v2`; that authorization did not supply the missing MGS approval, V2 annex, D1–D12 decisions, or database-engine authority.
+- B1 now includes local PostgreSQL migration tracking, additive admin settings/permission/audit foundations, and settings-change audit viewing. These remain partial and have not been deployed or verified in production.
+- Shop Admin and Platform/Super Admin slide-out sidebars are implemented. Targeted Chromium component tests pass **2/2** using mocked identity/permission data. This is not authenticated end-to-end verification.
+- Latest `npm.cmd test`: **100 passed, 0 failed**. Full serial Chromium E2E: **9 passed, 1 skipped, 0 failed**; product detail skipped because the fresh local catalog is empty. Includes synthetic development email/password login UI coverage; no real credentials are validated by that test. Axe reports no violations on `/`, `/privacy`, and `/terms` after a local text-contrast correction. Production integration, authenticated browser flow, migration recovery, concurrency, payments/refunds, courier operations, performance, full accessibility, and production host compatibility remain unverified or blocked.
+- First platform-admin MFA enrollment now explains manual authenticator setup more clearly and offers a copy button for the one-time setup key; this does not change MFA policy or bypass a real authenticator.
+- For the explicitly requested local-development simplification, platform-admin MFA is not challenged in non-production when `adminMfaRequired` is false. `server/index.js` enables that setting for development, while `server/app.js` unconditionally enforces MFA for production. This does not remove existing MFA enrollment or change stored account data; it is not a production security-policy change.
+- The browser accessibility run exposed low contrast on empty/loading catalog messages. Their text classes were darkened and Tailwind CSS rebuilt. This is a limited, verified improvement and not an accessibility certification.
+- Disabled drawer items are explicit placeholders for unimplemented modules, not evidence that those modules work.
+- Current production recommendation remains **NO-GO**. The full decision, risk, test, and deployment handoff is recorded in [docs/PROGRESS.md](./docs/PROGRESS.md), [docs/IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md), [docs/TEST_REPORT.md](./docs/TEST_REPORT.md), [docs/DEPLOYMENT_RUNBOOK.md](./docs/DEPLOYMENT_RUNBOOK.md), and [docs/FEATURE_MATRIX.md](./docs/FEATURE_MATRIX.md).

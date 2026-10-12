@@ -1,5 +1,6 @@
 import { fetchWithTimeout } from '../js/utils/fetchWithTimeout.js';
 import { optimizedFormData } from '../js/utils/optimizeUploadImage.js';
+import { mountAdminSidebar } from './adminSidebar.js';
 
 const shopKey = 'shopademia.adminShopId';
 const pageSize = 20;
@@ -32,6 +33,7 @@ let productImagePreviewUrls = [];
 let shopLogoPreviewUrl = null;
 let activeShopId = null;
 let mfaSetupToken = null;
+let currentAdminEmail = '';
 
 function showMessage(message, isError = false) {
     dashboardMessage.textContent = message;
@@ -43,6 +45,7 @@ function setAuthenticated(authenticated) {
     loginPanel.classList.toggle('hidden', authenticated);
     dashboardPanel.classList.toggle('hidden', !authenticated);
     document.getElementById('logoutButton').classList.toggle('hidden', !authenticated);
+    document.getElementById('adminSidebarToggle').hidden = !authenticated;
 }
 
 function clearSession(message = '') {
@@ -100,6 +103,16 @@ async function resolveActiveShop() {
     sessionStorage.setItem(shopKey, shop.id);
     const label = document.getElementById('activeShopName');
     if (label) label.textContent = `Managing ${shop.name} (${shop.slug})`;
+    mountAdminSidebar({
+        page: 'orders',
+        email: currentAdminEmail,
+        role: `${shop.role} · ${shop.name}`,
+        shopRole: shop.role,
+        onView(view, target) {
+            setAdminView(view === 'categories' ? 'products' : view);
+            if (target) requestAnimationFrame(() => document.querySelector(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        }
+    });
 }
 
 function setAdminView(view) {
@@ -130,6 +143,10 @@ function setAdminView(view) {
     profilePanel.classList.toggle('hidden', view !== 'profile');
     document.querySelectorAll('[data-admin-view]').forEach((button) => {
         button.setAttribute('aria-pressed', String(button.dataset.adminView === view));
+    });
+    document.querySelectorAll('.admin-sidebar-link[data-admin-view]').forEach((button) => {
+        if (button.dataset.adminView === view) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
     });
     document.getElementById('refreshButton').classList.toggle('hidden', view !== 'orders');
     showMessage('');
@@ -653,6 +670,17 @@ document.getElementById('mfaEnrollmentForm').addEventListener('submit', async (e
     }
 });
 
+document.getElementById('copyMfaSetupSecret').addEventListener('click', async () => {
+    const status = document.getElementById('mfaSetupCopyStatus');
+    try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.');
+        await navigator.clipboard.writeText(document.getElementById('mfaSetupSecret').textContent);
+        status.textContent = 'Setup key copied. Keep it private and store it securely.';
+    } catch {
+        status.textContent = 'Could not copy the setup key. Select and copy it manually, then store it securely.';
+    }
+});
+
 document.getElementById('logoutButton').addEventListener('click', async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
@@ -848,8 +876,18 @@ document.getElementById('nextPage').addEventListener('click', () => {
 
 setAuthenticated(false);
 setAdminView('orders');
+const mfaRequirement = document.querySelector('meta[name="shopademia-platform-admin-mfa-required"]')?.content;
+if (mfaRequirement === 'true' || mfaRequirement === 'false') {
+    document.getElementById('mfaLoginFields').classList.toggle('hidden', mfaRequirement === 'false');
+    document.getElementById('loginButton').disabled = false;
+} else {
+    const loginError = document.getElementById('loginError');
+    loginError.textContent = 'Could not load sign-in requirements. Refresh the page and try again.';
+    loginError.classList.remove('hidden');
+}
 api('/admin/profile')
     .then(({ data }) => {
+        currentAdminEmail = data.email;
         if (data.isPlatformAdmin) {
             window.location.replace('/admin/platform');
             return null;
@@ -859,6 +897,12 @@ api('/admin/profile')
     .then((shop) => {
         if (!shop) return;
         setAuthenticated(true);
-        loadOrders();
+        const requestedView = new URLSearchParams(window.location.search).get('view');
+        const view = ['orders', 'products', 'shop', 'profile', 'categories'].includes(requestedView)
+            ? requestedView
+            : 'orders';
+        setAdminView(view === 'categories' ? 'products' : view);
+        if (view === 'categories') requestAnimationFrame(() => document.getElementById('categoriesPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        if (view === 'orders') loadOrders();
     })
     .catch(() => clearSession());

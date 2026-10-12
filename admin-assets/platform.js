@@ -1,5 +1,6 @@
 
 import { optimizedFormData } from '../js/utils/optimizeUploadImage.js';
+import { mountAdminSidebar } from './adminSidebar.js';
 
 const shopKey = 'shopademia.adminShopId';
 const message = document.getElementById('platformMessage');
@@ -7,6 +8,7 @@ const shopPicker = document.getElementById('shopPicker');
 let activeShop = null;
 let isPlatformAdmin = false;
 let currentEmail = '';
+let adminPermissionRows = [];
 
 function showMessage(text, isError = false) {
     message.textContent = text;
@@ -73,6 +75,7 @@ async function loadShops() {
     sessionStorage.setItem(shopKey, activeShop.id);
     shopPicker.value = activeShop.id;
     applyRolePermissions();
+    refreshAdminSidebar();
     return data;
 }
 
@@ -87,6 +90,17 @@ function applyRolePermissions() {
     document.getElementById('platformDescription').textContent = isPlatformAdmin
         ? 'Platform-wide oversight of shop access, branding, transactions, deals, notifications, reports, and activity.'
         : 'Manage staff assigned to your shop. Products and customer orders are managed from the shop dashboard.';
+}
+
+function refreshAdminSidebar() {
+    mountAdminSidebar({
+        page: 'platform',
+        email: currentEmail,
+        role: isPlatformAdmin ? 'Super Admin' : `${activeShop.role} · ${activeShop.name}`,
+        isPlatformAdmin,
+        shopRole: activeShop.role,
+        permissions: adminPermissionRows
+    });
 }
 
 function updateShopApiPanel() {
@@ -135,10 +149,21 @@ async function loadShopDetails() {
     }
     preview.append(bannerCard);
     if (isPlatformAdmin) {
-        await Promise.all([loadMembers(), loadHeroSlides(), loadTransactions(), loadOffers(), loadReports(), loadActivity()]);
+        await Promise.all([
+            loadMembers(),
+            loadHeroSlides(),
+            loadTransactions(),
+            loadOffers(),
+            loadReports(),
+            loadActivity(),
+            loadAdminSettings(),
+            loadPermissionMatrix(),
+            loadAdminAudit()
+        ]);
     } else {
         await loadMembers();
     }
+    refreshAdminSidebar();
 }
 
 async function loadHeroSlides() {
@@ -429,6 +454,101 @@ async function loadActivity() {
         `${entry.actorEmail} · ${new Date(entry.createdAt).toLocaleString()}${Object.keys(entry.details || {}).length ? ` · ${JSON.stringify(entry.details)}` : ''}`
     ));
 }
+
+async function loadAdminSettings() {
+    const container = document.getElementById('adminSettingsList');
+    container.replaceChildren();
+    const { data } = await api('/admin/settings');
+    if (!data.length) return appendText(container, 'No administrative settings have been saved.');
+    data.forEach((setting) => appendCard(
+        container,
+        `${setting.group}.${setting.key}${setting.isSecret ? ' · encrypted secret' : ''}`,
+        `${String(setting.value)} · updated ${new Date(setting.updatedAt).toLocaleString()}`
+    ));
+}
+
+async function loadPermissionMatrix() {
+    const container = document.getElementById('permissionMatrix');
+    container.replaceChildren();
+    const { data } = await api('/admin/permissions');
+    adminPermissionRows = data;
+    if (!data.length) return appendText(container, 'No permissions are registered.');
+    const table = document.createElement('table');
+    table.className = 'platform-table';
+    const head = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    ['Role', 'Mapping', 'Action permission', 'Access'].forEach((label) => {
+        const th = document.createElement('th');
+        th.scope = 'col';
+        th.textContent = label;
+        headerRow.append(th);
+    });
+    head.append(headerRow);
+    table.append(head);
+    const body = document.createElement('tbody');
+    data.forEach((permission) => {
+        const row = document.createElement('tr');
+        [
+            permission.roleName,
+            permission.mappingStatus,
+            `${permission.permissionKey} — ${permission.description}`,
+            permission.granted ? 'Granted' : 'Denied'
+        ].forEach((value) => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.append(cell);
+        });
+        body.append(row);
+    });
+    table.append(body);
+    container.append(table);
+}
+
+async function loadAdminAudit() {
+    const container = document.getElementById('adminAuditList');
+    container.replaceChildren();
+    const { data } = await api('/admin/audit?limit=50');
+    if (!data.length) return appendText(container, 'No administrative security events recorded yet.');
+    data.forEach((entry) => appendCard(
+        container,
+        `${entry.action} · ${entry.entity}${entry.entityId ? ` ${entry.entityId}` : ''}`,
+        `${entry.actorEmail} · ${new Date(entry.createdAt).toLocaleString()} · ${entry.ip || 'IP unavailable'} · ${entry.userAgent || 'User agent unavailable'} · request ${entry.requestId}`
+    ));
+}
+
+document.getElementById('adminSettingSecret').addEventListener('change', (event) => {
+    const valueInput = document.getElementById('adminSettingValue');
+    valueInput.type = event.currentTarget.checked ? 'password' : 'text';
+    valueInput.autocomplete = event.currentTarget.checked ? 'new-password' : 'off';
+});
+
+document.getElementById('adminSettingForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = document.getElementById('saveAdminSetting');
+    const error = document.getElementById('adminSettingError');
+    const isSecret = form.elements.isSecret.checked;
+    submit.disabled = true;
+    error.textContent = '';
+    error.classList.add('hidden');
+    try {
+        await api(`/admin/settings/${encodeURIComponent(form.elements.group.value)}/${encodeURIComponent(form.elements.key.value)}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                value: form.elements.value.value,
+                isSecret
+            })
+        });
+        form.elements.value.value = '';
+        showMessage('Administrative setting saved.');
+        await Promise.all([loadAdminSettings(), loadAdminAudit()]);
+    } catch (requestError) {
+        error.textContent = requestError.message;
+        error.classList.remove('hidden');
+    } finally {
+        submit.disabled = false;
+    }
+});
 
 document.getElementById('shopPicker').addEventListener('change', async () => {
     sessionStorage.setItem(shopKey, shopPicker.value);

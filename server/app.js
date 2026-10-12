@@ -430,6 +430,7 @@ function adminAuth(pool, secret, secureCookie) {
 export function createApp({ pool, config }) {
     const app = express();
     const secureAdminCookie = config.nodeEnv === 'production';
+    const platformAdminMfaRequired = config.nodeEnv === 'production' || config.adminMfaRequired !== false;
     const authenticateAdmin = adminAuth(pool, config.jwtSecret, secureAdminCookie);
     const requireShopManager = (req, res, next) => {
         if (req.isPlatformAdmin || !['owner', 'admin'].includes(req.shopRole)) {
@@ -725,7 +726,17 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.get('/admin', (_req, res) => res.sendFile(join(root, 'admin.html')));
+    app.get('/admin', async (_req, res, next) => {
+        try {
+            const html = await readFile(join(root, 'admin.html'), 'utf8');
+            return res.set('Cache-Control', 'no-store')
+                .type('html')
+                .send(html.replace('content="__PLATFORM_ADMIN_MFA_REQUIRED__"',
+                    `content="${platformAdminMfaRequired}"`));
+        } catch (error) {
+            return next(error);
+        }
+    });
     app.get('/admin/platform', (_req, res) => res.sendFile(join(root, 'admin-platform.html')));
     app.get('/service-worker.js', (_req, res) => {
         res.set('Cache-Control', 'no-cache');
@@ -1346,7 +1357,8 @@ export function createApp({ pool, config }) {
         productUploadLimit,
         vapidPublicKey: config.vapidPublicKey,
         vapidPrivateKey: config.vapidPrivateKey,
-        vapidSubject: config.vapidSubject
+        vapidSubject: config.vapidSubject,
+        adminSettingsEncryptionKey: config.adminSettingsEncryptionKey
     });
 
     app.post('/api/v1/orders', orderLimit, async (req, res, next) => {
@@ -1502,7 +1514,7 @@ export function createApp({ pool, config }) {
             if (!account || !await verifyAdminPassword(password, account.password_hash)) {
                 return res.status(401).json({ error: 'Email or password is incorrect.' });
             }
-            if (account.isPlatformAdmin && !account.mfaEnabled) {
+            if (platformAdminMfaRequired && account.isPlatformAdmin && !account.mfaEnabled) {
                 const secret = generateTotpSecret();
                 const setupToken = jwt.sign({
                     sub: account.email,
@@ -1521,7 +1533,7 @@ export function createApp({ pool, config }) {
                     provisioningUri: totpProvisioningUri(secret, account.email)
                 });
             }
-            if (account.isPlatformAdmin) {
+            if (platformAdminMfaRequired && account.isPlatformAdmin) {
                 let secret;
                 try {
                     secret = decryptTotpSecret(account.mfaSecret, config.mfaEncryptionKey);

@@ -11,11 +11,11 @@ export class CategoryGridView {
     }
     render(categories) {
         if (this.homeVM.loading.value) {
-            this.root.innerHTML = '<p role="status" class="col-span-full py-8 text-center text-sm text-slate-500">Loading categories…</p>';
+            this.root.innerHTML = '<p role="status" class="col-span-full py-8 text-center text-sm text-slate-600">Loading categories…</p>';
             return;
         }
         if (!categories.length) {
-            this.root.innerHTML = '<p class="col-span-full py-8 text-center text-sm text-slate-500">Categories are not available right now.</p>';
+            this.root.innerHTML = '<p class="col-span-full py-8 text-center text-sm text-slate-600">Categories are not available right now.</p>';
             return;
         }
         this.root.innerHTML = categories.map((c, i) => `

@@ -4,6 +4,12 @@ import { URL } from 'node:url';
 import webpush from 'web-push';
 import rateLimit from 'express-rate-limit';
 import { hashAdminPassword } from './adminPassword.js';
+import {
+    auditChangeSnapshot,
+    auditRequestMetadata,
+    encryptSettingSecret,
+    publicSettingValue
+} from './adminSecurity.js';
 
 const shopSlugPattern = /^[a-z0-9][a-z0-9-]{1,47}$/;
 const roles = new Set(['admin', 'staff']);
@@ -19,6 +25,31 @@ function isUuid(value) {
 function requirePlatformAdmin(req, res, next) {
     if (!req.isPlatformAdmin) return res.status(403).json({ error: 'Platform administrator permission is required.' });
     return next();
+}
+
+async function hasRegisteredPermission(pool, permissionKey) {
+    const { rows } = await pool.query(
+        `SELECT rp.granted
+         FROM admin_role_permissions rp
+         JOIN admin_permissions p ON p.permission_key = rp.permission_key
+         WHERE rp.role_key = 'super_admin' AND p.permission_key = $1`,
+        [permissionKey]
+    );
+    return rows[0]?.granted === true;
+}
+
+function requireRegisteredPermission(pool, permissionKey) {
+    return async (req, res, next) => {
+        if (!req.isPlatformAdmin) return res.status(403).json({ error: 'Platform administrator permission is required.' });
+        try {
+            if (!await hasRegisteredPermission(pool, permissionKey)) {
+                return res.status(403).json({ error: 'This administrative action is not enabled for your role.' });
+            }
+            return next();
+        } catch (error) {
+            return next(error);
+        }
+    };
 }
 
 function allowShopTeamManagement(req, res, next) {
@@ -145,7 +176,8 @@ export function registerPlatformRoutes(app, {
     productUploadLimit,
     vapidPublicKey,
     vapidPrivateKey,
-    vapidSubject
+    vapidSubject,
+    adminSettingsEncryptionKey
 }) {
     const platformAdmin = [authenticateAdmin, requirePlatformAdmin];
     const maximumShopPushSubscriptions = 5000;
@@ -153,6 +185,10 @@ export function registerPlatformRoutes(app, {
     const teamManager = [authenticateAdmin, allowShopTeamManagement, requireSelectedShop];
     const teamReader = [...teamManager];
     const platformReader = platformShop;
+    const settingsReader = [authenticateAdmin, requireRegisteredPermission(pool, 'settings.read')];
+    const settingsWriter = [authenticateAdmin, requireRegisteredPermission(pool, 'settings.write')];
+    const auditReader = [authenticateAdmin, requireRegisteredPermission(pool, 'audit.read')];
+    const permissionsReader = [authenticateAdmin, requireRegisteredPermission(pool, 'permissions.read')];
     const pushEnabled = Boolean(vapidPublicKey && vapidPrivateKey && vapidSubject);
     const pushSubscriptionLimit = rateLimit({
         windowMs: 15 * 60 * 1000,
@@ -162,6 +198,138 @@ export function registerPlatformRoutes(app, {
         message: { error: 'Too many notification subscription requests. Please try again later.' }
     });
     if (pushEnabled) webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+
+    app.get('/api/v1/admin/permissions', ...permissionsReader, async (_req, res, next) => {
+        try {
+            const { rows } = await pool.query(
+                `SELECT r.role_key AS "roleKey", r.display_name AS "roleName",
+                        r.mapping_status AS "mappingStatus", p.permission_key AS "permissionKey",
+                        p.description, COALESCE(rp.granted, FALSE) AS granted
+                 FROM admin_roles r CROSS JOIN admin_permissions p
+                 LEFT JOIN admin_role_permissions rp
+                   ON rp.role_key = r.role_key AND rp.permission_key = p.permission_key
+                 ORDER BY r.role_key, p.permission_key`
+            );
+            return res.json({ data: rows });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    app.get('/api/v1/admin/settings', ...settingsReader, async (_req, res, next) => {
+        try {
+            const { rows } = await pool.query(
+                `SELECT setting_group AS "group", setting_key AS "key", value, is_secret AS "isSecret",
+                        updated_at AS "updatedAt"
+                 FROM admin_settings ORDER BY setting_group, setting_key`
+            );
+            return res.json({
+                data: rows.map((setting) => ({
+                    ...setting,
+                    value: publicSettingValue(setting.value, setting.isSecret)
+                }))
+            });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    app.put('/api/v1/admin/settings/:settingGroup/:settingKey', ...settingsWriter, async (req, res, next) => {
+        const settingGroup = req.params.settingGroup;
+        const settingKey = req.params.settingKey;
+        const body = req.body;
+        if (!/^[a-z][a-z0-9_-]{1,47}$/.test(settingGroup)
+            || !/^[a-z][a-z0-9_-]{1,63}$/.test(settingKey)
+            || !body || typeof body !== 'object' || Array.isArray(body)
+            || Object.keys(body).some((key) => !['value', 'isSecret'].includes(key))
+            || typeof body.isSecret !== 'boolean'
+            || !Object.hasOwn(body, 'value')) {
+            return res.status(400).json({ error: 'Provide a valid setting group, key, value, and secret flag.' });
+        }
+        let encodedValue;
+        try {
+            const serialized = JSON.stringify(body.value);
+            if (serialized === undefined || Buffer.byteLength(serialized, 'utf8') > 4096) {
+                return res.status(400).json({ error: 'Setting values must be valid JSON under 4 KB.' });
+            }
+            if (body.isSecret) {
+                if (typeof body.value !== 'string' || !body.value || body.value.length > 2048) {
+                    return res.status(400).json({ error: 'Secret settings must be non-empty strings of at most 2048 characters.' });
+                }
+                if (!await hasRegisteredPermission(pool, 'secrets.write')) {
+                    return res.status(403).json({ error: 'Secret-setting permission is not enabled for your role.' });
+                }
+                if (!adminSettingsEncryptionKey) {
+                    return res.status(503).json({ error: 'Secret settings are disabled until ADMIN_SETTINGS_ENCRYPTION_KEY is configured.' });
+                }
+                encodedValue = encryptSettingSecret(body.value, adminSettingsEncryptionKey);
+            } else {
+                encodedValue = body.value;
+            }
+        } catch (error) {
+            return next(error);
+        }
+
+        try {
+            const result = await withTransaction(pool, async (client) => {
+                const previousResult = await client.query(
+                    `SELECT is_secret AS "isSecret" FROM admin_settings
+                     WHERE setting_group = $1 AND setting_key = $2 FOR UPDATE`,
+                    [settingGroup, settingKey]
+                );
+                const previous = previousResult.rows[0] || null;
+                await client.query(
+                    `INSERT INTO admin_settings
+                        (setting_group, setting_key, value, is_secret, updated_by, updated_at)
+                     VALUES ($1, $2, $3::jsonb, $4, $5, NOW())
+                     ON CONFLICT (setting_group, setting_key)
+                     DO UPDATE SET value = EXCLUDED.value, is_secret = EXCLUDED.is_secret,
+                                   updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+                    [settingGroup, settingKey, JSON.stringify(encodedValue), body.isSecret, req.admin.userId]
+                );
+                const metadata = auditRequestMetadata(req);
+                await client.query(
+                    `INSERT INTO admin_audit_log
+                        (admin_user_id, actor_email, action, entity, entity_id, before_data, after_data,
+                         ip, user_agent, request_id)
+                     VALUES ($1, $2, $3, 'setting', $4, $5::jsonb, $6::jsonb, $7::inet, $8, $9::uuid)`,
+                    [
+                        req.admin.userId,
+                        req.admin.sub,
+                        previous ? 'setting.updated' : 'setting.created',
+                        `${settingGroup}.${settingKey}`,
+                        previous ? JSON.stringify(auditChangeSnapshot(settingGroup, settingKey, previous.isSecret)) : null,
+                        JSON.stringify(auditChangeSnapshot(settingGroup, settingKey, body.isSecret)),
+                        metadata.ip,
+                        metadata.userAgent,
+                        metadata.requestId
+                    ]
+                );
+                return { group: settingGroup, key: settingKey, isSecret: body.isSecret };
+            });
+            return res.json({ data: { ...result, value: publicSettingValue(body.value, body.isSecret) } });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    app.get('/api/v1/admin/audit', ...auditReader, async (req, res, next) => {
+        const parsedLimit = Number.parseInt(req.query.limit, 10);
+        const limit = Number.isInteger(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : 50;
+        try {
+            const { rows } = await pool.query(
+                `SELECT id, actor_email AS "actorEmail", action, entity, entity_id AS "entityId",
+                        before_data AS "before", after_data AS "after", ip::text,
+                        user_agent AS "userAgent", request_id AS "requestId", created_at AS "createdAt"
+                 FROM admin_audit_log
+                 ORDER BY id DESC LIMIT $1`,
+                [limit]
+            );
+            return res.json({ data: rows });
+        } catch (error) {
+            return next(error);
+        }
+    });
 
     app.get('/api/v1/admin/shop/hero-slides', ...platformReader, async (req, res, next) => {
         try {

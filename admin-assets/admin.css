@@ -200,12 +200,30 @@ body.platform-page {
 .platform-page .notice { margin: 0; padding: 14px 16px; border: 1px solid #bbf7d0; }
 .platform-page .notice.error { border-color: #fecaca; }
 
+.platform-sections { display: grid; gap: 28px; }
+.platform-section { min-width: 0; scroll-margin-top: 20px; }
+.platform-section[hidden] { display: none; }
+.platform-section-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 2px 13px;
+}
+.platform-section-heading h2 {
+    margin: 7px 0 0;
+    color: #172033;
+    font-size: clamp(20px, 2.3vw, 25px);
+    letter-spacing: -.03em;
+}
+.platform-section-heading .muted { max-width: 680px; margin: 6px 0 0; }
 .platform-page .platform-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
     gap: 18px;
 }
 
+.platform-page .profile-panel[id] { scroll-margin-top: 20px; }
 .platform-page .profile-panel {
     min-width: 0;
     padding: 25px;
@@ -261,6 +279,120 @@ body.platform-page {
 .platform-page #brandingPreview img { max-height: 190px; }
 .platform-page .reports-panel > label { display: block; margin: 18px 0 7px; color: #334155; font-size: 12px; font-weight: 700; }
 
+.sidebar-toggle {
+    display: inline-grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    color: #334155;
+    background: #fff;
+    cursor: pointer;
+    font-size: 20px;
+}
+
+.sidebar-toggle[hidden] { display: none; }
+.admin-sidebar-backdrop[hidden], .admin-sidebar[hidden] { display: none; }
+.admin-sidebar-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: rgb(15 23 42 / 36%);
+}
+
+.admin-sidebar {
+    position: fixed;
+    z-index: 1001;
+    inset: 0 auto 0 0;
+    display: flex;
+    width: min(360px, 86vw);
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid #e2e8f0;
+    color: #263348;
+    background: #fff;
+    box-shadow: 12px 0 42px rgb(15 23 42 / 16%);
+}
+
+.admin-sidebar-heading {
+    position: relative;
+    flex: 0 0 auto;
+    padding: 20px 18px 14px;
+    border-bottom: 1px solid #edf1f5;
+}
+
+.sidebar-account { display: flex; align-items: center; gap: 11px; padding-right: 42px; }
+.sidebar-account img { flex: 0 0 auto; border-radius: 50%; }
+.sidebar-account div { display: grid; gap: 3px; min-width: 0; }
+.sidebar-account strong { color: #172033; font-size: 16px; }
+.sidebar-account span { color: #64748b; font-size: 12px; }
+.sidebar-account-email { overflow: hidden; margin: 9px 0 14px 51px; color: #64748b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-close {
+    position: absolute;
+    top: 16px;
+    right: 15px;
+    display: grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    color: #475569;
+    background: white;
+    cursor: pointer;
+    font-size: 23px;
+}
+
+.sidebar-search-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.sidebar-search { min-height: 42px; border-color: #e2e8f0; border-radius: 11px; background: #f8fafc; }
+.admin-sidebar-nav { flex: 1 1 auto; overflow-y: auto; padding: 8px 0 22px; overscroll-behavior: contain; }
+.admin-sidebar-group { border-left: 3px solid transparent; }
+.admin-sidebar-group[open] { border-left-color: #4fb99a; }
+.admin-sidebar-group > summary {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 13px;
+    padding: 0 18px;
+    color: #344256;
+    cursor: pointer;
+    font-size: 14px;
+    list-style: none;
+}
+
+.admin-sidebar-group > summary::-webkit-details-marker { display: none; }
+.admin-sidebar-group > summary::after { width: 8px; height: 8px; margin-left: auto; border-right: 1.5px solid #64748b; border-bottom: 1.5px solid #64748b; content: ""; transform: rotate(45deg) translateY(-2px); }
+.admin-sidebar-group[open] > summary::after { transform: rotate(225deg) translate(-1px, -1px); }
+.admin-sidebar-group > summary:hover, .admin-sidebar-group[open] > summary { color: #238a70; background: #f0faf7; }
+.admin-sidebar-group > summary svg { width: 19px; height: 19px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+.admin-sidebar-submenu { position: relative; display: grid; gap: 1px; margin: 0 0 5px 29px; padding: 1px 10px 3px 18px; border-left: 1px dashed #82cbb5; }
+.admin-sidebar-link {
+    display: flex;
+    min-height: 38px;
+    align-items: center;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: 7px;
+    color: #475569;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: left;
+    text-decoration: none;
+}
+
+.admin-sidebar-link:hover:not(:disabled), .admin-sidebar-link:focus-visible { color: #187c64; background: #f0faf7; }
+.admin-sidebar-link:disabled { color: #94a3b8; cursor: not-allowed; }
+.admin-sidebar-link[aria-current="page"] { color: #187c64; font-weight: 700; }
+.admin-sidebar-link[hidden], .admin-sidebar-group[hidden] { display: none; }
+.admin-sidebar :focus-visible, .sidebar-toggle:focus-visible { outline: 3px solid #7dd3bd; outline-offset: 2px; }
+
 @media (max-width: 900px) {
     .platform-page .shell { width: min(100% - 32px, 760px); }
     .platform-page .page-heading { grid-template-columns: minmax(0, 1fr) minmax(200px, 250px); }
@@ -270,14 +402,17 @@ body.platform-page {
 
 @media (max-width: 620px) {
     .platform-page .shell { width: min(100% - 24px, 520px); padding-top: 12px; }
-    .platform-page .topbar { margin-bottom: 20px; padding: 8px 10px; }
+    .platform-page .topbar { justify-content: flex-start; gap: 10px; margin-bottom: 20px; padding: 8px 10px; }
     .platform-page .brand { gap: 8px; font-size: 16px; }
+    .platform-page #dashboardLink { margin-left: auto; }
     .platform-page .brand small { font-size: 8px; }
     .platform-page .page-heading { grid-template-columns: 1fr; gap: 16px; padding: 22px 20px; }
     .platform-page .page-heading h1 { font-size: 31px; }
     .platform-page .shop-picker-label { width: 100%; }
     .platform-page .shop-lifecycle { grid-column: auto; justify-content: start; }
     .platform-page .shop-lifecycle .muted { text-align: left; }
+    .platform-page .platform-sections { gap: 22px; }
+    .platform-page .platform-section-heading { margin: 0 2px 11px; }
     .platform-page .platform-grid { grid-template-columns: 1fr; gap: 13px; }
     .platform-page .profile-panel { padding: 20px; }
     .platform-page .hero-slides-panel { grid-column: auto; }

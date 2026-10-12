@@ -28,11 +28,11 @@ export class NewArrivalsView {
     }
     render(products) {
         if (this.homeVM.loading.value) {
-            this.root.innerHTML = '<p role="status" class="col-span-full py-8 text-center text-sm text-slate-500">Loading more products…</p>';
+            this.root.innerHTML = '<p role="status" class="col-span-full py-8 text-center text-sm text-slate-600">Loading more products…</p>';
             return;
         }
         if (!products.length) {
-            this.root.innerHTML = '<p class="col-span-full py-8 text-center text-sm text-slate-500">No additional products are available right now.</p>';
+            this.root.innerHTML = '<p class="col-span-full py-8 text-center text-sm text-slate-600">No additional products are available right now.</p>';
             return;
         }
         const wished = this.wishlistVM.ids.value;

@@ -1,6 +1,16 @@
+import { createHash } from 'node:crypto';
 import { hashAdminPassword } from './adminPassword.js';
+import { ADMIN_MIGRATIONS } from './adminMigrations.js';
+import { applyMigrations } from './migrations.js';
 
 export async function initializeDatabase(pool, admin) {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version TEXT PRIMARY KEY CHECK (version ~ '^[0-9]{3}_[a-z0-9_]+$'),
+            checksum TEXT NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
     await pool.query(`
         CREATE TABLE IF NOT EXISTS orders (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -97,6 +107,13 @@ export async function initializeDatabase(pool, admin) {
         [admin.email.trim().toLowerCase(), passwordHash]
     );
     await initializeShopPlatform(pool, admin);
+    await pool.query(
+        `INSERT INTO schema_migrations (version, checksum)
+         VALUES ('000_legacy_baseline', $1)
+         ON CONFLICT (version) DO NOTHING`,
+        [createHash('sha256').update('shopademia-legacy-schema-baseline-v1').digest('hex')]
+    );
+    await applyMigrations(pool, ADMIN_MIGRATIONS);
 }
 
 async function initializeShopPlatform(pool, admin) {

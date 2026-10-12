@@ -20,6 +20,7 @@ function required(name, minimumLength = 1) {
 async function start() {
     const config = {
         nodeEnv: process.env.NODE_ENV || 'development',
+        adminMfaRequired: (process.env.NODE_ENV || 'development') === 'production',
         port: Number(process.env.PORT || 3000),
         trustProxyHops: Number(process.env.TRUST_PROXY_HOPS || 0),
         siteUrl: process.env.PUBLIC_SITE_URL?.trim() || null,
@@ -29,7 +30,8 @@ async function start() {
         advanceCharge: Number(process.env.DELIVERY_ADVANCE_CHARGE || 100),
         vapidPublicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() || null,
         vapidPrivateKey: process.env.WEB_PUSH_VAPID_PRIVATE_KEY?.trim() || null,
-        vapidSubject: process.env.WEB_PUSH_VAPID_SUBJECT?.trim() || null
+        vapidSubject: process.env.WEB_PUSH_VAPID_SUBJECT?.trim() || null,
+        adminSettingsEncryptionKey: process.env.ADMIN_SETTINGS_ENCRYPTION_KEY?.trim() || ''
     };
     const mfaEncryptionKey = process.env.MFA_ENCRYPTION_KEY?.trim() || '';
     if (config.nodeEnv === 'production' && !mfaEncryptionKey) {
@@ -41,6 +43,12 @@ async function start() {
     config.mfaEncryptionKey = mfaEncryptionKey
         ? Buffer.from(mfaEncryptionKey, 'hex')
         : createHash('sha256').update(`shopademia-mfa-encryption\0${config.jwtSecret}`).digest();
+    if (config.adminSettingsEncryptionKey && !/^[0-9a-f]{64}$/i.test(config.adminSettingsEncryptionKey)) {
+        throw new Error('ADMIN_SETTINGS_ENCRYPTION_KEY must be exactly 64 hexadecimal characters.');
+    }
+    config.adminSettingsEncryptionKey = config.adminSettingsEncryptionKey
+        ? Buffer.from(config.adminSettingsEncryptionKey, 'hex')
+        : null;
     if (!['development', 'production', 'test'].includes(config.nodeEnv)) throw new Error('NODE_ENV must be one of development, production, or test.');
     if (config.siteUrl) {
         const siteUrl = new URL(config.siteUrl);

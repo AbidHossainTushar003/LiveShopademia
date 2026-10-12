@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="shopademia-platform-admin-mfa-required" content="__PLATFORM_ADMIN_MFA_REQUIRED__">
     <meta name="theme-color" content="#0f172a">
     <meta name="robots" content="noindex, nofollow">
     <link rel="icon" type="image/svg+xml" href="/public-assets/favicon.svg">
@@ -14,6 +15,9 @@
 <body data-admin-site="true">
     <main class="shell">
         <header class="topbar">
+            <button id="adminSidebarToggle" class="sidebar-toggle" type="button" aria-label="Open admin navigation" aria-controls="adminSidebar" aria-expanded="false" hidden>
+                <span aria-hidden="true">☰</span>
+            </button>
             <a class="brand" href="/" aria-label="Shopademia storefront">
                 <img class="brand-mark" src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="">
                 <span>Shopademia <small>ADMIN</small></span>
@@ -30,16 +34,22 @@
                 <input id="email" name="email" type="email" autocomplete="username" required maxlength="254">
                 <label for="password">Password</label>
                 <input id="password" name="password" type="password" autocomplete="current-password" required>
-                <label for="totpCode">Authenticator code (platform administrators)</label>
-                <input id="totpCode" name="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+                <div id="mfaLoginFields">
+                    <label for="totpCode">Authenticator code (platform administrators)</label>
+                    <input id="totpCode" name="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" aria-describedby="totpHelp">
+                    <p id="totpHelp" class="muted">Enter the current six-digit code from your authenticator app. On first platform-admin sign-in, you will be prompted to set up MFA after your password is accepted.</p>
+                </div>
                 <p id="loginError" class="error hidden" role="alert"></p>
-                <button id="loginButton" class="button button-primary" type="submit">Sign in</button>
+                <button id="loginButton" class="button button-primary" type="submit" disabled>Sign in</button>
             </form>
             <section id="mfaSetupPanel" class="hidden" aria-labelledby="mfaSetupTitle">
                 <h2 id="mfaSetupTitle">Set up authenticator MFA</h2>
-                <p class="muted">Add this account to an authenticator app using the secret below. Enter its current six-digit code to finish setup. This secret is shown only during setup.</p>
+                <p class="muted">In your authenticator app, add an account using a setup key. Enter the current six-digit code from the app to finish setup. This key is shown only during setup; store it securely.</p>
                 <p><strong>Account:</strong> <span id="mfaSetupEmail"></span></p>
-                <p><strong>Secret:</strong> <code id="mfaSetupSecret"></code></p>
+                <p><strong>Setup key:</strong> <code id="mfaSetupSecret"></code>
+                    <button id="copyMfaSetupSecret" class="button button-secondary" type="button">Copy setup key</button>
+                </p>
+                <p id="mfaSetupCopyStatus" class="muted" role="status" aria-live="polite"></p>
                 <form id="mfaEnrollmentForm" class="form">
                     <label for="mfaEnrollmentCode">Current authenticator code</label>
                     <input id="mfaEnrollmentCode" name="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
@@ -50,6 +60,23 @@
         </section>
 
         <section id="dashboardPanel" class="dashboard hidden" aria-labelledby="dashboardTitle">
+            <button id="adminSidebarBackdrop" class="admin-sidebar-backdrop" type="button" aria-label="Close admin navigation" hidden></button>
+            <aside id="adminSidebar" class="admin-sidebar" role="dialog" aria-modal="true" aria-label="Admin navigation" aria-hidden="true" hidden>
+                <div class="admin-sidebar-heading">
+                    <div class="sidebar-account">
+                        <img src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="">
+                        <div>
+                            <strong>Shopademia</strong>
+                            <span id="sidebarRole">Shop administrator</span>
+                        </div>
+                    </div>
+                    <button id="adminSidebarClose" class="sidebar-close" type="button" aria-label="Close admin navigation">×</button>
+                    <p id="sidebarAccountEmail" class="sidebar-account-email"></p>
+                    <label class="sidebar-search-label" for="adminSidebarSearch">Search menu</label>
+                    <input id="adminSidebarSearch" class="sidebar-search" type="search" placeholder="Search menu..." autocomplete="off">
+                </div>
+                <nav id="adminSidebarNav" class="admin-sidebar-nav" aria-label="Admin sections"></nav>
+            </aside>
             <div class="page-heading">
                 <div>
                     <p class="eyebrow">STORE OPERATIONS</p>
@@ -58,13 +85,6 @@
                 </div>
                 <button id="refreshButton" class="button button-secondary" type="button">Refresh orders</button>
             </div>
-            <nav class="admin-nav" aria-label="Admin sections">
-                <button class="button button-secondary" type="button" data-admin-view="orders" aria-pressed="true">Orders</button>
-                <button class="button button-secondary" type="button" data-admin-view="products" aria-pressed="false">Products</button>
-                <button class="button button-secondary" type="button" data-admin-view="shop" aria-pressed="false">Shop profile</button>
-                <button class="button button-secondary" type="button" data-admin-view="profile" aria-pressed="false">Admin profile</button>
-                <a class="button button-secondary" href="/admin/platform">Shop management</a>
-            </nav>
             <p id="activeShopName" class="muted" aria-live="polite"></p>
             <p id="dashboardMessage" class="notice hidden" role="status"></p>
             <section id="ordersPanel" aria-label="Customer orders">
@@ -162,7 +182,7 @@
                         <button id="cancelProductEditButton" class="button button-secondary hidden" type="button">Cancel edit</button>
                     </div>
                 </form>
-                <section class="catalogue-panel" aria-labelledby="categoriesTitle">
+                <section id="categoriesPanel" class="catalogue-panel" aria-labelledby="categoriesTitle">
                     <div class="section-heading">
                         <div><p class="eyebrow">PRODUCT CATALOGUE</p><h3 id="categoriesTitle">Manage categories</h3><p class="muted">Rename a category or create shop-specific categories. Deleting a category lets you keep its products unassigned or remove them too.</p></div>
                     </div>

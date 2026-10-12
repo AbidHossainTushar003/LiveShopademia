@@ -74,6 +74,10 @@ export function decryptTotpSecret(encrypted, key) {
     if (version !== 'v1' || !ivText || !tagText || !ciphertextText || extra) {
         throw new Error('The stored MFA secret has an invalid format.');
     }
+    if (![ivText, tagText, ciphertextText].every((value) => /^[A-Za-z0-9_-]+$/.test(value)
+        && Buffer.from(value, 'base64url').toString('base64url') === value)) {
+        throw new Error('The stored MFA secret has an invalid format.');
+    }
     const iv = Buffer.from(ivText, 'base64url');
     const tag = Buffer.from(tagText, 'base64url');
     const ciphertext = Buffer.from(ciphertextText, 'base64url');

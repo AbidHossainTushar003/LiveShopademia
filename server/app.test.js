@@ -65,6 +65,8 @@ function fakePool() {
         role: 'owner'
     });
     const sessions = new Map();
+    const adminSettings = new Map();
+    const adminAudit = [];
     let passwordChangeRaceHash = null;
     let failOrderRetryLookup = false;
     let transactionSnapshot = null;
@@ -108,7 +110,9 @@ function fakePool() {
                     managedProducts: structuredClone([...managedProducts]),
                     categories: structuredClone([...categories]),
                     orders: structuredClone([...orders]),
-                    orderEvents: structuredClone(orderEvents)
+                    orderEvents: structuredClone(orderEvents),
+                    adminSettings: structuredClone([...adminSettings]),
+                    adminAudit: structuredClone(adminAudit)
                 };
                 return { rows: [] };
             }
@@ -125,6 +129,9 @@ function fakePool() {
                     orders.clear();
                     for (const [eventId, order] of transactionSnapshot.orders) orders.set(eventId, order);
                     orderEvents.splice(0, orderEvents.length, ...transactionSnapshot.orderEvents);
+                    adminSettings.clear();
+                    for (const [key, setting] of transactionSnapshot.adminSettings) adminSettings.set(key, setting);
+                    adminAudit.splice(0, adminAudit.length, ...transactionSnapshot.adminAudit);
                 }
                 transactionSnapshot = null;
                 return { rows: [] };
@@ -541,6 +548,61 @@ function fakePool() {
                 return { rows: [] };
             }
             if (sql.includes('INSERT INTO shop_activity_logs')) return { rows: [] };
+            if (sql.includes('SELECT rp.granted') && sql.includes('admin_role_permissions')) {
+                return { rows: ['settings.read', 'settings.write', 'audit.read', 'permissions.read', 'secrets.write'].includes(values[0])
+                    ? [{ granted: true }]
+                    : [] };
+            }
+            if (sql.includes('SELECT is_secret AS "isSecret" FROM admin_settings')) {
+                const setting = adminSettings.get(`${values[0]}.${values[1]}`);
+                return { rows: setting ? [{ isSecret: setting.isSecret }] : [] };
+            }
+            if (sql.includes('INSERT INTO admin_settings')) {
+                const [group, key, value, isSecret, updatedBy] = values;
+                const setting = { group, key, value: JSON.parse(value), isSecret, updatedBy, updatedAt: new Date().toISOString() };
+                adminSettings.set(`${group}.${key}`, setting);
+                return { rows: [] };
+            }
+            if (sql.includes('INSERT INTO admin_audit_log')) {
+                const [adminUserId, actorEmail, action, entityId, beforeData, afterData, ip, userAgent, requestId] = values;
+                adminAudit.unshift({
+                    id: adminAudit.length + 1,
+                    adminUserId,
+                    actorEmail,
+                    action,
+                    entity: 'setting',
+                    entityId,
+                    before: beforeData ? JSON.parse(beforeData) : null,
+                    after: JSON.parse(afterData),
+                    ip,
+                    userAgent,
+                    requestId,
+                    createdAt: new Date().toISOString()
+                });
+                return { rows: [] };
+            }
+            if (sql.includes('FROM admin_settings') && sql.includes('ORDER BY setting_group, setting_key')) {
+                return { rows: [...adminSettings.values()].map((setting) => ({
+                    group: setting.group,
+                    key: setting.key,
+                    value: setting.value,
+                    isSecret: setting.isSecret,
+                    updatedAt: setting.updatedAt
+                })) };
+            }
+            if (sql.includes('FROM admin_audit_log') && sql.includes('ORDER BY id DESC')) {
+                return { rows: adminAudit.slice(0, values[0]) };
+            }
+            if (sql.includes('FROM admin_roles r CROSS JOIN admin_permissions p')) {
+                return { rows: [{
+                    roleKey: 'super_admin',
+                    roleName: 'Super Admin',
+                    mappingStatus: 'verified',
+                    permissionKey: 'settings.read',
+                    description: 'View configured administrative settings.',
+                    granted: true
+                }] };
+            }
             if (sql.includes("SELECT id FROM shops WHERE status = 'active'")) {
                 return { rows: [{ id: mainShopId }] };
             }
@@ -1612,6 +1674,44 @@ test('requires admin authentication to read customer orders', async () => {
         .expect(401);
 });
 
+test('development admin login can skip platform-admin MFA while production requires it', async () => {
+    const user = {
+        id: '00000000-0000-4000-8000-000000000101',
+        email: config.adminEmail,
+        passwordHash: initialAdminPasswordHash,
+        sessionVersion: 1
+    };
+    const developmentPool = fakePool();
+    developmentPool.addPlatformAdmin(user);
+    const developmentApp = createApp({
+        pool: developmentPool,
+        config: { ...config, nodeEnv: 'development', adminMfaRequired: false }
+    });
+
+    const developmentPage = await request(developmentApp).get('/admin').expect(200);
+    assert.match(developmentPage.text, /name="shopademia-platform-admin-mfa-required" content="false"/);
+    const developmentLogin = await request(developmentApp).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    assert.equal(developmentLogin.body.mfaSetupRequired, undefined);
+    await request(developmentApp).get('/api/v1/admin/profile')
+        .set('Authorization', `Bearer ${developmentLogin.body.token}`)
+        .expect(200);
+
+    const productionPool = fakePool();
+    productionPool.addPlatformAdmin(user);
+    const productionApp = createApp({
+        pool: productionPool,
+        config: { ...config, nodeEnv: 'production', adminMfaRequired: false }
+    });
+    const productionPage = await request(productionApp).get('/admin').expect(200);
+    assert.match(productionPage.text, /name="shopademia-platform-admin-mfa-required" content="true"/);
+    const productionLogin = await request(productionApp).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    assert.equal(productionLogin.body.mfaSetupRequired, true);
+});
+
 test('platform administrators must enroll in TOTP and cannot reuse an authenticator code', async () => {
     const pool = fakePool();
     pool.addPlatformAdmin({
@@ -1619,6 +1719,69 @@ test('platform administrators must enroll in TOTP and cannot reuse an authentica
         email: config.adminEmail,
         passwordHash: initialAdminPasswordHash,
         sessionVersion: 1
+    });
+
+    test('platform administrators can save encrypted settings and read redacted audit events', async () => {
+        const pool = fakePool();
+        const adminId = '00000000-0000-4000-8000-000000000101';
+        pool.addPlatformAdmin({
+            id: adminId,
+            email: config.adminEmail,
+            passwordHash: initialAdminPasswordHash,
+            sessionVersion: 1
+        });
+        const app = createApp({
+            pool,
+            config: { ...config, adminSettingsEncryptionKey: Buffer.alloc(32, 23) }
+        });
+        const login = await loginPlatformAdmin(app);
+        const authorization = `Bearer ${login.body.token}`;
+        const apiKey = 'sensitive-test-api-key';
+
+        await request(app).put('/api/v1/admin/settings/integrations/provider-key')
+            .set('Authorization', authorization)
+            .send({ value: apiKey, isSecret: true })
+            .expect(200, {
+                data: { group: 'integrations', key: 'provider-key', isSecret: true, value: '••••••••' }
+            });
+
+        const settings = await request(app).get('/api/v1/admin/settings')
+            .set('Authorization', authorization)
+            .expect(200);
+        assert.deepEqual(settings.body.data[0], {
+            group: 'integrations',
+            key: 'provider-key',
+            value: '••••••••',
+            isSecret: true,
+            updatedAt: settings.body.data[0].updatedAt
+        });
+
+        const audit = await request(app).get('/api/v1/admin/audit?limit=5')
+            .set('Authorization', authorization)
+            .expect(200);
+        assert.equal(audit.body.data[0].action, 'setting.created');
+        assert.equal(audit.body.data[0].entityId, 'integrations.provider-key');
+        assert.equal(audit.body.data[0].after.isSecret, true);
+        assert.doesNotMatch(JSON.stringify(audit.body), new RegExp(apiKey));
+
+        const permissions = await request(app).get('/api/v1/admin/permissions')
+            .set('Authorization', authorization)
+            .expect(200);
+        assert.equal(permissions.body.data[0].roleKey, 'super_admin');
+    });
+
+    test('shop users cannot access platform settings or permission registry', async () => {
+        const app = createApp({ pool: fakePool(), config });
+        const login = await request(app).post('/api/v1/admin/login')
+            .send({ email: config.adminEmail, password: config.adminPassword })
+            .expect(200);
+        const authorization = `Bearer ${login.body.token}`;
+        await request(app).get('/api/v1/admin/settings')
+            .set('Authorization', authorization)
+            .expect(403);
+        await request(app).get('/api/v1/admin/permissions')
+            .set('Authorization', authorization)
+            .expect(403);
     });
     const app = createApp({ pool, config });
     const setup = await request(app).post('/api/v1/admin/login')
@@ -2138,7 +2301,11 @@ test('rejects invalid manual advance verification status', async () => {
 test('serves the admin dashboard and same-origin catalog with a restrictive script policy', async () => {
     const app = createApp({ pool: fakePool(), config });
     const adminPage = await request(app).get('/admin').expect(200);
+    const platformPage = await request(app).get('/admin/platform').expect(200);
     assert.match(adminPage.text, /Customer orders/);
+    assert.match(platformPage.text, /Role and action permissions/);
+    assert.match(platformPage.text, /Security audit trail/);
+    assert.match(platformPage.text, /Store as secret/);
     assert.equal(adminPage.headers['x-content-type-options'], 'nosniff');
     assert.equal(adminPage.headers['referrer-policy'], 'strict-origin-when-cross-origin');
     assert.match(adminPage.headers['permissions-policy'], /payment=\(\)/);

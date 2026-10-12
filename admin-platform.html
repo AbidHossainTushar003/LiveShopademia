@@ -13,6 +13,9 @@
 <body class="platform-page" data-admin-site="true">
     <main class="shell">
         <header class="topbar">
+            <button id="adminSidebarToggle" class="sidebar-toggle" type="button" aria-label="Open admin navigation" aria-controls="adminSidebar" aria-expanded="false" hidden>
+                <span aria-hidden="true">☰</span>
+            </button>
             <a class="brand" href="/admin" aria-label="Back to orders">
                 <img class="brand-mark" src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="">
                 <span>Shopademia <small>SHOP MANAGEMENT</small></span>
@@ -20,7 +23,24 @@
             <a id="dashboardLink" class="button button-secondary" href="/admin">Back to orders</a>
         </header>
         <section class="dashboard">
-            <div class="page-heading">
+            <button id="adminSidebarBackdrop" class="admin-sidebar-backdrop" type="button" aria-label="Close admin navigation" hidden></button>
+            <aside id="adminSidebar" class="admin-sidebar" role="dialog" aria-modal="true" aria-label="Admin navigation" aria-hidden="true" hidden>
+                <div class="admin-sidebar-heading">
+                    <div class="sidebar-account">
+                        <img src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="">
+                        <div>
+                            <strong>Shopademia</strong>
+                            <span id="sidebarRole">Administrator</span>
+                        </div>
+                    </div>
+                    <button id="adminSidebarClose" class="sidebar-close" type="button" aria-label="Close admin navigation">×</button>
+                    <p id="sidebarAccountEmail" class="sidebar-account-email"></p>
+                    <label class="sidebar-search-label" for="adminSidebarSearch">Search menu</label>
+                    <input id="adminSidebarSearch" class="sidebar-search" type="search" placeholder="Search menu..." autocomplete="off">
+                </div>
+                <nav id="adminSidebarNav" class="admin-sidebar-nav" aria-label="Admin sections"></nav>
+            </aside>
+            <div id="pageTop" class="page-heading">
                 <div>
                     <p class="eyebrow">MULTI-SHOP CONTROL PANEL</p>
                     <h1>Shop management</h1>
@@ -37,8 +57,17 @@
                 </div>
             </div>
             <p id="platformMessage" class="notice hidden" role="status"></p>
-            <section class="platform-grid">
-                <article class="profile-panel shop-settings-panel" data-platform-only>
+            <div class="platform-sections">
+                <section id="shopManagementSection" class="platform-section" aria-labelledby="shopManagementHeading">
+                    <header class="platform-section-heading">
+                        <div>
+                            <p class="eyebrow">WORKSPACE</p>
+                            <h2 id="shopManagementHeading">Shop and team</h2>
+                            <p class="muted">Choose a shop, maintain its profile, and manage access for the people who run it.</p>
+                        </div>
+                    </header>
+                    <div class="platform-grid">
+                <article id="shopSettingsPanel" class="profile-panel shop-settings-panel" data-platform-only>
                     <p class="eyebrow">SHOP PROFILE</p>
                     <h2>Shop details</h2>
                     <form id="shopSettingsForm" class="form">
@@ -62,7 +91,7 @@
                         <button class="button button-primary" type="submit">Create shop</button>
                     </form>
                 </article>
-                <article class="profile-panel team-panel">
+                <article id="teamPanel" class="profile-panel team-panel">
                     <p class="eyebrow">TEAM ACCESS</p>
                     <h2>Shop members</h2>
                     <form id="memberForm" class="form">
@@ -79,6 +108,17 @@
                     </form>
                     <div id="membersList" class="platform-list" aria-live="polite"></div>
                 </article>
+                    </div>
+                </section>
+                <section id="storefrontSection" class="platform-section" aria-labelledby="storefrontHeading">
+                    <header class="platform-section-heading">
+                        <div>
+                            <p class="eyebrow">CUSTOMER EXPERIENCE</p>
+                            <h2 id="storefrontHeading">Storefront and content</h2>
+                            <p class="muted">Manage the public product feed, store branding, and homepage slides.</p>
+                        </div>
+                    </header>
+                    <div class="platform-grid">
                 <article class="profile-panel shop-api-panel">
                     <p class="eyebrow">PUBLIC PRODUCT API</p>
                     <h2>Use this shop’s products on your website</h2>
@@ -93,7 +133,7 @@
                     <pre id="shopProductApiExample" class="shop-api-code"></pre>
                     <button id="copyShopProductApiExample" class="button button-primary" type="button">Copy example code</button>
                 </article>
-                <article class="profile-panel branding-panel" data-platform-only>
+                <article id="brandingPanel" class="profile-panel branding-panel" data-platform-only>
                     <p class="eyebrow">STORE BRANDING</p>
                     <h2>Store banner</h2>
                     <p class="muted">Upload JPEG, PNG, or WebP images up to 5 MB.</p>
@@ -104,7 +144,7 @@
                     </form>
                     <div id="brandingPreview" class="platform-list"></div>
                 </article>
-                <article class="profile-panel hero-slides-panel" data-platform-only>
+                <article id="heroSlidesPanel" class="profile-panel hero-slides-panel" data-platform-only>
                     <p class="eyebrow">STOREFRONT HERO</p>
                     <h2>Hero slider</h2>
                     <p class="muted">Add up to 5 slides. Each slide has its own image, headline, description, and Buy Now link.</p>
@@ -131,6 +171,17 @@
                     </form>
                     <div id="heroSlidesList" class="platform-list hero-slides-list" aria-live="polite"></div>
                 </article>
+                    </div>
+                </section>
+                <section id="businessSection" class="platform-section" data-platform-only aria-labelledby="businessHeading">
+                    <header class="platform-section-heading">
+                        <div>
+                            <p class="eyebrow">SHOP OPERATIONS</p>
+                            <h2 id="businessHeading">Transactions, offers and reports</h2>
+                            <p class="muted">Review the existing transaction log, publish deals, and inspect activity summaries.</p>
+                        </div>
+                    </header>
+                    <div class="platform-grid">
                 <article class="profile-panel transactions-panel" data-platform-only>
                     <p class="eyebrow">PAYMENT LEDGER</p>
                     <h2>Transactions</h2>
@@ -154,7 +205,7 @@
                     </form>
                     <div id="transactionsList" class="platform-list" aria-live="polite"></div>
                 </article>
-                <article class="profile-panel offers-panel" data-platform-only>
+                <article id="offersPanel" class="profile-panel offers-panel" data-platform-only>
                     <p class="eyebrow">DEALS AND NOTIFICATIONS</p>
                     <h2>Publish a deal</h2>
                     <form id="offerForm" class="form">
@@ -171,19 +222,61 @@
                     </form>
                     <div id="offersList" class="platform-list" aria-live="polite"></div>
                 </article>
-                <article class="profile-panel reports-panel" data-platform-only>
+                <article id="reportsPanel" class="profile-panel reports-panel" data-platform-only>
                     <p class="eyebrow">BUSINESS INTELLIGENCE</p>
                     <h2>Reports and analytics</h2>
                     <label for="reportDays">Reporting period</label>
                     <select id="reportDays"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
                     <div id="reportSummary" class="platform-list" aria-live="polite"></div>
                 </article>
+                    </div>
+                </section>
+                <section id="governanceSection" class="platform-section" data-platform-only aria-labelledby="governanceHeading">
+                    <header class="platform-section-heading">
+                        <div>
+                            <p class="eyebrow">PLATFORM GOVERNANCE</p>
+                            <h2 id="governanceHeading">Settings, access and audit</h2>
+                            <p class="muted">Review platform settings, the current permission foundation, and administrative activity.</p>
+                        </div>
+                    </header>
+                    <div class="platform-grid">
+                <article id="adminSettingsPanel" class="profile-panel admin-settings-panel" data-platform-only>
+                    <p class="eyebrow">ADMIN FOUNDATIONS</p>
+                    <h2>Settings</h2>
+                    <p class="muted">Secret values are encrypted at rest and never returned by read APIs. Configure <code>ADMIN_SETTINGS_ENCRYPTION_KEY</code> before saving secrets.</p>
+                    <form id="adminSettingForm" class="form">
+                        <label for="adminSettingGroup">Group</label>
+                        <input id="adminSettingGroup" name="group" pattern="[a-z][a-z0-9_-]{1,47}" maxlength="48" required>
+                        <label for="adminSettingKey">Key</label>
+                        <input id="adminSettingKey" name="key" pattern="[a-z][a-z0-9_-]{1,63}" maxlength="64" required>
+                        <label for="adminSettingValue">Value</label>
+                        <input id="adminSettingValue" name="value" autocomplete="off" required>
+                        <label class="checkbox-label"><input id="adminSettingSecret" name="isSecret" type="checkbox"> Store as secret</label>
+                        <p id="adminSettingError" class="error hidden" role="alert"></p>
+                        <button id="saveAdminSetting" class="button button-primary" type="submit">Save setting</button>
+                    </form>
+                    <div id="adminSettingsList" class="platform-list" aria-live="polite"></div>
+                </article>
+                <article id="permissionMatrixPanel" class="profile-panel permissions-panel" data-platform-only>
+                    <p class="eyebrow">ACCESS CONTROL</p>
+                    <h2>Role and action permissions</h2>
+                    <p class="muted">Unresolved roles are default-deny. The missing V2 role matrix must be reconciled before additional permissions can be granted.</p>
+                    <div id="permissionMatrix" class="platform-list" aria-live="polite"></div>
+                </article>
+                <article id="adminAuditPanel" class="profile-panel audit-panel" data-platform-only>
+                    <p class="eyebrow">IMMUTABLE ADMIN AUDIT</p>
+                    <h2>Security audit trail</h2>
+                    <p class="muted">Records of administrative setting changes. Values and secrets are intentionally excluded.</p>
+                    <div id="adminAuditList" class="platform-list" aria-live="polite"></div>
+                </article>
                 <article class="profile-panel activity-panel" data-platform-only>
                     <p class="eyebrow">ADMIN AUDIT TRAIL</p>
                     <h2>Recent activity</h2>
                     <div id="activityList" class="platform-list" aria-live="polite"></div>
                 </article>
-            </section>
+                    </div>
+                </section>
+            </div>
         </section>
     </main>
     <script type="module" src="/js/site-chrome.js"></script>
