@@ -18,7 +18,7 @@ Updated: 2026-10-12
 - Repository root: `C:\Users\Abidh\OneDrive\Desktop\storefront` (inside OneDrive).
 - Implementation branch: `feature/admin-v2`, created from `main` after owner authorization.
 - The repository location decision D12 remains unanswered; no relocation was attempted.
-- No commit was created.
+- The initial B1 handoff had no commit. The later logout follow-up is committed and pushed as `dccff169b207cc4d5b8c18e3e81dd769446df4fc` on `feature/admin-v2`; see current verification below.
 
 ## Menu status
 
@@ -136,4 +136,5 @@ The existing partial features are not yet acceptance-tested against the V3 requi
 - A real-browser/local-backend smoke check found no platform-page logout control. Added `platformLogoutButton`, POST session revocation, return-to-login navigation, and a regression test. Against the disposable database, actual configured local credentials logged in, authenticated profile returned 200, and logout returned 204. Full Chromium after this fix: **13 passed / 1 expected skip**; logout regression passed in Chromium, Firefox, and WebKit individually.
 - Post-fix verification: `npm.cmd test` **100/100 passed**, `npm.cmd audit --audit-level=low` **0 vulnerabilities**, JavaScript syntax and `git diff --check` **PASS**. The source security reviewer reported no findings in the reviewed scope; this is not a complete/runtime security certification.
 - `npm.cmd run build:css` also completed successfully after the logout change; no extra tracked CSS output was produced.
-- These follow-up logout changes and report updates are local and **uncommitted/unpushed**. GitHub CI success above applies to base commit `828aca0`, not this subsequent local diff. Do not deploy from the base commit expecting the new logout fix.
+- The logout follow-up and its report updates were committed as `dccff169b207cc4d5b8c18e3e81dd769446df4fc` and pushed to GitHub remote `2` on `feature/admin-v2`. GitHub Actions CI run [38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) passed for that exact commit; Node tests and dependency audit passed, and deployment was skipped. This is not production authorization.
+- The disposable PostgreSQL 17 test cluster and its log were stopped and removed after verification. Production and staging were not accessed or changed.

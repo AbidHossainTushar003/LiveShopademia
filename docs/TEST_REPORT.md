@@ -5,11 +5,14 @@
 
 ## Production-readiness prompt execution (2026-10-12)
 
-**Base release source:** `828aca0597b4c25e14956c4c52b6e6ab37c9fb77` on `feature/admin-v2`. That commit's CI results below apply only to the base commit. The platform-admin sign-out follow-up has separate local verification below; its CI status is pending until a feature-branch commit is pushed.
+**Base release source:** `828aca0597b4c25e14956c4c52b6e6ab37c9fb77` on `feature/admin-v2`.
+**Verified follow-up:** `dccff169b207cc4d5b8c18e3e81dd769446df4fc` on `feature/admin-v2`, pushed to the GitHub feature branch. CI run [38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) passed for this exact commit. No production deploy was triggered.
 
 | Gate/check | Result | Evidence and limits |
 |---|---|---|
-| GitHub CI for base release source | **PASS** | [Workflow run 38265641287](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38265641287) succeeded for `828aca0597b4c25e14956c4c52b6e6ab37c9fb77`. Node tests and `npm audit --audit-level=low` succeeded. The deploy job was skipped because this is not a push to `main`. This is not CI evidence for the logout follow-up. |
+| Feature-branch commit and push | **PASS** | Commit `dccff169b207cc4d5b8c18e3e81dd769446df4fc` pushed non-force to `2/feature/admin-v2`; no `main` or production remote push. |
+| GitHub CI for verified follow-up | **PASS** | [Workflow run 38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) succeeded for `dccff169b207cc4d5b8c18e3e81dd769446df4fc`. The Node test and npm dependency audit jobs passed; deploy was skipped on the feature branch. |
+| GitHub CI for base release source | **PASS, historical** | [Workflow run 38265641287](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38265641287) succeeded for `828aca0597b4c25e14956c4c52b6e6ab37c9fb77`. This is retained as base-commit history, not used as evidence for the follow-up. |
 | Local `npm.cmd test` after logout follow-up | **PASS — 100/100** | Fresh full suite: 100 passed, 0 failed, 0 skipped. |
 | Local `npm.cmd audit --audit-level=low` after logout follow-up | **PASS — 0 vulnerabilities** | Dependency advisory audit completed successfully. |
 | `npm.cmd run build:css` | **PASS** | Tailwind production CSS build completed after the local logout follow-up; generated output introduced no additional tracked changes. |
@@ -38,7 +41,7 @@ The real-backend login smoke test exposed that the platform shop-management page
 | Logout regression after repair | **PASS — Chromium 1/1, Firefox 1/1, WebKit 1/1** | Tested serially in each browser against the browser/API harness. Confirms POST logout, profile API rejection (401), and redirect from a protected workspace to login. A concurrent Firefox attempt failed during Playwright artifact teardown with `ENOENT`; serial rerun passed. |
 | Real-backend platform-admin login/profile/logout | **PASS, local only** | Actual configured local account on the disposable database: login redirected to platform workspace, profile returned HTTP 200, logout returned HTTP 204, the revoked session then received HTTP 401, and protected workspace navigation redirected to login. Credentials are not recorded. |
 | Syntax and diff checks | **PASS** | `node --check` on the modified module and E2E test, and `git diff --check`, passed. |
-| GitHub CI for logout follow-up | **PENDING** | The follow-up is not yet committed or pushed. The base-commit run above is not substituted for CI on the new source. |
+| GitHub CI for logout follow-up | **PASS** | Run [38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) passed on exact commit `dccff169b207cc4d5b8c18e3e81dd769446df4fc`; deploy job was skipped. |
 
 ## Interaction audit verification (2026-10-12)
 
