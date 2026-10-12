@@ -31,10 +31,17 @@ export async function optimizeImageFile(file) {
 
 export async function optimizedFormData(form) {
     const data = new FormData(form);
-    for (const [name, value] of data.entries()) {
-        if (typeof File === 'undefined' || !(value instanceof File) || value.size === 0) continue;
-        const optimized = await optimizeImageFile(value);
-        if (optimized !== value) data.set(name, optimized, optimized.name);
+    for (const name of new Set([...data.keys()])) {
+        const values = data.getAll(name);
+        if (typeof File === 'undefined' || !values.some((value) => value instanceof File && value.size > 0)) continue;
+        const optimizedValues = await Promise.all(values.map(async (value) =>
+            value instanceof File && value.size > 0 ? optimizeImageFile(value) : value
+        ));
+        data.delete(name);
+        for (const value of optimizedValues) {
+            if (value instanceof File) data.append(name, value, value.name);
+            else data.append(name, value);
+        }
     }
     return data;
 }

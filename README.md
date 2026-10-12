@@ -58,7 +58,7 @@ GET https://YOUR_DOMAIN/api/v1/public/shops/SHOP_SLUG/products
 
 The Shop Management dashboard shows the selected shop's exact URL and a copyable integration example. The endpoint is unauthenticated by design so external websites can use it, allows cross-origin `GET` requests, and must not contain customer or order information. It is rate-limited and responses may be cached for up to 30 seconds. Suspended or unknown shops return 404.
 
-Optional query parameters are `limit` (1–100, default 50), `offset` (non-negative integer, default 0), and `category` (`gadgets`, `accessories`, `clothing`, or `more`). Responses include `shop`, `data`, and `pagination`; product entries include ID, name, description, price, old price, absolute image URL, category, stock quantity, and availability. Example:
+Optional query parameters are `limit` (1–100, default 50), `offset` (non-negative integer, default 0), and `category` (a built-in category ID or one created for that shop). Responses include `shop`, `data`, and `pagination`; product entries include ID, name, description, price, old price, absolute image URL, category, stock quantity, and availability. Example:
 
 ```js
 const url = 'https://YOUR_DOMAIN/api/v1/public/shops/SHOP_SLUG/products?limit=50';
@@ -92,6 +92,8 @@ The storefront divides the home catalog between an initial product row and a sec
 Open `/admin/platform` after signing in to create storefronts, switch the active shop, manage its users and roles, configure up to five hero slides with individual desktop images, optional mobile images, headlines, descriptions, and Buy Now URLs, set a separate store banner, record manual transactions, publish offers, and review shop-scoped reports and activity. Shops share one PostgreSQL database; each product and order carries a `shop_id`, and shop URLs use `/?shop=<slug>`. Existing products and orders are migrated into the `main` shop. The regular `/admin` dashboard uses the active shop selected in Shop management for both its product and order APIs.
 
 Shop owners can add/remove shop members and change their admin/staff roles. Admins can manage shop settings, products, branding, transactions, and offers; staff can read shop data and process order-status/payment-review actions, but cannot change shop settings, catalog, branding, transactions, offers, or memberships. The platform does not provide account self-registration, email-based invitations, password-reset delivery, or ownership transfer. Account creation uses an owner-supplied temporary password, which must be shared securely and changed by the user after sign-in.
+
+Each shop admin can create and rename shop-specific product categories. When deleting a category, the admin can either keep its products as uncategorized for later reassignment or delete those products and their images. Product listings support up to 10 JPEG, PNG, or WebP images (5 MB each); uploads are validated and resized to fit within 1600 × 1600 pixels, and storefront product pages display them as a gallery. The shop profile form manages the public shop name, description, location, contact email, phone, WhatsApp contact, and logo. The public `/shops/<slug>` page displays this profile with shop categories, products, offers, and top products.
 
 The payment ledger is manual bookkeeping only; it does not connect to bKash, banks, or another payment provider. Reported order values represent order records, not collected cash. Verified/refund/expense entries in the ledger must be reconciled with the external payment records.
 
@@ -136,13 +138,14 @@ This deployment targets a single Linux VM with Docker Compose and a public DNS n
    chmod 600 .env.production
    ```
 
-   Generate random secrets (run separately for each password and the JWT secret):
+   Generate random secrets (run separately for every password and key):
 
    ```sh
    node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
    ```
 
-   Use the generated values for `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `ADMIN_PASSWORD`, and `JWT_SECRET`. Put the app password in `DATABASE_URL` as well. Hex values are URL-safe. Set `DOMAIN` to the DNS name. Install `age`, generate an encryption identity with `age-keygen`, keep its private key off the server, and set `BACKUP_AGE_RECIPIENT` to its public recipient. Keep `.env.production` private; it is ignored by Git.
+   Use the generated values for `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_MIGRATION_PASSWORD`, `ADMIN_PASSWORD`, `JWT_SECRET`, and `MFA_ENCRYPTION_KEY`. The MFA key must be a distinct 64-character hexadecimal value. Put the app password in `DATABASE_URL` and the migration password in `MIGRATION_DATABASE_URL`; both database URLs use their respective dedicated PostgreSQL roles. Hex values are URL-safe. Set `DOMAIN` to the DNS name. Install `age`, generate an encryption identity with `age-keygen`, keep its private key off the server, and set `BACKUP_AGE_RECIPIENT` to its public recipient. Keep `.env.production` private; it is ignored by Git.
+   For an existing database volume, take and verify a backup before the first deploy with these role changes. Run `chmod 700 scripts/upgrade-database-role.sh`, then `scripts/upgrade-database-role.sh`; review its confirmation prompt and set the migrator password/URL in `.env.production`. The script transfers ownership of objects in the `public` schema to `shopademia_migrator`, grants the app only data access, and removes the app's schema `CREATE` privilege.
 3. Start the stack:
 
    ```sh
@@ -166,10 +169,25 @@ This deployment targets a single Linux VM with Docker Compose and a public DNS n
    BACKUP_DIR=/var/backups/shopademia scripts/backup-production.sh
    ```
 
-   The script creates a paired, timestamped, encrypted PostgreSQL dump and product-upload archive. Schedule it with the host's systemd timer or cron, retain both files together according to your policy, and copy the encrypted files to an off-host backup provider. Keep the age private key separately; without it, backups cannot be decrypted. Regularly test restore into a separate empty database before relying on backups.
-6. Configure an external uptime monitor to request `https://<your-domain>/healthz`, alert on non-200 responses, and check service logs. Configure log retention, host patching, secret rotation, and an incident contact before opening the service to customers. The PostgreSQL volume is persistent but is not itself a backup.
+   The script creates a paired, timestamped, encrypted PostgreSQL dump and product-upload archive. Schedule it with the host's systemd timer or cron, retain both files together according to your policy, and copy the encrypted files to an off-host backup provider. Keep the age private key separately; without it, backups cannot be decrypted.
 
-The database runs as an unprivileged `shopademia_app` role; the separate bootstrap role is used only by PostgreSQL initialization. The init script runs only when the database volume is first created. This production Compose stack uses a dedicated volume; do not point it at an existing database volume without planning a role/ownership migration. The app has no published host port, and `TRUST_PROXY_HOPS=1` is correct only while Caddy is its sole trusted proxy. If you add another proxy/load balancer, update the hop count and ensure the proxy chain strips client-supplied forwarding headers.
+   Test a paired backup restore into an isolated database and a new directory (never the live uploads volume):
+
+   ```sh
+   chmod 700 scripts/restore-production.sh
+   scripts/restore-production.sh \
+     /var/backups/shopademia/shopademia-<timestamp>-<pid>.dump.age \
+     /var/backups/shopademia/shopademia-<timestamp>-<pid>-uploads.tar.gz.age \
+     /secure/off-host/age-identity.txt \
+     /var/tmp/shopademia-restore-<date>
+   ```
+
+   The restore script decrypts both files, rejects unexpected archive paths and links, restores PostgreSQL into a newly named `shopademia_restore_*` database, and extracts uploads only beneath the new restore directory. It does not overwrite production. Verify the restored tables and files, document the result and recovery time, then have an operator remove the isolated test database and directory after review. Repeat this drill regularly.
+6. Configure an external uptime monitor to request `https://<your-domain>/healthz`, alert on non-200 responses, and check service logs. Configure log retention, host patching, secret rotation, and an incident contact before opening the service to customers. Docker volumes are not encrypted by this Compose file: use a host/provider encrypted disk for the PostgreSQL volume and uploads, and verify that encryption remains enabled across recovery. The PostgreSQL volume is persistent but is not itself a backup.
+
+Platform administrators must enroll an authenticator app on their first sign-in and enter a current six-digit TOTP code on later sign-ins. Store `MFA_ENCRYPTION_KEY` separately from the database and back it up securely: losing or rotating it without decrypting/re-encrypting stored MFA secrets will lock platform administrators out. If an administrator loses their authenticator, use a documented, independently verified operator recovery procedure; there is no email-based MFA bypass.
+
+The web process uses `shopademia_app`, which has schema usage and DML/sequence access only. A one-shot `migrate` service uses `shopademia_migrator` for schema changes and exits before the app starts; both passwords are distinct. PostgreSQL's bootstrap account creates the roles on a new database volume. The init script runs only when the database volume is first created, so use the confirmed upgrade script for an existing volume before deploying this change. The app has no published host port, and `TRUST_PROXY_HOPS=1` is correct only while Caddy is its sole trusted proxy. If you add another proxy/load balancer, update the hop count and ensure the proxy chain strips client-supplied forwarding headers.
 
 Login and checkout are limited to 8 and 30 requests per client IP per 15 minutes, respectively. Order lookup allows 5 requests and product uploads 10 per IP per 15 minutes; public catalog reads allow 120 per minute. These limits are in-memory and reset on restart; do not scale to multiple app replicas without adding a shared rate-limit store, and add edge-level abuse controls if traffic warrants them.
 

@@ -8,6 +8,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env.production}
+      POSTGRES_MIGRATION_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD:?Set POSTGRES_MIGRATION_PASSWORD in .env.production}
     volumes:
       - shopademia-production-postgres:/var/lib/postgresql/data
     networks:
@@ -18,6 +19,24 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  migrate:
+    build:
+      context: .
+    restart: "no"
+    command: ["node", "server/migrate.js"]
+    environment:
+      NODE_ENV: production
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL in .env.production}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env.production}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.production}
+      DELIVERY_ADVANCE_CHARGE: ${DELIVERY_ADVANCE_CHARGE:-100}
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - database
 
   app:
     build:
@@ -30,15 +49,14 @@ services:
       PUBLIC_SITE_URL: https://${DOMAIN:?Set DOMAIN in .env.production}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
       DATABASE_SSL: ${DATABASE_SSL:-false}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env.production}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.production}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?Set MFA_ENCRYPTION_KEY in .env.production}
       DELIVERY_ADVANCE_CHARGE: ${DELIVERY_ADVANCE_CHARGE:-100}
     volumes:
       - shopademia-product-images:/app/uploads
     depends_on:
-      database:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - proxy
       - database

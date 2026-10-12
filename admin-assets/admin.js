@@ -1,7 +1,6 @@
 import { fetchWithTimeout } from '../js/utils/fetchWithTimeout.js';
 import { optimizedFormData } from '../js/utils/optimizeUploadImage.js';
 
-const tokenKey = 'shopademia.adminToken';
 const shopKey = 'shopademia.adminShopId';
 const pageSize = 20;
 const statusTransitions = {
@@ -21,13 +20,18 @@ const pagination = document.getElementById('pagination');
 const ordersPanel = document.getElementById('ordersPanel');
 const profilePanel = document.getElementById('profilePanel');
 const productsPanel = document.getElementById('productsPanel');
+const shopPanel = document.getElementById('shopPanel');
 const profileMessage = document.getElementById('profileMessage');
+let categoryItems = [];
+let activeShop = null;
 let page = 1;
 let ordersRequestId = 0;
 let profileRequestId = 0;
 let productsRequestId = 0;
-let productImagePreviewUrl = null;
+let productImagePreviewUrls = [];
+let shopLogoPreviewUrl = null;
 let activeShopId = null;
+let mfaSetupToken = null;
 
 function showMessage(message, isError = false) {
     dashboardMessage.textContent = message;
@@ -42,8 +46,9 @@ function setAuthenticated(authenticated) {
 }
 
 function clearSession(message = '') {
-    sessionStorage.removeItem(tokenKey);
+    mfaSetupToken = null;
     activeShopId = null;
+    activeShop = null;
     ordersRequestId += 1;
     profileRequestId += 1;
     productsRequestId += 1;
@@ -63,19 +68,20 @@ function clearSession(message = '') {
     setAdminView('orders');
     document.getElementById('loginError').textContent = message;
     document.getElementById('loginError').classList.toggle('hidden', !message);
+    document.getElementById('loginForm').classList.remove('hidden');
+    document.getElementById('mfaSetupPanel').classList.add('hidden');
+    document.getElementById('mfaSetupError').classList.add('hidden');
+    document.getElementById('mfaSetupSecret').textContent = '';
 }
 
 async function api(path, options = {}) {
     const headers = new Headers(options.headers);
     if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-    const token = sessionStorage.getItem(tokenKey);
-    if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-        if (activeShopId && path !== '/admin/shops') headers.set('X-Shop-Id', activeShopId);
-    }
+    if (activeShopId && path !== '/admin/shops') headers.set('X-Shop-Id', activeShopId);
     const response = await fetchWithTimeout(`/api/v1${path}`, { ...options, headers });
     const body = await response.json().catch(() => ({}));
-    if (response.status === 401 && token) {
+    if (response.status === 401 && !['/admin/login', '/admin/mfa/enroll'].includes(path)
+        && !dashboardPanel.classList.contains('hidden')) {
         clearSession(body.error || 'Your session expired. Please sign in again.');
     }
     if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
@@ -90,6 +96,7 @@ async function resolveActiveShop() {
     const savedShopId = sessionStorage.getItem(shopKey);
     const shop = data.find(({ id }) => id === savedShopId) || data[0];
     activeShopId = shop.id;
+    activeShop = shop;
     sessionStorage.setItem(shopKey, shop.id);
     const label = document.getElementById('activeShopName');
     if (label) label.textContent = `Managing ${shop.name} (${shop.slug})`;
@@ -105,6 +112,10 @@ function setAdminView(view) {
             title: 'Products',
             description: 'Upload and publish products to the storefront catalog.'
         },
+        shop: {
+            title: 'Shop profile',
+            description: 'Update the public information customers see on your shop page.'
+        },
         profile: {
             title: 'Admin profile',
             description: 'View the configured admin account and manage its password.'
@@ -115,6 +126,7 @@ function setAdminView(view) {
     document.getElementById('dashboardDescription').textContent = views[view].description;
     ordersPanel.classList.toggle('hidden', view !== 'orders');
     productsPanel.classList.toggle('hidden', view !== 'products');
+    shopPanel.classList.toggle('hidden', view !== 'shop');
     profilePanel.classList.toggle('hidden', view !== 'profile');
     document.querySelectorAll('[data-admin-view]').forEach((button) => {
         button.setAttribute('aria-pressed', String(button.dataset.adminView === view));
@@ -122,12 +134,15 @@ function setAdminView(view) {
     document.getElementById('refreshButton').classList.toggle('hidden', view !== 'orders');
     showMessage('');
     if (view === 'profile') loadProfile();
-    if (view === 'products') loadProducts();
+    if (view === 'products') {
+        loadCategories().then(loadProducts);
+    }
+    if (view === 'shop') loadShopProfile();
 }
 
 function clearProductImagePreview() {
-    if (productImagePreviewUrl) URL.revokeObjectURL(productImagePreviewUrl);
-    productImagePreviewUrl = null;
+    productImagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    productImagePreviewUrls = [];
     document.getElementById('productImagePreview').replaceChildren();
     document.getElementById('productImagePreview').classList.add('hidden');
 }
@@ -138,7 +153,7 @@ function cancelProductEdit() {
     delete form.dataset.productId;
     const imageInput = document.getElementById('productImage');
     imageInput.required = true;
-    imageInput.closest('div').querySelector('.muted').textContent = 'Maximum size: 5 MB. JPEG, PNG, or WebP only.';
+    imageInput.closest('div').querySelector('.muted').textContent = 'Choose up to 10 images, 5 MB each. Images are resized automatically.';
     document.getElementById('createProductButton').textContent = 'Upload and publish product';
     document.getElementById('cancelProductEditButton').classList.add('hidden');
     document.getElementById('productEditNotice').classList.add('hidden');
@@ -163,7 +178,7 @@ function beginProductEdit(product) {
     const imageInput = document.getElementById('productImage');
     imageInput.value = '';
     imageInput.required = false;
-    imageInput.closest('div').querySelector('.muted').textContent = 'Optional when editing; leave empty to keep the current image. JPEG, PNG, or WebP, maximum 5 MB.';
+    imageInput.closest('div').querySelector('.muted').textContent = 'Choose up to 10 replacement images, 5 MB each. Leave empty to keep current images.';
     document.getElementById('createProductButton').textContent = 'Save product changes';
     document.getElementById('cancelProductEditButton').classList.remove('hidden');
     document.getElementById('productEditNotice').classList.remove('hidden');
@@ -214,7 +229,7 @@ function renderManagedProduct(product) {
     details.append(
         name,
         createText('p', '', priceText),
-        createText('p', '', productCategoryLabel(product.category)),
+        createText('p', '', categoryItems.find(({ id }) => id === product.category)?.name || productCategoryLabel(product.category)),
         createText('p', product.stockQuantity === 0 || !product.isAvailable ? 'error' : '', stockText),
         actions
     );
@@ -235,7 +250,113 @@ async function loadProducts() {
     } catch (error) {
         if (requestId !== productsRequestId) return;
         list.replaceChildren();
-        if (sessionStorage.getItem(tokenKey)) showMessage(error.message, true);
+        if (!dashboardPanel.classList.contains('hidden')) showMessage(error.message, true);
+    }
+}
+
+function setProductCategoryOptions(selected = '') {
+    const select = document.getElementById('productCategory');
+    select.replaceChildren(new Option('Choose a category', ''));
+    categoryItems.forEach((category) => select.add(new Option(category.name, category.id)));
+    select.add(new Option('Unassigned', 'uncategorized'));
+    if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+}
+
+function renderCategory(category) {
+    const item = document.createElement('article');
+    item.className = 'category-admin-card';
+    const details = document.createElement('div');
+    details.append(createText('h4', '', category.name));
+    details.append(createText('p', 'muted', `${category.productCount || 0} product${category.productCount === 1 ? '' : 's'}${category.isDefault ? ' · standard category' : ''}`));
+    const actions = document.createElement('div');
+    actions.className = 'product-admin-actions';
+    const rename = createText('button', 'button button-secondary', 'Rename');
+    rename.type = 'button';
+    rename.addEventListener('click', () => {
+        const form = document.getElementById('categoryForm');
+        form.dataset.categoryId = category.id;
+        document.getElementById('categoryName').value = category.name;
+        document.getElementById('saveCategoryButton').textContent = 'Save category name';
+        document.getElementById('cancelCategoryEditButton').classList.remove('hidden');
+        document.getElementById('categoryName').focus();
+    });
+    const remove = createText('button', 'button button-danger', 'Delete');
+    remove.type = 'button';
+    remove.addEventListener('click', async () => {
+        if (!window.confirm(`Delete the “${category.name}” category?`)) return;
+        const deleteProducts = category.productCount > 0
+            && window.confirm(`Also delete all ${category.productCount} product${category.productCount === 1 ? '' : 's'} in this category? Choose Cancel to keep them and leave them unassigned.`);
+        remove.disabled = true;
+        try {
+            const result = await api(`/admin/shop/categories/${encodeURIComponent(category.id)}`, {
+                method: 'DELETE',
+                body: JSON.stringify({ deleteProducts })
+            });
+            showMessage(deleteProducts
+                ? `Category deleted with ${result.data.deletedProducts} product${result.data.deletedProducts === 1 ? '' : 's'}.`
+                : 'Category deleted. Its products remain in your catalog as unassigned.');
+            await refreshCatalogAdmin();
+        } catch (error) {
+            showMessage(error.message, true);
+            remove.disabled = false;
+        }
+    });
+    actions.append(rename, remove);
+    item.append(details, actions);
+    return item;
+}
+
+async function loadCategories() {
+    const list = document.getElementById('categoriesList');
+    try {
+        const { data } = await api('/admin/shop/categories');
+        categoryItems = data;
+        setProductCategoryOptions(document.getElementById('productCategory').value);
+        list.replaceChildren(...data.map(renderCategory));
+        if (!data.length) list.append(createText('p', 'empty-state', 'No categories yet. Add one to classify products.'));
+    } catch (error) {
+        list.replaceChildren(createText('p', 'error', error.message));
+    }
+}
+
+function refreshCatalogAdmin() {
+    return loadCategories().then(loadProducts);
+}
+
+function resetCategoryForm() {
+    const form = document.getElementById('categoryForm');
+    form.reset();
+    delete form.dataset.categoryId;
+    document.getElementById('saveCategoryButton').textContent = 'Add category';
+    document.getElementById('cancelCategoryEditButton').classList.add('hidden');
+    document.getElementById('categoryFormError').textContent = '';
+    document.getElementById('categoryFormError').classList.add('hidden');
+}
+
+async function loadShopProfile() {
+    try {
+        const { data } = await api('/admin/shop/profile');
+        document.getElementById('shopProfileName').value = data.name || '';
+        document.getElementById('shopProfileDescription').value = data.description || '';
+        document.getElementById('shopProfileLocation').value = data.location || '';
+        document.getElementById('shopProfileEmail').value = data.contactEmail || '';
+        document.getElementById('shopProfilePhone').value = data.contactPhone || '';
+        document.getElementById('shopProfileWhatsApp').value = data.contactWhatsApp || '';
+        const preview = document.getElementById('shopProfileLogoPreview');
+        if (shopLogoPreviewUrl) URL.revokeObjectURL(shopLogoPreviewUrl);
+        shopLogoPreviewUrl = null;
+        preview.replaceChildren();
+        document.getElementById('removeShopLogo').checked = false;
+        document.getElementById('shopProfileLogo').value = '';
+        if (data.logoImage) {
+            const image = document.createElement('img');
+            image.src = data.logoImage;
+            image.alt = 'Current shop logo';
+            preview.append(image, createText('span', '', 'Current shop logo'));
+        }
+    } catch (error) {
+        document.getElementById('shopProfileError').textContent = error.message;
+        document.getElementById('shopProfileError').classList.remove('hidden');
     }
 }
 
@@ -246,7 +367,7 @@ async function loadProfile() {
         if (requestId !== profileRequestId) return;
         document.getElementById('profileEmail').textContent = result.data.email;
     } catch (error) {
-        if (requestId === profileRequestId && sessionStorage.getItem(tokenKey)) showMessage(error.message, true);
+        if (requestId === profileRequestId && !dashboardPanel.classList.contains('hidden')) showMessage(error.message, true);
     }
 }
 
@@ -452,9 +573,23 @@ async function loadOrders({ preserveMessage = false } = {}) {
     } catch (error) {
         if (requestId !== ordersRequestId) return false;
         ordersList.replaceChildren();
-        if (sessionStorage.getItem(tokenKey)) showMessage(error.message, true);
+        if (!dashboardPanel.classList.contains('hidden')) showMessage(error.message, true);
         return false;
     }
+}
+
+async function finishLogin() {
+    document.getElementById('password').value = '';
+    document.getElementById('totpCode').value = '';
+    const profile = await api('/admin/profile');
+    if (profile.data.isPlatformAdmin) {
+        window.location.assign('/admin/platform');
+        return;
+    }
+    page = 1;
+    await resolveActiveShop();
+    setAuthenticated(true);
+    await loadOrders();
 }
 
 document.getElementById('loginForm').addEventListener('submit', async (event) => {
@@ -464,27 +599,53 @@ document.getElementById('loginForm').addEventListener('submit', async (event) =>
     button.disabled = true;
     error.textContent = '';
     error.classList.add('hidden');
+    let loginCompleted = false;
     try {
         const result = await api('/admin/login', {
             method: 'POST',
             body: JSON.stringify({
                 email: document.getElementById('email').value,
-                password: document.getElementById('password').value
+                password: document.getElementById('password').value,
+                totpCode: document.getElementById('totpCode').value
             })
         });
-        sessionStorage.setItem(tokenKey, result.token);
-        document.getElementById('password').value = '';
-        const profile = await api('/admin/profile');
-        if (profile.data.isPlatformAdmin) {
-            window.location.assign('/admin/platform');
+        loginCompleted = !result.mfaSetupRequired;
+        if (result.mfaSetupRequired) {
+            mfaSetupToken = result.setupToken;
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('mfaSetupEmail').textContent = document.getElementById('email').value.trim();
+            document.getElementById('mfaSetupSecret').textContent = result.totpSecret;
+            document.getElementById('mfaSetupPanel').classList.remove('hidden');
             return;
         }
-        page = 1;
-        await resolveActiveShop();
-        setAuthenticated(true);
-        await loadOrders();
+        await finishLogin();
     } catch (requestError) {
-        if (sessionStorage.getItem(tokenKey)) clearSession(requestError.message);
+        if (loginCompleted) clearSession(requestError.message);
+        error.textContent = requestError.message;
+        error.classList.remove('hidden');
+    } finally {
+        button.disabled = false;
+    }
+});
+
+document.getElementById('mfaEnrollmentForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = document.getElementById('mfaEnrollmentButton');
+    const error = document.getElementById('mfaSetupError');
+    button.disabled = true;
+    error.classList.add('hidden');
+    try {
+        if (!mfaSetupToken) throw new Error('The MFA setup session expired. Sign in again.');
+        const result = await api('/admin/mfa/enroll', {
+            method: 'POST',
+            body: JSON.stringify({
+                setupToken: mfaSetupToken,
+                totpCode: document.getElementById('mfaEnrollmentCode').value
+            })
+        });
+        mfaSetupToken = null;
+        await finishLogin();
+    } catch (requestError) {
         error.textContent = requestError.message;
         error.classList.remove('hidden');
     } finally {
@@ -506,21 +667,34 @@ document.getElementById('logoutButton').addEventListener('click', async (event) 
     }
 });
 document.getElementById('refreshButton').addEventListener('click', loadOrders);
-document.getElementById('refreshProductsButton').addEventListener('click', loadProducts);
+document.getElementById('refreshProductsButton').addEventListener('click', refreshCatalogAdmin);
 document.getElementById('cancelProductEditButton').addEventListener('click', cancelProductEdit);
+document.getElementById('cancelCategoryEditButton').addEventListener('click', resetCategoryForm);
 document.querySelectorAll('[data-admin-view]').forEach((button) => {
     button.addEventListener('click', () => setAdminView(button.dataset.adminView));
 });
 document.getElementById('productImage').addEventListener('change', (event) => {
     clearProductImagePreview();
-    const file = event.currentTarget.files[0];
-    if (!file) return;
-    productImagePreviewUrl = URL.createObjectURL(file);
+    const files = [...event.currentTarget.files];
     const preview = document.getElementById('productImagePreview');
-    const image = document.createElement('img');
-    image.src = productImagePreviewUrl;
-    image.alt = 'Selected product image preview';
-    preview.append(image, createText('span', '', file.name));
+    if (files.length > 10) {
+        event.currentTarget.setCustomValidity('Choose no more than 10 product images.');
+        event.currentTarget.reportValidity();
+        event.currentTarget.value = '';
+        return;
+    }
+    event.currentTarget.setCustomValidity('');
+    for (const [index, file] of files.entries()) {
+        const url = URL.createObjectURL(file);
+        productImagePreviewUrls.push(url);
+        const item = document.createElement('div');
+        const image = document.createElement('img');
+        image.src = url;
+        image.alt = `Selected product image ${index + 1}`;
+        item.append(image, createText('span', '', file.name));
+        preview.append(item);
+    }
+    if (!files.length) return;
     preview.classList.remove('hidden');
 });
 document.getElementById('productForm').addEventListener('submit', async (event) => {
@@ -535,6 +709,8 @@ document.getElementById('productForm').addEventListener('submit', async (event) 
     button.textContent = productId ? 'Saving product…' : 'Uploading product…';
     showMessage('');
     try {
+        const imageInput = document.getElementById('productImage');
+        if (imageInput.files.length > 10) throw new Error('Choose no more than 10 product images.');
         if (productId) {
             const update = await api(`/admin/products/${encodeURIComponent(productId)}`, {
                 method: 'PUT',
@@ -562,6 +738,69 @@ document.getElementById('productForm').addEventListener('submit', async (event) 
         button.disabled = false;
         button.textContent = form.dataset.productId ? 'Save product changes' : 'Upload and publish product';
     }
+});
+document.getElementById('categoryForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const categoryId = form.dataset.categoryId;
+    const error = document.getElementById('categoryFormError');
+    error.textContent = '';
+    error.classList.add('hidden');
+    const button = document.getElementById('saveCategoryButton');
+    button.disabled = true;
+    try {
+        await api(categoryId
+            ? `/admin/shop/categories/${encodeURIComponent(categoryId)}`
+            : '/admin/shop/categories', {
+            method: categoryId ? 'PATCH' : 'POST',
+            body: JSON.stringify({ name: document.getElementById('categoryName').value })
+        });
+        resetCategoryForm();
+        await refreshCatalogAdmin();
+        showMessage(categoryId ? 'Category name updated.' : 'Category added.');
+    } catch (requestError) {
+        error.textContent = requestError.message;
+        error.classList.remove('hidden');
+    } finally {
+        button.disabled = false;
+    }
+});
+document.getElementById('shopProfileForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const error = document.getElementById('shopProfileError');
+    error.textContent = '';
+    error.classList.add('hidden');
+    const button = document.getElementById('saveShopProfileButton');
+    button.disabled = true;
+    try {
+        const result = await api('/admin/shop/profile', {
+            method: 'PATCH',
+            body: await optimizedFormData(event.currentTarget)
+        });
+        activeShop = { ...activeShop, name: result.data.name };
+        document.getElementById('activeShopName').textContent = `Managing ${result.data.name} (${activeShop.slug})`;
+        showMessage(result.warning || 'Your shop profile was saved.', Boolean(result.warning));
+        await loadShopProfile();
+    } catch (requestError) {
+        error.textContent = requestError.message;
+        error.classList.remove('hidden');
+    } finally {
+        button.disabled = false;
+    }
+});
+document.getElementById('shopProfileLogo').addEventListener('change', (event) => {
+    const preview = document.getElementById('shopProfileLogoPreview');
+    if (shopLogoPreviewUrl) URL.revokeObjectURL(shopLogoPreviewUrl);
+    shopLogoPreviewUrl = null;
+    preview.replaceChildren();
+    const file = event.currentTarget.files[0];
+    if (file) document.getElementById('removeShopLogo').checked = false;
+    if (!file) return;
+    const image = document.createElement('img');
+    shopLogoPreviewUrl = URL.createObjectURL(file);
+    image.src = shopLogoPreviewUrl;
+    image.alt = 'Selected shop logo preview';
+    preview.append(image, createText('span', '', file.name));
 });
 document.getElementById('passwordForm').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -607,25 +846,19 @@ document.getElementById('nextPage').addEventListener('click', () => {
     loadOrders();
 });
 
-if (sessionStorage.getItem(tokenKey)) {
-    setAuthenticated(false);
-    setAdminView('orders');
-    api('/admin/profile')
-        .then(({ data }) => {
-            if (data.isPlatformAdmin) {
-                window.location.replace('/admin/platform');
-                return null;
-            }
-            return resolveActiveShop();
-        })
-        .then((shop) => {
-            if (!shop) return;
-            setAuthenticated(true);
-            loadOrders();
-        })
-        .catch((error) => {
-            clearSession(error.message);
-        });
-} else {
-    setAuthenticated(false);
-}
+setAuthenticated(false);
+setAdminView('orders');
+api('/admin/profile')
+    .then(({ data }) => {
+        if (data.isPlatformAdmin) {
+            window.location.replace('/admin/platform');
+            return null;
+        }
+        return resolveActiveShop();
+    })
+    .then((shop) => {
+        if (!shop) return;
+        setAuthenticated(true);
+        loadOrders();
+    })
+    .catch(() => clearSession());

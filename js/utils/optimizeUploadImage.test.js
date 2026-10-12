@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { optimizeImageFile } from './optimizeUploadImage.js';
+import { optimizeImageFile, optimizedFormData } from './optimizeUploadImage.js';
 
 test('compresses and resizes supported images when WebP is smaller', async () => {
     const previousBitmap = globalThis.createImageBitmap;
@@ -104,5 +104,38 @@ test('uses the actual fallback image MIME type returned by the browser', async (
         else globalThis.createImageBitmap = previousBitmap;
         if (previousDocument === undefined) delete globalThis.document;
         else globalThis.document = previousDocument;
+    }
+});
+
+test('optimizes every image entry without dropping multiple files that share a form field', async () => {
+    const previousFormData = globalThis.FormData;
+    class TestFormData {
+        constructor(form) {
+            this.values = new Map([
+                ['images', [...(form?.images || [])]],
+                ['name', [form?.name || '']]
+            ]);
+        }
+        append(name, value) {
+            if (!this.values.has(name)) this.values.set(name, []);
+            this.values.get(name).push(value);
+        }
+        delete(name) { this.values.delete(name); }
+        entries() { return [...this.values].flatMap(([name, values]) => values.map((value) => [name, value]))[Symbol.iterator](); }
+        getAll(name) { return this.values.get(name) || []; }
+        keys() { return this.values.keys(); }
+    }
+    globalThis.FormData = TestFormData;
+    try {
+        const first = new File([new Uint8Array(5)], 'first.jpg', { type: 'image/jpeg' });
+        const second = new File([new Uint8Array(6)], 'second.png', { type: 'image/png' });
+        const form = { images: [first, second] };
+        const optimized = await optimizedFormData(form);
+        assert.equal(optimized.getAll('images').length, 2);
+        assert.equal(optimized.getAll('images')[0], first);
+        assert.equal(optimized.getAll('images')[1], second);
+    } finally {
+        if (previousFormData === undefined) delete globalThis.FormData;
+        else globalThis.FormData = previousFormData;
     }
 });

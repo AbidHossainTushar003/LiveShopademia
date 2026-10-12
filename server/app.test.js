@@ -5,15 +5,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Script } from 'node:vm';
 import request from 'supertest';
+import sharp from 'sharp';
+import webpush from 'web-push';
 import jwt from 'jsonwebtoken';
 import { createApp } from './app.js';
 import { hashAdminPassword } from './adminPassword.js';
+import { createTotpCode, encryptTotpSecret } from './adminTotp.js';
 import { findProduct, getManagedProducts, setManagedProducts } from './catalog.js';
 
 const config = {
     adminEmail: 'admin@example.com',
     adminPassword: 'test-only-strong-password',
     jwtSecret: 'test-only-secret-with-more-than-32-characters',
+    mfaEncryptionKey: Buffer.alloc(32, 7),
     advanceCharge: 100
 };
 const initialAdminPasswordHash = await hashAdminPassword(config.adminPassword);
@@ -38,6 +42,12 @@ function fakePool() {
     const orders = new Map();
     const orderEvents = [];
     const managedProducts = new Map();
+    const categories = new Map([
+        ['gadgets', { id: 'gadgets', name: 'Electronics', icon: 'fa-laptop', active: true, isDefault: true }],
+        ['accessories', { id: 'accessories', name: 'Jewelry & Accessories', icon: 'fa-gem', active: true, isDefault: true }],
+        ['clothing', { id: 'clothing', name: 'Clothing', icon: 'fa-shirt', active: true, isDefault: true }],
+        ['more', { id: 'more', name: 'Other', icon: 'fa-box', active: true, isDefault: true }]
+    ]);
     const adminUsers = new Map();
     const shopMemberships = new Map();
     const platformAdmins = new Set();
@@ -72,7 +82,13 @@ function fakePool() {
             adminUsers.set(user.id, { ...user, sessionVersion: Number(user.sessionVersion ?? 1) });
         },
         addPlatformAdmin(user) {
-            adminUsers.set(user.id, { ...user, sessionVersion: Number(user.sessionVersion ?? 1) });
+            adminUsers.set(user.id, {
+                ...user,
+                mfaSecret: null,
+                mfaEnabled: false,
+                lastMfaCounter: -1,
+                sessionVersion: Number(user.sessionVersion ?? 1)
+            });
             platformAdmins.add(user.id);
         },
         addShopMembership(shopId, userId, role) {
@@ -90,6 +106,7 @@ function fakePool() {
             if (sql === 'BEGIN') {
                 transactionSnapshot = {
                     managedProducts: structuredClone([...managedProducts]),
+                    categories: structuredClone([...categories]),
                     orders: structuredClone([...orders]),
                     orderEvents: structuredClone(orderEvents)
                 };
@@ -103,6 +120,8 @@ function fakePool() {
                 if (transactionSnapshot) {
                     managedProducts.clear();
                     for (const [id, product] of transactionSnapshot.managedProducts) managedProducts.set(id, product);
+                    categories.clear();
+                    for (const [id, category] of transactionSnapshot.categories) categories.set(id, category);
                     orders.clear();
                     for (const [eventId, order] of transactionSnapshot.orders) orders.set(eventId, order);
                     orderEvents.splice(0, orderEvents.length, ...transactionSnapshot.orderEvents);
@@ -135,6 +154,12 @@ function fakePool() {
                 };
             }
             if (sql.includes('UPDATE managed_products')) {
+                if (sql.includes("SET category = 'uncategorized'")) {
+                    for (const product of managedProducts.values()) {
+                        if (product.shopId === values[0] && product.category === values[1]) product.category = 'uncategorized';
+                    }
+                    return { rows: [] };
+                }
                 const [name, description, price, oldPrice, category, id, stockQuantity, isAvailable, image] = values;
                 const current = managedProducts.get(id);
                 if (!current) return { rows: [] };
@@ -149,6 +174,7 @@ function fakePool() {
                     oldPrice: oldPrice === null ? null : String(oldPrice),
                     category,
                     image: image ?? current.image,
+                    images: values[14] ?? current.images ?? (current.image ? [current.image] : []),
                     stockQuantity: String(stockQuantity),
                     isAvailable,
                     previousImage: current.image
@@ -157,11 +183,22 @@ function fakePool() {
                 return { rows: [row] };
             }
             if (sql.includes('DELETE FROM managed_products')) {
+                if (sql.includes('WHERE shop_id = $1 AND category = $2')) {
+                    const removed = [...managedProducts.values()].filter((product) =>
+                        product.shopId === values[0] && product.category === values[1]
+                    );
+                    removed.forEach(({ id }) => managedProducts.delete(id));
+                    return { rows: removed.map((product) => ({
+                        id: product.id,
+                        image: product.image,
+                        images: product.images ?? [product.image]
+                    })) };
+                }
                 const [id] = values;
                 const current = managedProducts.get(id);
                 if (!current) return { rows: [] };
                 managedProducts.delete(id);
-                return { rows: [{ id, image: current.image }] };
+                return { rows: [{ id, image: current.image, images: current.images ?? [current.image] }] };
             }
             if (sql.includes('FROM managed_products')) {
                 return {
@@ -175,10 +212,46 @@ function fakePool() {
                     id, name, description, imageAlt, seoTitle, metaDescription, price: String(price),
                     oldPrice: oldPrice === null ? null : String(oldPrice),
                     category, image, stockQuantity: String(values[10]), isAvailable: values[11],
+                    images: values[13] ?? [image],
                     shopId: values[12], createdAt: new Date()
                 };
                 managedProducts.set(id, row);
                 return { rows: [row] };
+            }
+            if (sql.includes('INSERT INTO shop_product_categories')) {
+                if (sql.includes('WITH created AS')) {
+                    const [shopId, id, name] = values;
+                    const previous = categories.get(id);
+                    const category = { id, name, icon: 'fa-box', active: true, isDefault: previous?.isDefault ?? false };
+                    categories.set(id, category);
+                    return { rows: [category] };
+                }
+                return { rows: [] };
+            }
+            if (sql.includes('DELETE FROM shop_product_categories')) {
+                categories.delete(values[1]);
+                return { rows: [] };
+            }
+            if (sql.includes('SELECT id, is_default AS "isDefault" FROM shop_product_categories')) {
+                const category = categories.get(values[1]);
+                return { rows: category?.active ? [{ id: category.id, isDefault: category.isDefault }] : [] };
+            }
+            if (sql.includes('FROM shop_product_categories')) {
+                if (sql.includes('SELECT id FROM shop_product_categories')) {
+                    const category = categories.get(values[1]);
+                    return { rows: category?.active ? [{ id: category.id }] : [] };
+                }
+                return { rows: [...categories.values()] };
+            }
+            if (sql.includes('UPDATE shop_product_categories')) {
+                const category = categories.get(sql.includes('SET name = $1') ? values[2] : values[1]);
+                if (!category || !category.active) return { rows: [] };
+                if (sql.includes('SET name = $1')) {
+                    category.name = values[0];
+                    return { rows: [{ ...category }] };
+                }
+                category.active = false;
+                return { rows: [] };
             }
             if (sql.includes('SELECT u.id, u.email, u.password_hash')) {
                 const user = [...adminUsers.values()].find(({ email }) => email === values[0]);
@@ -188,14 +261,34 @@ function fakePool() {
                         email: user.email,
                         password_hash: user.passwordHash,
                         sessionVersion: user.sessionVersion,
-                        isPlatformAdmin: platformAdmins.has(user.id)
+                        isPlatformAdmin: platformAdmins.has(user.id),
+                        mfaSecret: user.mfaSecret,
+                        mfaEnabled: user.mfaEnabled,
+                        lastMfaCounter: user.lastMfaCounter
                     }] : []
                 };
+            }
+            if (sql.includes('UPDATE admin_users SET last_mfa_counter = $1')) {
+                const [counter, userId] = values;
+                const user = adminUsers.get(userId);
+                if (!user?.mfaEnabled || user.lastMfaCounter >= counter) return { rows: [] };
+                user.lastMfaCounter = counter;
+                return { rows: [{ id: userId }] };
+            }
+            if (sql.includes('UPDATE admin_users AS u') && sql.includes('SET mfa_secret = $1')) {
+                const [secret, counter, userId, email] = values;
+                const user = adminUsers.get(userId);
+                if (!user || user.email !== email || user.mfaEnabled || !platformAdmins.has(userId)) return { rows: [] };
+                user.mfaSecret = secret;
+                user.mfaEnabled = true;
+                user.lastMfaCounter = counter;
+                return { rows: [{ id: user.id, email: user.email, sessionVersion: user.sessionVersion }] };
             }
             if (sql.includes('SELECT m.shop_id AS "shopId"') && sql.includes('FROM shop_memberships m')) {
                 const membership = shopMemberships.get(`${mainShopId}:${values[0]}`);
                 return { rows: membership ? [{ shopId: membership.shopId }] : [] };
             }
+
             if (sql.includes('SELECT c.email, c.session_version')) {
                 const session = sessions.get(values[0]);
                 return {
@@ -256,7 +349,7 @@ function fakePool() {
                 const tokenId = values[0];
                 const hasUserId = sql.includes('user_id, shop_id');
                 const userId = hasUserId ? values[1] : null;
-                const shopId = hasUserId ? values[2] : values[1];
+                const shopId = hasUserId ? values[2] ?? null : values[1];
                 sessions.set(tokenId, { userId, shopId, revoked: false });
                 return { rows: [] };
             }
@@ -468,6 +561,29 @@ function fakePool() {
             throw new Error(`Unexpected test query: ${sql}`);
         }
     }, {});
+}
+
+async function loginPlatformAdmin(app, email = config.adminEmail, password = config.adminPassword) {
+    const setup = await request(app).post('/api/v1/admin/login')
+        .send({ email, password })
+        .expect(200);
+    if (!setup.body.mfaSetupRequired) return setup;
+    const counter = Math.floor(Date.now() / 30_000);
+    const enrolled = await request(app).post('/api/v1/admin/mfa/enroll')
+        .send({
+            setupToken: setup.body.setupToken,
+            totpCode: createTotpCode(setup.body.totpSecret, counter)
+        });
+    assert.equal(enrolled.status, 200, JSON.stringify(enrolled.body));
+    return enrolled;
+}
+
+async function assertSanitizedImage(filePath, original, format = 'png') {
+    const stored = await readFile(filePath);
+    const metadata = await sharp(stored).metadata();
+    assert.equal(metadata.format, format);
+    assert.ok(metadata.width > 0 && metadata.height > 0);
+    assert.notDeepEqual(stored, original);
 }
 
 const payload = {
@@ -755,7 +871,7 @@ test('admin product management supports authenticated create, update, replacemen
         await rm(uploadDirectory, { recursive: true, force: true });
     });
     const app = createApp({ pool: fakePool(), config: { ...config, uploadsDir: uploadDirectory } });
-    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=', 'base64');
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64');
 
     await request(app).post('/api/v1/admin/products')
         .field('name', 'Admin Product')
@@ -792,7 +908,7 @@ test('admin product management supports authenticated create, update, replacemen
     assert.equal(product.metaDescription, 'Compact wireless earbuds with a portable charging case.');
     assert.match(product.image, /^\/uploads\/[0-9a-f-]{36}\.png$/);
     assert.equal(findProduct(product.id).price, 1250);
-    assert.ok((await readFile(join(uploadDirectory, product.image.split('/').at(-1)))).equals(image));
+    await assertSanitizedImage(join(uploadDirectory, product.image.split('/').at(-1)), image);
 
     const storefront = await request(app).get('/api/v1/products').expect(200);
     const publicProduct = storefront.body.data.find(({ id }) => id === product.id);
@@ -866,7 +982,7 @@ test('admin product management supports authenticated create, update, replacemen
         .field('category', 'accessories')
         .expect(400);
     assert.equal(findProduct(product.id).price, 1350);
-    assert.ok((await readFile(join(uploadDirectory, product.image.split('/').at(-1)))).equals(image));
+    await assertSanitizedImage(join(uploadDirectory, product.image.split('/').at(-1)), image);
 
     const replacement = await request(app).put(`/api/v1/admin/products/${product.id}`)
         .set('Authorization', authorization)
@@ -953,6 +1069,188 @@ test('admin product management supports authenticated create, update, replacemen
         .expect(404, { error: 'Product not found.' });
 });
 
+test('shop admins can rename categories and choose whether category products are kept or deleted', async (t) => {
+    const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-category-test-'));
+    t.after(async () => {
+        setManagedProducts([]);
+        await rm(uploadDirectory, { recursive: true, force: true });
+    });
+    const app = createApp({ pool: fakePool(), config: { ...config, uploadsDir: uploadDirectory } });
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJr0ErkJggg==', 'base64');
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const authorization = `Bearer ${login.body.token}`;
+
+    const createdCategory = await request(app).post('/api/v1/admin/shop/categories')
+        .set('Authorization', authorization)
+        .send({ name: 'Home Decor' })
+        .expect(201);
+    assert.equal(createdCategory.body.data.id, 'home-decor');
+    const renamedCategory = await request(app).patch('/api/v1/admin/shop/categories/home-decor')
+        .set('Authorization', authorization)
+        .send({ name: 'Home & Living' })
+        .expect(200);
+    assert.equal(renamedCategory.body.data.name, 'Home & Living');
+
+    const createProduct = (name, category = 'home-decor') => request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', name)
+        .field('price', '100')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', category)
+        .attach('images', image, { filename: `${name}.png`, contentType: 'image/png' });
+    const kept = await createProduct('Kept decor').expect(201);
+    await request(app).delete('/api/v1/admin/shop/categories/home-decor')
+        .set('Authorization', authorization)
+        .send({ deleteProducts: false })
+        .expect(200);
+    assert.equal((await request(app).get('/api/v1/admin/products')
+        .set('Authorization', authorization).expect(200)).body.data[0].category, 'uncategorized');
+
+    const deleteCategory = await request(app).post('/api/v1/admin/shop/categories')
+        .set('Authorization', authorization)
+        .send({ name: 'Seasonal Decor' })
+        .expect(201);
+    const removed = await createProduct('Removed decor', deleteCategory.body.data.id).expect(201);
+    await request(app).delete(`/api/v1/admin/shop/categories/${deleteCategory.body.data.id}`)
+        .set('Authorization', authorization)
+        .send({ deleteProducts: true })
+        .expect(200);
+    const remaining = await request(app).get('/api/v1/admin/products')
+        .set('Authorization', authorization).expect(200);
+    assert.deepEqual(remaining.body.data.map(({ id }) => id), [kept.body.data.id]);
+    await assert.rejects(readFile(join(uploadDirectory, removed.body.data.image.split('/').at(-1))));
+});
+
+test('shop admins can update the public shop profile with validated contact details', async () => {
+    const shopId = '00000000-0000-4000-8000-000000000001';
+    let profile = {
+        id: shopId,
+        slug: 'main',
+        name: 'Main Shop',
+        description: '',
+        location: '',
+        contactEmail: '',
+        contactPhone: '',
+        contactWhatsApp: '',
+        logoImage: null
+    };
+    let profileWasLogged = false;
+    const pool = fakePool();
+    const query = pool.query.bind(pool);
+    pool.query = async (sql, values) => {
+        if (sql.includes('FROM shops WHERE id = $1') && sql.includes('contact_email AS "contactEmail"')) {
+            return { rows: [{ ...profile }] };
+        }
+        if (sql.includes('FROM shops s WHERE slug = $1 AND status =')) {
+            return { rows: [{ ...profile, topProducts: [] }] };
+        }
+        return query(sql, values);
+    };
+    const connect = pool.connect.bind(pool);
+    pool.connect = async () => {
+        const client = await connect();
+        const clientQuery = client.query.bind(client);
+        client.query = async (sql, values) => {
+            if (sql.includes('SELECT logo_image AS "previousLogo" FROM shops')) {
+                return { rows: [{ previousLogo: profile.logoImage }] };
+            }
+            if (sql.includes('UPDATE shops') && sql.includes('contact_email = $4')) {
+                profile = {
+                    ...profile,
+                    name: values[0],
+                    description: values[1],
+                    location: values[2],
+                    contactEmail: values[3],
+                    contactPhone: values[4],
+                    contactWhatsApp: values[5]
+                };
+                return { rows: [{ ...profile }] };
+            }
+            if (sql.includes('INSERT INTO shop_activity_logs')) profileWasLogged = true;
+            return clientQuery(sql, values);
+        };
+        return client;
+    };
+    const app = createApp({ pool, config });
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const authorization = `Bearer ${login.body.token}`;
+
+    const saved = await request(app).patch('/api/v1/admin/shop/profile')
+        .set('Authorization', authorization)
+        .send({
+            name: 'Main Shop Updated',
+            description: 'Independent accessories and home goods.',
+            location: 'Dhaka',
+            contactEmail: 'hello@example.com',
+            contactPhone: '+8801555555555',
+            contactWhatsApp: '+8801555555555'
+        })
+        .expect(200);
+    assert.equal(saved.body.data.name, 'Main Shop Updated');
+    assert.equal(saved.body.data.location, 'Dhaka');
+    assert.equal(saved.body.data.contactEmail, 'hello@example.com');
+    assert.equal(profileWasLogged, true);
+    await request(app).patch('/api/v1/admin/shop/profile')
+        .set('Authorization', authorization)
+        .send({ name: 'Main Shop', contactEmail: 'not-an-email' })
+        .expect(400);
+    const publicProfile = await request(app).get('/api/v1/shops/main').expect(200);
+    assert.equal(publicProfile.body.data.name, 'Main Shop Updated');
+});
+
+test('admin product uploads sanitize WebP images without locking the uploaded file', async (t) => {
+    const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-product-webp-'));
+    t.after(async () => {
+        setManagedProducts([]);
+        await rm(uploadDirectory, { recursive: true, force: true });
+    });
+    const app = createApp({ pool: fakePool(), config: { ...config, uploadsDir: uploadDirectory } });
+    const webp = await sharp({
+        create: { width: 1800, height: 900, channels: 3, background: '#2563eb' }
+    }).webp().toBuffer();
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const authorization = `Bearer ${login.body.token}`;
+
+    const created = await request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', 'WebP Product')
+        .field('price', '100')
+        .field('stockQuantity', '1')
+        .field('isAvailable', 'true')
+        .field('category', 'more')
+        .attach('images', webp, { filename: 'product.webp', contentType: 'image/webp' })
+        .attach('images', webp, { filename: 'product-second.webp', contentType: 'image/webp' })
+        .expect(201);
+
+    assert.match(created.body.data.image, /^\/uploads\/[0-9a-f-]{36}\.webp$/);
+    assert.equal(created.body.data.images.length, 2);
+    for (const image of created.body.data.images) {
+        const imagePath = join(uploadDirectory, image.split('/').at(-1));
+        await assertSanitizedImage(imagePath, webp, 'webp');
+        const metadata = await sharp(await readFile(imagePath)).metadata();
+        assert.ok(metadata.width <= 1600 && metadata.height <= 1600);
+    }
+    const tooManyImages = request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', 'Too Many Images')
+        .field('price', '100')
+        .field('stockQuantity', '1')
+        .field('isAvailable', 'true')
+        .field('category', 'more');
+    for (let index = 0; index < 11; index += 1) {
+        tooManyImages.attach('images', webp, { filename: `image-${index}.webp`, contentType: 'image/webp' });
+    }
+    await tooManyImages.expect(400);
+    assert.equal((await readdir(uploadDirectory)).length, 2);
+});
+
 test('admin rejects unsupported and spoofed product image uploads without publishing them', async (t) => {
     const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-product-reject-'));
     t.after(async () => {
@@ -982,8 +1280,15 @@ test('admin rejects unsupported and spoofed product image uploads without publis
         .expect(400, { error: 'The uploaded file does not match its JPEG, PNG, or WebP image type.' });
 
     await productFields(request(app).post('/api/v1/admin/products'))
+        .attach('image', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), {
+            filename: 'truncated.png',
+            contentType: 'image/png'
+        })
+        .expect(400, { error: 'The uploaded file does not match its JPEG, PNG, or WebP image type.' });
+
+    await productFields(request(app).post('/api/v1/admin/products'))
         .field('oldPrice', '100')
-        .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=', 'base64'), {
+        .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64'), {
             filename: 'product.png',
             contentType: 'image/png'
         })
@@ -991,7 +1296,7 @@ test('admin rejects unsupported and spoofed product image uploads without publis
 
     await productFields(request(app).post('/api/v1/admin/products'))
         .field('seoTitle', 'x'.repeat(71))
-        .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=', 'base64'), {
+        .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64'), {
             filename: 'product.png',
             contentType: 'image/png'
         })
@@ -1047,10 +1352,8 @@ test('admin branding uploads save the image and record the shop activity', async
         return query(sql, values);
     };
     const app = createApp({ pool, config: { ...config, uploadsDir: uploadDirectory } });
-    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=', 'base64');
-    const login = await request(app).post('/api/v1/admin/login')
-        .send({ email: config.adminEmail, password: config.adminPassword })
-        .expect(200);
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64');
+    const login = await loginPlatformAdmin(app);
 
     const uploaded = await request(app).post('/api/v1/admin/shop/branding')
         .set('Authorization', `Bearer ${login.body.token}`)
@@ -1060,7 +1363,7 @@ test('admin branding uploads save the image and record the shop activity', async
     assert.equal(uploaded.status, 200, JSON.stringify(uploaded.body));
 
     assert.equal(shop.heroImage, uploaded.body.data.image);
-    assert.ok((await readFile(join(uploadDirectory, uploaded.body.data.image.split('/').at(-1)))).equals(image));
+    await assertSanitizedImage(join(uploadDirectory, uploaded.body.data.image.split('/').at(-1)), image);
     assert.equal(activityEntries.length, 1);
     assert.equal(activityEntries[0][0], shopId);
     assert.equal(activityEntries[0][2], 'shop.hero_image_updated');
@@ -1137,10 +1440,8 @@ test('platform admins can create, edit, reorder, and remove up to five hero slid
         return query(sql, values);
     };
     const app = createApp({ pool, config: { ...config, uploadsDir: uploadDirectory } });
-    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=', 'base64');
-    const login = await request(app).post('/api/v1/admin/login')
-        .send({ email: config.adminEmail, password: config.adminPassword })
-        .expect(200);
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64');
+    const login = await loginPlatformAdmin(app);
     const authorization = `Bearer ${login.body.token}`;
     const createSlide = (headline, includeMobile = false) => {
         const submission = request(app).post('/api/v1/admin/shop/hero-slides')
@@ -1311,6 +1612,107 @@ test('requires admin authentication to read customer orders', async () => {
         .expect(401);
 });
 
+test('platform administrators must enroll in TOTP and cannot reuse an authenticator code', async () => {
+    const pool = fakePool();
+    pool.addPlatformAdmin({
+        id: '00000000-0000-4000-8000-000000000101',
+        email: config.adminEmail,
+        passwordHash: initialAdminPasswordHash,
+        sessionVersion: 1
+    });
+    const app = createApp({ pool, config });
+    const setup = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    assert.equal(setup.body.mfaSetupRequired, true);
+    assert.equal(typeof setup.body.setupToken, 'string');
+    assert.match(setup.body.totpSecret, /^[A-Z2-7]{32}$/);
+    assert.match(setup.body.provisioningUri, /^otpauth:\/\/totp\/Shopademia%3A/);
+    assert.equal(setup.body.token, undefined);
+
+    const counter = Math.floor(Date.now() / 30_000);
+    const invalidCode = await request(app).post('/api/v1/admin/mfa/enroll')
+        .send({ setupToken: setup.body.setupToken, totpCode: 'abcdef' });
+    assert.equal(invalidCode.status, 400, JSON.stringify(invalidCode.body));
+    const enrolled = await request(app).post('/api/v1/admin/mfa/enroll')
+        .send({ setupToken: setup.body.setupToken, totpCode: createTotpCode(setup.body.totpSecret, counter) });
+    assert.equal(enrolled.status, 200, JSON.stringify(enrolled.body));
+    assert.equal(typeof enrolled.body.token, 'string');
+    await request(app).get('/api/v1/admin/profile')
+        .set('Authorization', `Bearer ${enrolled.body.token}`)
+        .expect(200, { data: {
+            email: config.adminEmail,
+            shopId: null,
+            role: null,
+            isPlatformAdmin: true
+        } });
+
+    await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(401);
+    const nextCode = createTotpCode(setup.body.totpSecret, counter + 1);
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword, totpCode: nextCode })
+        .expect(200);
+    await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword, totpCode: nextCode })
+        .expect(401);
+    assert.equal(typeof login.body.token, 'string');
+});
+
+test('duplicate shop transaction references return a conflict instead of creating a second ledger entry', async () => {
+    const pool = fakePool();
+    pool.addPlatformAdmin({
+        id: '00000000-0000-4000-8000-000000000101',
+        email: config.adminEmail,
+        passwordHash: initialAdminPasswordHash,
+        sessionVersion: 1
+    });
+    const query = pool.query.bind(pool);
+    pool.query = async (sql, values = []) => {
+        if (sql.includes('INSERT INTO shop_transactions')) {
+            const error = new Error('duplicate transaction reference');
+            error.code = '23505';
+            error.constraint = 'shop_transactions_shop_reference_idx';
+            throw error;
+        }
+        return query(sql, values);
+    };
+    const app = createApp({ pool, config });
+    const login = await loginPlatformAdmin(app);
+    await request(app).post('/api/v1/admin/shop/transactions')
+        .set('Authorization', `Bearer ${login.body.token}`)
+        .set('x-shop-id', '00000000-0000-4000-8000-000000000001')
+        .send({ type: 'payment', method: 'bkash', amount: 100, reference: 'TXN-12345' })
+        .expect(409, { error: 'This transaction reference is already recorded for this shop.' });
+});
+
+test('public push enrollment stops at the per-shop subscriber cap', async () => {
+    const pool = fakePool();
+    pool.query = async (sql) => {
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [] };
+        if (sql.includes("SELECT id FROM shops WHERE slug = $1 AND status = 'active'")) {
+            return { rows: [{ id: '00000000-0000-4000-8000-000000000001' }] };
+        }
+        if (sql.includes('SELECT id FROM shop_push_subscriptions')) return { rows: [] };
+        if (sql.includes('SELECT COUNT(*)::int AS count FROM shop_push_subscriptions')) {
+            return { rows: [{ count: 5000 }] };
+        }
+        throw new Error(`Unexpected push subscription query: ${sql}`);
+    };
+    const keys = webpush.generateVAPIDKeys();
+    const app = createApp({
+        pool,
+        config: { ...config, vapidPublicKey: keys.publicKey, vapidPrivateKey: keys.privateKey, vapidSubject: 'mailto:admin@example.com' }
+    });
+    await request(app).post('/api/v1/shops/main/push-subscriptions')
+        .send({
+            endpoint: 'https://fcm.googleapis.com/fcm/send/subscriber-token',
+            keys: { p256dh: 'A'.repeat(87), auth: 'B'.repeat(24) }
+        })
+        .expect(429, { error: 'This shop has reached its notification subscriber limit.' });
+});
+
 test('admin can sign in, review orders, and update order status', async () => {
     const app = createApp({ pool: fakePool(), config });
     await request(app).post('/api/v1/orders').send(payload).expect(201);
@@ -1399,6 +1801,41 @@ test('admin logout revokes only the current server-side session', async () => {
     await request(app).get('/api/v1/admin/profile')
         .set('Authorization', `Bearer ${secondLogin.body.token}`)
         .expect(200);
+});
+
+test('admin browser sessions use HttpOnly same-site cookies and reject cross-origin cookie writes', async () => {
+    const app = createApp({ pool: fakePool(), config: { ...config, siteUrl: 'https://shopademia.test' } });
+    const login = await request(app).post('/api/v1/admin/login')
+        .set('Origin', 'https://shopademia.test')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const cookie = login.headers['set-cookie'].find((value) => value.startsWith('shopademia_admin='));
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /SameSite=Strict/);
+    assert.match(cookie, /Path=\/api\/v1\/admin/);
+    assert.doesNotMatch(cookie, /Secure/);
+    assert.equal(login.body.token, undefined);
+
+    await request(app).get('/api/v1/admin/profile')
+        .set('Cookie', cookie.split(';')[0])
+        .expect(200);
+    await request(app).patch('/api/v1/admin/profile/password')
+        .set('Cookie', cookie.split(';')[0])
+        .set('Origin', 'https://attacker.example')
+        .send({ currentPassword: config.adminPassword, newPassword: 'different-strong-password-123' })
+        .expect(403, { error: 'This admin request must come from the same origin.' });
+    const logout = await request(app).post('/api/v1/admin/logout')
+        .set('Cookie', cookie.split(';')[0])
+        .set('Origin', 'https://shopademia.test')
+        .expect(204);
+    assert.match(logout.headers['set-cookie'][0], /Max-Age=0/);
+
+    const secureApp = createApp({ pool: fakePool(), config: { ...config, nodeEnv: 'production', siteUrl: 'https://shopademia.test' } });
+    const secureLogin = await request(secureApp).post('/api/v1/admin/login')
+        .set('Origin', 'https://shopademia.test')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    assert.match(secureLogin.headers['set-cookie'][0], /Secure/);
 });
 
 test('admin profile displays the configured account and password changes revoke active sessions', async () => {
@@ -1497,9 +1934,7 @@ test('shop member role changes revoke the member session immediately', async () 
         passwordHash: initialAdminPasswordHash,
         sessionVersion: 1
     });
-    const platformLogin = await request(app).post('/api/v1/admin/login')
-        .send({ email: config.adminEmail, password: config.adminPassword })
-        .expect(200);
+    const platformLogin = await loginPlatformAdmin(app);
 
     await request(app).get('/api/v1/admin/profile')
         .set('Authorization', `Bearer ${memberToken}`)

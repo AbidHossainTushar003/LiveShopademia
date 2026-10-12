@@ -1,7 +1,6 @@
 
 import { optimizedFormData } from '../js/utils/optimizeUploadImage.js';
 
-const tokenKey = 'shopademia.adminToken';
 const shopKey = 'shopademia.adminShopId';
 const message = document.getElementById('platformMessage');
 const shopPicker = document.getElementById('shopPicker');
@@ -17,18 +16,11 @@ function showMessage(text, isError = false) {
 
 async function api(path, options = {}) {
     const headers = new Headers(options.headers);
-    const token = sessionStorage.getItem(tokenKey);
-    if (!token) {
-        window.location.assign('/admin');
-        throw new Error('Sign in to manage shops.');
-    }
-    headers.set('Authorization', `Bearer ${token}`);
     if (activeShop && !path.endsWith('/admin/shops')) headers.set('X-Shop-Id', activeShop.id);
     if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-    const response = await fetch(`/api/v1${path}`, { ...options, headers });
+    const response = await fetch(`/api/v1${path}`, { ...options, headers, credentials: 'same-origin' });
     const body = await response.json().catch(() => ({}));
     if (response.status === 401) {
-        sessionStorage.removeItem(tokenKey);
         window.location.assign('/admin');
     }
     if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);

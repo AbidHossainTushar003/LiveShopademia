@@ -49,7 +49,10 @@ async function withTransaction(pool, action) {
         return result;
     } catch (error) {
         await client.query('ROLLBACK').catch((rollbackError) => {
-            console.error('Could not roll back shop management transaction:', rollbackError.message);
+            console.error('Could not roll back shop management transaction:', {
+                name: rollbackError.name || 'Error',
+                code: typeof rollbackError.code === 'string' ? rollbackError.code : undefined
+            });
         });
         throw error;
     } finally {
@@ -145,6 +148,7 @@ export function registerPlatformRoutes(app, {
     vapidSubject
 }) {
     const platformAdmin = [authenticateAdmin, requirePlatformAdmin];
+    const maximumShopPushSubscriptions = 5000;
     const platformShop = [...platformAdmin, requireSelectedShop];
     const teamManager = [authenticateAdmin, allowShopTeamManagement, requireSelectedShop];
     const teamReader = [...teamManager];
@@ -399,6 +403,15 @@ export function registerPlatformRoutes(app, {
                     [slug, name, Number.isSafeInteger(req.body.advanceCharge) && req.body.advanceCharge >= 0
                         ? req.body.advanceCharge : null]
                 );
+                await client.query(`
+                    INSERT INTO shop_product_categories (shop_id, id, name, icon, is_default)
+                    VALUES
+                        ($1, 'gadgets', 'Electronics', 'fa-laptop', TRUE),
+                        ($1, 'accessories', 'Jewelry & Accessories', 'fa-gem', TRUE),
+                        ($1, 'clothing', 'Clothing', 'fa-shirt', TRUE),
+                        ($1, 'more', 'Other', 'fa-box', TRUE)
+                    ON CONFLICT (shop_id, id) DO NOTHING
+                `, [created.rows[0].id]);
                 await client.query(
                     `INSERT INTO shop_activity_logs
                         (shop_id, actor_email, action, entity_type, entity_id, details)
@@ -709,11 +722,97 @@ export function registerPlatformRoutes(app, {
                     console.error('Could not remove replaced shop image:', cleanupError.message);
                     warning = 'The image was saved, but the previous image could not be deleted. Review the server logs.';
                 });
+
             }
             return res.json({ data: { kind, image }, ...(warning ? { warning } : {}) });
         } catch (error) {
             await removeUploadedFile(file.path).catch((cleanupError) => {
                 if (cleanupError.code !== 'ENOENT') console.error('Could not remove rejected shop image:', cleanupError.message);
+            });
+            return next(error);
+        }
+    });
+
+    app.get('/api/v1/admin/shop/profile', ...teamManager, async (req, res, next) => {
+        try {
+            const { rows } = await pool.query(
+                `SELECT id, slug, name, description, location,
+                        contact_email AS "contactEmail", contact_phone AS "contactPhone",
+                        contact_whatsapp AS "contactWhatsApp", logo_image AS "logoImage"
+                 FROM shops WHERE id = $1`,
+                [req.shopId]
+            );
+            if (!rows[0]) return res.status(404).json({ error: 'Shop not found.' });
+            return res.json({ data: rows[0] });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    app.patch('/api/v1/admin/shop/profile', ...teamManager, productUploadLimit, uploadProductImage.single('logo'), async (req, res, next) => {
+        const file = req.file;
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+        const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
+        const location = typeof req.body?.location === 'string' ? req.body.location.trim() : '';
+        const contactEmail = typeof req.body?.contactEmail === 'string' ? req.body.contactEmail.trim() : '';
+        const contactPhone = typeof req.body?.contactPhone === 'string' ? req.body.contactPhone.trim() : '';
+        const contactWhatsApp = typeof req.body?.contactWhatsApp === 'string' ? req.body.contactWhatsApp.trim() : '';
+        const removeLogo = req.body?.removeLogo === 'true';
+        if (name.length < 2 || name.length > 120 || description.length > 2000 || location.length > 200
+            || contactEmail.length > 254 || (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail))
+            || contactPhone.length > 40 || contactWhatsApp.length > 40 || (removeLogo && file)) {
+            if (file) await removeUploadedFile(file.path).catch((error) => console.error('Could not remove rejected shop logo:', error.message));
+            return res.status(400).json({ error: 'Check the shop profile fields and contact details, then try again.' });
+        }
+        try {
+            if (file && !await validImageSignature(file)) {
+                await removeUploadedFile(file.path);
+                return res.status(400).json({ error: 'The uploaded logo does not match its JPEG, PNG, or WebP image type.' });
+            }
+            const logo = file ? `/uploads/${file.filename}` : null;
+            const saved = await withTransaction(pool, async (client) => {
+                const { rows: previousRows } = await client.query(
+                    'SELECT logo_image AS "previousLogo" FROM shops WHERE id = $1 FOR UPDATE',
+                    [req.shopId]
+                );
+                if (!previousRows[0]) return null;
+                const { rows } = await client.query(
+                    `UPDATE shops
+                     SET name = $1, description = $2, location = $3,
+                         contact_email = $4, contact_phone = $5, contact_whatsapp = $6,
+                         logo_image = CASE WHEN $8 THEN NULL ELSE COALESCE($7, logo_image) END,
+                         updated_at = NOW()
+                     WHERE id = $9
+                     RETURNING id, slug, name, description, location,
+                               contact_email AS "contactEmail", contact_phone AS "contactPhone",
+                               contact_whatsapp AS "contactWhatsApp", logo_image AS "logoImage"`,
+                    [name, description, location, contactEmail, contactPhone, contactWhatsApp,
+                        logo, removeLogo, req.shopId]
+                );
+                await client.query(
+                    `INSERT INTO shop_activity_logs
+                        (shop_id, actor_email, action, entity_type, entity_id, details)
+                     VALUES ($1, $2, 'shop.profile_updated', 'shop', $3, $4::jsonb)`,
+                    [req.shopId, req.admin.sub, String(req.shopId), JSON.stringify({ name, location })]
+                );
+                return { shop: rows[0], previousLogo: previousRows[0].previousLogo };
+            });
+            if (!saved) {
+                if (file) await removeUploadedFile(file.path);
+                return res.status(404).json({ error: 'Shop not found.' });
+            }
+            const oldLogoPath = shopImagePath(uploadsDirectory, saved.previousLogo);
+            let warning;
+            if ((file || removeLogo) && oldLogoPath) {
+                await removeUploadedFile(oldLogoPath).catch((error) => {
+                    console.error('Could not remove replaced shop logo:', error.message);
+                    warning = 'Your profile was saved, but the previous logo could not be deleted.';
+                });
+            }
+            return res.json({ data: saved.shop, ...(warning ? { warning } : {}) });
+        } catch (error) {
+            if (file) await removeUploadedFile(file.path).catch((cleanupError) => {
+                if (cleanupError.code !== 'ENOENT') console.error('Could not remove rejected shop logo:', cleanupError.message);
             });
             return next(error);
         }
@@ -777,6 +876,9 @@ export function registerPlatformRoutes(app, {
             });
             return res.status(201).json({ data: transaction });
         } catch (error) {
+            if (error.code === '23505' && error.constraint === 'shop_transactions_shop_reference_idx') {
+                return res.status(409).json({ error: 'This transaction reference is already recorded for this shop.' });
+            }
             if (error.code === 'ORDER_SCOPE') return res.status(404).json({ error: error.message });
             return next(error);
         }
@@ -1032,14 +1134,38 @@ export function registerPlatformRoutes(app, {
         if (!pushEnabled) return res.status(503).json({ error: 'Browser offer notifications are not configured on this server.' });
         if (!validSubscription(req.body)) return res.status(400).json({ error: 'The browser push subscription is invalid.' });
         try {
-            const { rows } = await pool.query("SELECT id FROM shops WHERE slug = $1 AND status = 'active'", [req.params.slug]);
-            if (!rows[0]) return res.status(404).json({ error: 'Shop not found.' });
-            await pool.query(
-                `INSERT INTO shop_push_subscriptions (shop_id, endpoint, subscription)
-                 VALUES ($1, $2, $3::jsonb)
-                 ON CONFLICT (shop_id, endpoint) DO UPDATE SET subscription = EXCLUDED.subscription`,
-                [rows[0].id, req.body.endpoint, JSON.stringify(req.body)]
-            );
+            const result = await withTransaction(pool, async (client) => {
+                const shop = await client.query(
+                    "SELECT id FROM shops WHERE slug = $1 AND status = 'active' FOR UPDATE",
+                    [req.params.slug]
+                );
+                if (!shop.rows[0]) return { notFound: true };
+                const existing = await client.query(
+                    'SELECT id FROM shop_push_subscriptions WHERE shop_id = $1 AND endpoint = $2',
+                    [shop.rows[0].id, req.body.endpoint]
+                );
+                if (existing.rows[0]) {
+                    await client.query(
+                        `UPDATE shop_push_subscriptions SET subscription = $1::jsonb
+                         WHERE shop_id = $2 AND endpoint = $3`,
+                        [JSON.stringify(req.body), shop.rows[0].id, req.body.endpoint]
+                    );
+                    return { saved: true };
+                }
+                const count = await client.query(
+                    'SELECT COUNT(*)::int AS count FROM shop_push_subscriptions WHERE shop_id = $1',
+                    [shop.rows[0].id]
+                );
+                if (count.rows[0].count >= maximumShopPushSubscriptions) return { limitReached: true };
+                await client.query(
+                    `INSERT INTO shop_push_subscriptions (shop_id, endpoint, subscription)
+                     VALUES ($1, $2, $3::jsonb)`,
+                    [shop.rows[0].id, req.body.endpoint, JSON.stringify(req.body)]
+                );
+                return { saved: true };
+            });
+            if (result.notFound) return res.status(404).json({ error: 'Shop not found.' });
+            if (result.limitReached) return res.status(429).json({ error: 'This shop has reached its notification subscriber limit.' });
             return res.status(201).json({ data: { subscribed: true } });
         } catch (error) {
             return next(error);

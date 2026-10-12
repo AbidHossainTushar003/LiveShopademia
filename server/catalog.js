@@ -42,11 +42,14 @@ export function setManagedProducts(records) {
         rating: 0,
         reviews: '0',
         image: record.image,
+        images: Array.isArray(record.images) && record.images.length
+            ? record.images
+            : (record.image ? [record.image] : []),
         stockQuantity: record.stockQuantity == null ? 0 : Number(record.stockQuantity),
         isAvailable: record.isAvailable !== false,
         shopId: record.shopId ?? DEFAULT_SHOP_ID,
-        icon: iconByCategory[record.category],
-        tint: tintByCategory[record.category],
+        icon: iconByCategory[record.category] || 'fa-box',
+        tint: tintByCategory[record.category] || 'slate',
         category: record.category
     }));
     refreshProducts();

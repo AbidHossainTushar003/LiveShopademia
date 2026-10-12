@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -24,14 +25,22 @@ async function start() {
         siteUrl: process.env.PUBLIC_SITE_URL?.trim() || null,
         databaseUrl: required('DATABASE_URL'),
         databaseSsl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' || String(process.env.DATABASE_SSL || '').toLowerCase() === '1',
-        adminEmail: required('ADMIN_EMAIL'),
-        adminPassword: required('ADMIN_PASSWORD', 12),
         jwtSecret: required('JWT_SECRET', 32),
         advanceCharge: Number(process.env.DELIVERY_ADVANCE_CHARGE || 100),
         vapidPublicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() || null,
         vapidPrivateKey: process.env.WEB_PUSH_VAPID_PRIVATE_KEY?.trim() || null,
         vapidSubject: process.env.WEB_PUSH_VAPID_SUBJECT?.trim() || null
     };
+    const mfaEncryptionKey = process.env.MFA_ENCRYPTION_KEY?.trim() || '';
+    if (config.nodeEnv === 'production' && !mfaEncryptionKey) {
+        throw new Error('MFA_ENCRYPTION_KEY must be set in production to protect platform-admin authenticator secrets.');
+    }
+    if (mfaEncryptionKey && !/^[0-9a-f]{64}$/i.test(mfaEncryptionKey)) {
+        throw new Error('MFA_ENCRYPTION_KEY must be exactly 64 hexadecimal characters.');
+    }
+    config.mfaEncryptionKey = mfaEncryptionKey
+        ? Buffer.from(mfaEncryptionKey, 'hex')
+        : createHash('sha256').update(`shopademia-mfa-encryption\0${config.jwtSecret}`).digest();
     if (!['development', 'production', 'test'].includes(config.nodeEnv)) throw new Error('NODE_ENV must be one of development, production, or test.');
     if (config.siteUrl) {
         const siteUrl = new URL(config.siteUrl);
@@ -51,8 +60,8 @@ async function start() {
         || (config.vapidPublicKey && !config.vapidSubject)) {
         throw new Error('Set WEB_PUSH_VAPID_PUBLIC_KEY, WEB_PUSH_VAPID_PRIVATE_KEY, and WEB_PUSH_VAPID_SUBJECT together to enable offer notifications.');
     }
-    if (/replace-with|change-this/i.test(config.jwtSecret) || /replace-with|change-this/i.test(config.adminPassword)) {
-        throw new Error('Replace example admin credentials and JWT secret in .env before starting the server.');
+    if (/replace-with|change-this/i.test(config.jwtSecret)) {
+        throw new Error('Replace the example JWT secret in .env before starting the server.');
     }
     const uploadsDir = join(root, 'uploads');
     await mkdir(uploadsDir, { recursive: true });
@@ -66,12 +75,19 @@ async function start() {
         ...(config.databaseSsl ? { ssl: { rejectUnauthorized: true } } : {})
     };
     const pool = new Pool(poolConfig);
-    pool.on('error', (error) => console.error('Unexpected PostgreSQL pool error:', error.message));
-    await initializeDatabase(pool, {
-        email: config.adminEmail,
-        password: config.adminPassword,
-        advanceCharge: config.advanceCharge
-    });
+    pool.on('error', (error) => console.error('Unexpected PostgreSQL pool error:', {
+        name: error.name || 'Error',
+        code: typeof error.code === 'string' ? error.code : undefined
+    }));
+    if (config.nodeEnv !== 'production') {
+        const adminEmail = required('ADMIN_EMAIL');
+        const adminPassword = required('ADMIN_PASSWORD', 12);
+        await initializeDatabase(pool, {
+            email: adminEmail,
+            password: adminPassword,
+            advanceCharge: config.advanceCharge
+        });
+    }
     const managedProducts = await loadManagedProducts(pool);
     setManagedProducts(managedProducts);
     console.info(`Loaded ${managedProducts.length} admin-managed products.`);
@@ -89,6 +105,9 @@ async function start() {
 }
 
 start().catch((error) => {
-    console.error('Shopademia server failed to start:', error.message);
+    console.error('Shopademia server failed to start:', {
+        name: error.name || 'Error',
+        code: typeof error.code === 'string' ? error.code : undefined
+    });
     process.exitCode = 1;
 });

@@ -14,6 +14,15 @@ export class RoutePageView {
         Object.assign(this, { root, apiBaseUrl, shop, route, homeVM, cartVM, customerProfileView });
         this.homeSections = [...document.querySelectorAll('[data-home-section]')];
         root.addEventListener('click', (event) => {
+            const thumbnail = event.target.closest('[data-product-gallery-image]');
+            if (thumbnail) {
+                const image = root.querySelector('[data-product-gallery-main]');
+                if (image) image.src = thumbnail.dataset.productGalleryImage;
+                root.querySelectorAll('[data-product-gallery-image]').forEach((button) => {
+                    button.setAttribute('aria-pressed', String(button === thumbnail));
+                });
+                return;
+            }
             const button = event.target.closest('[data-route-add]');
             if (!button) return;
             const product = this.homeVM.findProduct(button.dataset.routeAdd);
@@ -79,12 +88,15 @@ export class RoutePageView {
             const image = isSafeProductImage(product.image)
                 ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy">`
                 : `<span class="route-product-placeholder" aria-hidden="true"><i class="fa-solid fa-box"></i></span>`;
-            const categoryLink = `/category/${encodeURIComponent(product.category)}?shop=${encodeURIComponent(this.shop.slug)}`;
+            const category = this.homeVM.categories.value.find(({ id }) => id === product.category);
+            const categoryLink = category
+                ? `<a class="route-category-link" href="/category/${encodeURIComponent(category.id)}?shop=${encodeURIComponent(this.shop.slug)}">${escapeHtml(category.name)}</a>`
+                : '<span class="route-category-link">Unassigned</span>';
             const productLink = `/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(this.shop.slug)}`;
             return `<article class="route-product-card">
                 <a class="route-product-image" href="${productLink}">${image}</a>
                 <div class="route-product-copy">
-                    <a class="route-category-link" href="${categoryLink}">${escapeHtml(this.homeVM.categories.value.find(({ id }) => id === product.category)?.name || product.category)}</a>
+                    ${categoryLink}
                     <h2><a href="${productLink}">${escapeHtml(product.name)}</a></h2>
                     <p>${escapeHtml(product.description || 'Discover more about this item.')}</p>
                     <div class="route-price-row"><strong>${formatPrice(product.price)}</strong>${product.hasDiscount ? `<del>${formatPrice(product.oldPrice)}</del><span class="route-discount">-${product.discountPercent}%</span>` : ''}</div>
@@ -98,14 +110,27 @@ export class RoutePageView {
         const product = this.homeVM.findProduct(this.route.id);
         if (!product) return this.renderNotFound('Product not found');
         const fallbackIcon = /^[a-z0-9-]+$/.test(product.icon) ? product.icon : 'fa-box-open';
-        const image = isSafeProductImage(product.image)
-            ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}">`
+        const images = [...new Set((product.images?.length ? product.images : [product.image])
+            .filter((imageUrl) => isSafeProductImage(imageUrl)))];
+        const image = images.length
+            ? `<img data-product-gallery-main src="${escapeHtml(images[0])}" alt="${escapeHtml(product.imageAlt || product.name)}">`
             : `<i class="fa-solid ${fallbackIcon}" aria-hidden="true"></i>`;
+        const gallery = images.length > 1
+            ? `<div class="route-image-thumbnails" aria-label="Product images">${images.map((imageUrl, index) =>
+                `<button type="button" data-product-gallery-image="${escapeHtml(imageUrl)}" aria-label="Show product image ${index + 1}" aria-pressed="${index === 0}"><img src="${escapeHtml(imageUrl)}" alt="" loading="lazy"></button>`
+            ).join('')}</div>`
+            : '';
         const category = this.homeVM.categories.value.find(({ id }) => id === product.category);
-        this.root.innerHTML = `<nav class="route-breadcrumb" aria-label="Breadcrumb"><a href="/?shop=${encodeURIComponent(this.shop.slug)}">Home</a><span aria-hidden="true">/</span><a href="/category/${encodeURIComponent(product.category)}?shop=${encodeURIComponent(this.shop.slug)}">${escapeHtml(category?.name || 'Category')}</a><span aria-hidden="true">/</span><span>${escapeHtml(product.name)}</span></nav>
+        const categoryLink = category
+            ? `<a href="/category/${encodeURIComponent(category.id)}?shop=${encodeURIComponent(this.shop.slug)}">${escapeHtml(category.name)}</a>`
+            : '<span>Unassigned</span>';
+        const categoryBadge = category
+            ? `<a class="route-detail-category" href="/category/${encodeURIComponent(category.id)}?shop=${encodeURIComponent(this.shop.slug)}"><i class="fa-solid ${escapeHtml(category.icon || 'fa-tag')}" aria-hidden="true"></i>${escapeHtml(category.name)}</a>`
+            : '<span class="route-detail-category">Unassigned</span>';
+        this.root.innerHTML = `<nav class="route-breadcrumb" aria-label="Breadcrumb"><a href="/?shop=${encodeURIComponent(this.shop.slug)}">Home</a><span aria-hidden="true">/</span>${categoryLink}<span aria-hidden="true">/</span><span>${escapeHtml(product.name)}</span></nav>
             <article class="route-product-detail">
-                <div class="route-detail-visual"><div class="route-detail-image">${image}</div><span class="route-visual-caption"><i class="fa-solid fa-shield-heart" aria-hidden="true"></i> Shop direct · Order reviewed by the seller</span></div>
-                <div class="route-detail-copy"><a class="route-detail-category" href="/category/${encodeURIComponent(product.category)}?shop=${encodeURIComponent(this.shop.slug)}"><i class="fa-solid ${escapeHtml(category?.icon || 'fa-tag')}" aria-hidden="true"></i>${escapeHtml(category?.name || 'Shop collection')}</a>
+                <div class="route-detail-visual"><div class="route-detail-image">${image}</div>${gallery}<span class="route-visual-caption"><i class="fa-solid fa-shield-heart" aria-hidden="true"></i> Shop direct · Order reviewed by the seller</span></div>
+                <div class="route-detail-copy">${categoryBadge}
                 <a class="route-seller-card" href="/shops/${encodeURIComponent(this.shop.slug)}" aria-label="Visit ${escapeHtml(this.shop.name)} shop profile">
                     <span class="route-seller-avatar" aria-hidden="true"><i class="fa-solid fa-store"></i></span>
                     <span class="route-seller-copy"><span class="route-seller-label">Sold by</span><strong>${escapeHtml(this.shop.name)}</strong></span>
@@ -133,8 +158,9 @@ export class RoutePageView {
         const { data } = await requestJson(`${this.apiBaseUrl}/shops`);
         if (!Array.isArray(data)) throw new Error('The shop directory returned invalid data.');
         const cards = data.map((shop) => {
-            const banner = isSafeProductImage(shop.bannerImage) ? `<img src="${escapeHtml(shop.bannerImage)}" alt="" loading="lazy">` : '<span class="route-shop-placeholder"><i class="fa-solid fa-store" aria-hidden="true"></i></span>';
-            return `<article class="route-shop-card"><a class="route-shop-art" href="/shops/${encodeURIComponent(shop.slug)}">${banner}</a><div><p class="route-eyebrow">SHOP</p><h2><a href="/shops/${encodeURIComponent(shop.slug)}">${escapeHtml(shop.name)}</a></h2><a class="route-text-link" href="/shops/${encodeURIComponent(shop.slug)}">Visit shop <span aria-hidden="true">→</span></a></div></article>`;
+            const image = shop.logoImage || shop.bannerImage;
+            const art = isSafeProductImage(image) ? `<img class="${shop.logoImage && !shop.bannerImage ? 'shop-logo-art' : ''}" src="${escapeHtml(image)}" alt="" loading="lazy">` : '<span class="route-shop-placeholder"><i class="fa-solid fa-store" aria-hidden="true"></i></span>';
+            return `<article class="route-shop-card"><a class="route-shop-art" href="/shops/${encodeURIComponent(shop.slug)}">${art}</a><div><p class="route-eyebrow">SHOP</p><h2><a href="/shops/${encodeURIComponent(shop.slug)}">${escapeHtml(shop.name)}</a></h2>${shop.description ? `<p>${escapeHtml(shop.description)}</p>` : ''}${shop.location ? `<p class="route-shop-location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${escapeHtml(shop.location)}</p>` : ''}<a class="route-text-link" href="/shops/${encodeURIComponent(shop.slug)}">Visit shop <span aria-hidden="true">→</span></a></div></article>`;
         }).join('');
         this.root.innerHTML = `<header class="route-heading"><p class="route-eyebrow">SHOPADEMIA DIRECTORY</p><h1>Explore our shops</h1><p>Browse each shop’s own storefront, products, and current deals.</p></header>${data.length ? `<div class="route-shop-grid">${cards}</div>` : '<p class="route-empty">There are no active shops to show right now.</p>'}`;
         document.title = 'Our shops | Shopademia';
@@ -145,15 +171,31 @@ export class RoutePageView {
             requestJson(`${this.apiBaseUrl}/shops/${encodeURIComponent(this.shop.slug)}`),
             requestJson(`${this.apiBaseUrl}/shops/${encodeURIComponent(this.shop.slug)}/offers`)
         ]);
-        const banner = isSafeProductImage(shop.bannerImage)
-            ? `<img src="${escapeHtml(shop.bannerImage)}" alt="${escapeHtml(shop.name)} banner">`
+        const banner = isSafeProductImage(shop.bannerImage || shop.logoImage)
+            ? `<img class="${shop.bannerImage ? '' : 'shop-logo-banner'}" src="${escapeHtml(shop.bannerImage || shop.logoImage)}" alt="${escapeHtml(shop.name)} ${shop.bannerImage ? 'banner' : 'logo'}">`
             : '<i class="fa-solid fa-store" aria-hidden="true"></i>';
         const categories = this.homeVM.categories.value.map((category) =>
             `<a class="route-chip" href="/category/${encodeURIComponent(category.id)}?shop=${encodeURIComponent(shop.slug)}">${escapeHtml(category.name)}</a>`
         ).join('');
         const offerCards = offers.map((offer) => `<article class="route-offer-card"><p class="route-eyebrow">CURRENT OFFER</p><h2>${escapeHtml(offer.title)}</h2><p>${escapeHtml(offer.message)}</p></article>`).join('');
-        this.root.innerHTML = `<section class="route-shop-hero"><div class="route-shop-banner">${banner}</div><div><p class="route-eyebrow">SHOP PROFILE</p><h1>${escapeHtml(shop.name)}</h1><p>Welcome to the ${escapeHtml(shop.name)} storefront. Explore this shop’s products and current offers.</p><a class="route-button route-button-link" href="/?shop=${encodeURIComponent(shop.slug)}#shop">Browse this shop</a></div></section>
+        const contacts = [
+            shop.contactEmail ? `<a href="mailto:${escapeHtml(shop.contactEmail)}"><i class="fa-solid fa-envelope" aria-hidden="true"></i> ${escapeHtml(shop.contactEmail)}</a>` : '',
+            shop.contactPhone ? `<a href="tel:${encodeURIComponent(shop.contactPhone)}"><i class="fa-solid fa-phone" aria-hidden="true"></i> ${escapeHtml(shop.contactPhone)}</a>` : '',
+            shop.contactWhatsApp ? `<a href="https://wa.me/${shop.contactWhatsApp.replace(/\D/g, '')}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i> WhatsApp</a>` : ''
+        ].filter(Boolean).join('');
+        const topSellers = Array.isArray(shop.topProducts) ? shop.topProducts : [];
+        const productsById = new Map(this.homeVM.getAllProducts().map((product) => [String(product.id), product]));
+        const topSellerItems = topSellers.map(({ productId, name, quantity }) => {
+            const product = productsById.get(String(productId));
+            const productName = product?.name || name || 'Product';
+            const label = product
+                ? `<a href="/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(shop.slug)}">${escapeHtml(productName)}</a>`
+                : `<span>${escapeHtml(productName)}</span>`;
+            return `<li>${label}<span>${escapeHtml(String(quantity))} ordered</span></li>`;
+        }).join('');
+        this.root.innerHTML = `<section class="route-shop-hero"><div class="route-shop-banner">${banner}</div><div><p class="route-eyebrow">SHOP PROFILE</p><h1>${escapeHtml(shop.name)}</h1><p>${escapeHtml(shop.description || `Welcome to the ${shop.name} storefront. Explore this shop’s products and current offers.`)}</p>${shop.location ? `<p class="route-shop-location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${escapeHtml(shop.location)}</p>` : ''}${contacts ? `<nav class="route-shop-contacts" aria-label="Shop contact details">${contacts}</nav>` : ''}<a class="route-button route-button-link" href="/?shop=${encodeURIComponent(shop.slug)}#shop">Browse this shop</a></div></section>
             <section class="route-subsection"><header class="route-heading route-heading-small"><h2>Shop categories</h2></header><div class="route-chip-row">${categories}</div></section>
+            <section class="route-subsection"><header class="route-heading route-heading-small"><h2>Top selling products</h2></header>${topSellerItems ? `<ol class="route-top-sellers">${topSellerItems}</ol>` : '<p class="route-empty">Top sellers will appear here as orders are placed.</p>'}</section>
             ${offerCards ? `<section class="route-subsection"><header class="route-heading route-heading-small"><h2>Deals and announcements</h2></header><div class="route-offer-grid">${offerCards}</div></section>` : ''}
             <section class="route-subsection"><header class="route-heading route-heading-small"><h2>Products from ${escapeHtml(shop.name)}</h2></header>${this.productsGrid(this.homeVM.getAllProducts())}</section>`;
         document.title = `${shop.name} | Shopademia`;

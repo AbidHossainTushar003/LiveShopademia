@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
+import sharp from 'sharp';
 import { hashAdminPassword, verifyAdminPassword } from './adminPassword.js';
 import {
     addManagedProduct,
@@ -33,13 +34,20 @@ import {
     validateAndPriceOrder
 } from './orders.js';
 import { registerPlatformRoutes } from './platform.js';
+import {
+    decryptTotpSecret,
+    encryptTotpSecret,
+    generateTotpSecret,
+    totpProvisioningUri,
+    verifyTotpCode
+} from './adminTotp.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const PRODUCT_CATEGORIES = new Set(['gadgets', 'accessories', 'clothing', 'more']);
+const PRODUCT_CATEGORY_PATTERN = /^[a-z0-9][a-z0-9-]{1,47}$/;
 const IMAGE_TYPES = new Map([
-    ['image/jpeg', { extension: '.jpg', signature: (bytes) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff }],
-    ['image/png', { extension: '.png', signature: (bytes) => bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) }],
-    ['image/webp', { extension: '.webp', signature: (bytes) => bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP' }]
+    ['image/jpeg', { extension: '.jpg', format: 'jpeg' }],
+    ['image/png', { extension: '.png', format: 'png' }],
+    ['image/webp', { extension: '.webp', format: 'webp' }]
 ]);
 
 function escapeXml(value) {
@@ -99,7 +107,7 @@ function productUpload(uploadDirectory) {
                 callback(null, `${randomUUID()}${IMAGE_TYPES.get(file.mimetype).extension}`);
             }
         }),
-        limits: { fileSize: 5 * 1024 * 1024, files: 2, fields: 10, fieldSize: 4096, parts: 13 },
+        limits: { fileSize: 5 * 1024 * 1024, files: 10, fields: 10, fieldSize: 4096, parts: 21 },
         fileFilter(_req, file, callback) {
             if (!IMAGE_TYPES.has(file.mimetype)) return callback(new ProductInputError('Upload a JPEG, PNG, or WebP product image.'));
             callback(null, true);
@@ -107,7 +115,7 @@ function productUpload(uploadDirectory) {
     });
 }
 
-function validateManagedProduct(body, image, { requireImage = true } = {}) {
+function validateManagedProduct(body, images, { requireImage = true } = {}) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const description = typeof body?.description === 'string' ? body.description.trim() : '';
     const imageAlt = typeof body?.imageAlt === 'string' ? body.imageAlt.trim() : '';
@@ -133,8 +141,11 @@ function validateManagedProduct(body, image, { requireImage = true } = {}) {
     if (oldPrice !== null && (!Number.isSafeInteger(oldPrice) || oldPrice <= price)) {
         throw new ProductInputError('The previous price must be a whole BDT amount greater than the current price.');
     }
-    if (!PRODUCT_CATEGORIES.has(category)) throw new ProductInputError('Choose a valid product category.');
-    if (requireImage && !image) throw new ProductInputError('Choose a product image to upload.');
+    if (!PRODUCT_CATEGORY_PATTERN.test(category) && category !== 'uncategorized') {
+        throw new ProductInputError('Choose a valid product category.');
+    }
+    if (requireImage && !images?.length) throw new ProductInputError('Choose at least one product image to upload.');
+    if (images?.length > 10) throw new ProductInputError('A product can have up to 10 images.');
     return {
         name,
         description,
@@ -179,6 +190,36 @@ function isManagedProductId(id) {
 function managedImagePath(uploadsDirectory, imageUrl) {
     if (typeof imageUrl !== 'string' || !/^\/uploads\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/i.test(imageUrl)) return null;
     return join(uploadsDirectory, imageUrl.slice('/uploads/'.length));
+}
+
+function imagePathsForProduct(uploadsDirectory, product) {
+    return [...new Set([product.image, ...(Array.isArray(product.images) ? product.images : [])])]
+        .map((image) => managedImagePath(uploadsDirectory, image))
+        .filter(Boolean);
+}
+
+async function categoriesForShop(pool, shopId) {
+    const { rows } = await pool.query(
+        `SELECT id, name, icon, is_active AS active
+         FROM shop_product_categories WHERE shop_id = $1`,
+        [shopId]
+    );
+    const saved = new Map(rows.map((category) => [category.id, category]));
+    const categories = new Map(getCategories(shopId).map((category) => [category.id, category]));
+    for (const [id, category] of saved) {
+        if (!category.active) {
+            categories.delete(id);
+            continue;
+        }
+        const previous = categories.get(id);
+        categories.set(id, {
+            ...previous,
+            ...category,
+            gradient: previous?.gradient || 'from-slate-100 to-blue-50',
+            color: previous?.color || 'text-slate-700'
+        });
+    }
+    return [...categories.values()];
 }
 
 function managedStockRequests(items) {
@@ -258,14 +299,28 @@ function respondWithExistingOrder(res, saved, requestHash) {
 
 async function validImageSignature(file) {
     const type = IMAGE_TYPES.get(file.mimetype);
-    const handle = await open(file.path, 'r');
+    if (!type) return false;
+    let sanitized;
     try {
-        const bytes = Buffer.alloc(12);
-        const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-        return type.signature(bytes.subarray(0, bytesRead));
-    } finally {
-        await handle.close();
+        const image = sharp(await readFile(file.path), { failOn: 'error', limitInputPixels: 25_000_000 });
+        const metadata = await image.metadata();
+        if (metadata.format !== type.format || !metadata.width || !metadata.height
+            || metadata.width > 10000 || metadata.height > 10000) return false;
+        sanitized = await image.rotate().resize({
+            width: 1600,
+            height: 1600,
+            fit: 'inside',
+            withoutEnlargement: true
+        }).toFormat(type.format, {
+            ...(type.format === 'jpeg' || type.format === 'webp' ? { quality: 88 } : { compressionLevel: 9 })
+        }).toBuffer();
+    } catch (error) {
+        if (['ENOENT', 'EACCES', 'EPERM', 'EIO'].includes(error?.code)) throw error;
+        return false;
     }
+    if (!sanitized.length || sanitized.length > 5 * 1024 * 1024) return false;
+    await writeFile(file.path, sanitized);
+    return true;
 }
 
 function removeUploadedFile(filePath) {
@@ -274,19 +329,54 @@ function removeUploadedFile(filePath) {
     });
 }
 
-function adminAuth(pool, secret) {
+const adminCookieName = 'shopademia_admin';
+
+function adminCookieToken(req) {
+    const cookieHeader = req.get('cookie') ?? '';
+    for (const part of cookieHeader.split(';')) {
+        const separator = part.indexOf('=');
+        if (separator < 0 || part.slice(0, separator).trim() !== adminCookieName) continue;
+        return part.slice(separator + 1).trim();
+    }
+    return '';
+}
+
+function setAdminCookie(res, token, maxAge, secure) {
+    res.append('Set-Cookie', [
+        `${adminCookieName}=${token}`,
+        'Path=/api/v1/admin',
+        'HttpOnly',
+        'SameSite=Strict',
+        `Max-Age=${maxAge}`,
+        ...(secure ? ['Secure'] : [])
+    ].join('; '));
+}
+
+function clearAdminCookie(res, secure) {
+    setAdminCookie(res, '', 0, secure);
+}
+
+function adminAuth(pool, secret, secureCookie) {
     return (req, res, next) => {
         res.set('Cache-Control', 'no-store');
         const authorization = req.get('authorization') ?? '';
-        const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+        const bearerToken = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+        const cookieToken = adminCookieToken(req);
+        const token = bearerToken || cookieToken;
+        const isCookieAuth = !bearerToken && Boolean(cookieToken);
+        const expireCookie = () => {
+            if (isCookieAuth) clearAdminCookie(res, secureCookie);
+        };
         if (!token) return res.status(401).json({ error: 'Admin authentication required.' });
         try {
             req.admin = jwt.verify(token, secret, { algorithms: ['HS256'], issuer: 'shopademia' });
         } catch {
+            expireCookie();
             return res.status(401).json({ error: 'Your admin session expired. Sign in again.' });
         }
         if (req.admin.role !== 'admin' || typeof req.admin.jti !== 'string'
             || !Number.isSafeInteger(req.admin.sessionVersion)) {
+            expireCookie();
             return res.status(401).json({ error: 'Your admin session expired. Sign in again.' });
         }
         const requestedShopId = req.get('x-shop-id');
@@ -294,6 +384,7 @@ function adminAuth(pool, secret) {
             return res.status(400).json({ error: 'The selected shop ID is invalid.' });
         }
         if (typeof req.admin.userId !== 'string') {
+            expireCookie();
             return res.status(401).json({ error: 'Your admin session expired. Sign in again.' });
         }
         const isPlatformToken = req.admin.isPlatformAdmin === true;
@@ -319,6 +410,7 @@ function adminAuth(pool, secret) {
         ).then(({ rows }) => {
             const account = rows[0];
             if (!account || req.admin.sessionVersion !== Number(account.sessionVersion)) {
+                expireCookie();
                 return res.status(401).json({ error: 'Your admin session expired or shop access was removed.' });
             }
             req.isPlatformAdmin = account.isPlatformAdmin;
@@ -337,7 +429,8 @@ function adminAuth(pool, secret) {
 
 export function createApp({ pool, config }) {
     const app = express();
-    const authenticateAdmin = adminAuth(pool, config.jwtSecret);
+    const secureAdminCookie = config.nodeEnv === 'production';
+    const authenticateAdmin = adminAuth(pool, config.jwtSecret, secureAdminCookie);
     const requireShopManager = (req, res, next) => {
         if (req.isPlatformAdmin || !['owner', 'admin'].includes(req.shopRole)) {
             return res.status(403).json({ error: 'Shop owner or admin permission is required.' });
@@ -491,6 +584,16 @@ export function createApp({ pool, config }) {
         next();
     });
     app.use(express.json({ limit: '32kb', strict: true, type: 'application/json' }));
+    app.use('/api/v1/admin', (req, res, next) => {
+        if (!adminCookieToken(req) || req.get('authorization')
+            || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+        const origin = req.get('origin');
+        const expectedOrigin = config.siteUrl || `${req.protocol}://${req.get('host')}`;
+        if (origin !== expectedOrigin) {
+            return res.status(403).json({ error: 'This admin request must come from the same origin.' });
+        }
+        return next();
+    });
 
     app.get('/', async (req, res, next) => {
         try {
@@ -566,7 +669,7 @@ export function createApp({ pool, config }) {
                             : 'https://schema.org/InStock'
                     }
                 };
-                const category = getCategories(selectedShop.id).find(({ id }) => id === product.category);
+                const category = (await categoriesForShop(pool, selectedShop.id)).find(({ id }) => id === product.category);
                 const categoryName = category?.name || 'Category';
                 const homeUrl = `${origin}/${selectedShop.slug === 'main' ? '' : `?shop=${encodeURIComponent(selectedShop.slug)}`}`;
                 const categoryUrl = `${origin}/category/${encodeURIComponent(product.category)}${selectedShop.slug === 'main' ? '' : `?shop=${encodeURIComponent(selectedShop.slug)}`}`;
@@ -582,7 +685,7 @@ export function createApp({ pool, config }) {
                     }
                 ];
             } else if (req.path.startsWith('/category/')) {
-                const category = getCategories(selectedShop.id).find(({ id }) => id === req.params.id);
+                const category = (await categoriesForShop(pool, selectedShop.id)).find(({ id }) => id === req.params.id);
                 if (!category) return res.status(404).sendFile(join(root, '404.html'));
                 title = `${category.name} | ${selectedShop.name} | Shopademia`;
                 description = `Browse ${category.name} products from ${selectedShop.name} on Shopademia.`;
@@ -725,7 +828,7 @@ export function createApp({ pool, config }) {
                 return res.status(400).json({ error: 'Offset must be a non-negative whole number.' });
             }
             const category = req.query.category;
-            if (category !== undefined && (typeof category !== 'string' || !PRODUCT_CATEGORIES.has(category))) {
+            if (category !== undefined && (typeof category !== 'string' || !PRODUCT_CATEGORY_PATTERN.test(category))) {
                 return res.status(400).json({ error: 'Choose a valid product category.' });
             }
             const { rows } = await pool.query(
@@ -734,6 +837,9 @@ export function createApp({ pool, config }) {
             );
             const shop = rows[0];
             if (!shop) return res.status(404).json({ error: 'Shop not found.' });
+            if (category !== undefined && !(await categoriesForShop(pool, shop.id)).some((item) => item.id === category)) {
+                return res.status(400).json({ error: 'Choose a valid product category.' });
+            }
             const offset = Number(offsetValue);
             const limit = Number(limitValue);
             const products = getUploadedProductsForShop(shop.id)
@@ -750,6 +856,7 @@ export function createApp({ pool, config }) {
                 price: product.price,
                 oldPrice: product.oldPrice,
                 image: product.image ? new URL(product.image, siteOrigin(req)).href : null,
+                images: product.images.map((image) => new URL(image, siteOrigin(req)).href),
                 category: product.category,
                 stockQuantity: product.stockQuantity,
                 isAvailable: product.isAvailable,
@@ -768,7 +875,7 @@ export function createApp({ pool, config }) {
         try {
             const shop = await pool.query("SELECT id FROM shops WHERE slug = $1 AND status = 'active'", [req.params.slug]);
             if (!shop.rows[0]) return res.status(404).json({ error: 'Shop not found.' });
-            return res.json({ data: getCategories(shop.rows[0].id) });
+            return res.json({ data: await categoriesForShop(pool, shop.rows[0].id) });
         } catch (error) {
             return next(error);
         }
@@ -785,9 +892,28 @@ export function createApp({ pool, config }) {
     app.get('/api/v1/shops/:slug', publicCatalogLimit, async (req, res, next) => {
         try {
             const { rows } = await pool.query(
-                `SELECT id, slug, name, hero_image AS "heroImage", banner_image AS "bannerImage",
-                        advance_charge AS "advanceCharge"
-                 FROM shops WHERE slug = $1 AND status = 'active'`,
+                `SELECT id, slug, name, description, location,
+                        contact_email AS "contactEmail", contact_phone AS "contactPhone",
+                        contact_whatsapp AS "contactWhatsApp", logo_image AS "logoImage",
+                        hero_image AS "heroImage", banner_image AS "bannerImage",
+                        advance_charge AS "advanceCharge",
+                        COALESCE((
+                            SELECT jsonb_agg(top_sellers.product)
+                            FROM (
+                                SELECT jsonb_build_object(
+                                    'productId', item->>'productId',
+                                    'name', item->>'name',
+                                    'quantity', SUM((item->>'quantity')::integer)
+                                ) AS product
+                                FROM orders o
+                                CROSS JOIN LATERAL jsonb_array_elements(o.items) AS item
+                                WHERE o.shop_id = s.id AND o.status <> 'cancelled'
+                                GROUP BY item->>'productId', item->>'name'
+                                ORDER BY SUM((item->>'quantity')::integer) DESC
+                                LIMIT 5
+                            ) top_sellers
+                        ), '[]'::jsonb) AS "topProducts"
+                 FROM shops s WHERE slug = $1 AND status = 'active'`,
                 [req.params.slug]
             );
             if (!rows[0]) return res.status(404).json({ error: 'Shop not found.' });
@@ -799,7 +925,8 @@ export function createApp({ pool, config }) {
     app.get('/api/v1/shops', publicCatalogLimit, async (_req, res, next) => {
         try {
             const { rows } = await pool.query(
-                `SELECT slug, name, hero_image AS "heroImage", banner_image AS "bannerImage"
+                `SELECT slug, name, description, location, logo_image AS "logoImage",
+                        hero_image AS "heroImage", banner_image AS "bannerImage"
                  FROM shops WHERE status = 'active' ORDER BY name, slug`
             );
             return res.json({ data: rows });
@@ -808,6 +935,154 @@ export function createApp({ pool, config }) {
         }
     });
     app.get('/api/v1/categories', publicCatalogLimit, (_req, res) => res.json({ data: getCategories() }));
+    app.get('/api/v1/admin/shop/categories', authenticateAdmin, requireShopManager, async (req, res, next) => {
+        try {
+            const data = await categoriesForShop(pool, req.shopId);
+            const { rows } = await pool.query(
+                `SELECT category AS id, COUNT(*)::int AS "productCount"
+                 FROM managed_products WHERE shop_id = $1 GROUP BY category`,
+                [req.shopId]
+            );
+            const counts = new Map(rows.map((row) => [row.id, row.productCount]));
+            return res.json({ data: data.map((category) => ({ ...category, productCount: counts.get(category.id) || 0 })) });
+        } catch (error) {
+            return next(error);
+        }
+    });
+    app.post('/api/v1/admin/shop/categories', authenticateAdmin, requireShopManager, async (req, res, next) => {
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim().replace(/\s+/g, ' ') : '';
+        if (name.length < 2 || name.length > 60) {
+            return res.status(400).json({ error: 'Category name must be between 2 and 60 characters.' });
+        }
+        const id = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+        if (!PRODUCT_CATEGORY_PATTERN.test(id)) {
+            return res.status(400).json({ error: 'Use a category name containing at least two letters or numbers.' });
+        }
+        try {
+            const { rows } = await pool.query(
+                `WITH created AS (
+                     INSERT INTO shop_product_categories (shop_id, id, name, icon)
+                     VALUES ($1, $2, $3, 'fa-box')
+                     ON CONFLICT (shop_id, id) DO UPDATE
+                         SET name = EXCLUDED.name, is_active = TRUE
+                     RETURNING id, name, icon, is_active AS active, is_default AS "isDefault"
+                 ), logged AS (
+                     INSERT INTO shop_activity_logs (shop_id, actor_email, action, entity_type, entity_id, details)
+                     SELECT $1, $4, 'category.created', 'category', id, jsonb_build_object('name', name)
+                     FROM created RETURNING id
+                 )
+                 SELECT created.* FROM created CROSS JOIN logged`,
+                [req.shopId, id, name, req.admin.sub]
+            );
+            return res.status(201).json({ data: rows[0] });
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ error: 'A category with that name already exists.' });
+            return next(error);
+        }
+    });
+    app.patch('/api/v1/admin/shop/categories/:id', authenticateAdmin, requireShopManager, async (req, res, next) => {
+        const id = req.params.id;
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim().replace(/\s+/g, ' ') : '';
+        if (!PRODUCT_CATEGORY_PATTERN.test(id) || name.length < 2 || name.length > 60) {
+            return res.status(400).json({ error: 'Choose a category and enter a name between 2 and 60 characters.' });
+        }
+        try {
+            const { rows } = await pool.query(
+                `WITH updated AS (
+                     UPDATE shop_product_categories SET name = $1
+                     WHERE shop_id = $2 AND id = $3 AND is_active = TRUE
+                     RETURNING id, name, icon, is_active AS active, is_default AS "isDefault"
+                 ), logged AS (
+                     INSERT INTO shop_activity_logs (shop_id, actor_email, action, entity_type, entity_id, details)
+                     SELECT $2, $4, 'category.renamed', 'category', id, jsonb_build_object('name', name)
+                     FROM updated RETURNING id
+                 )
+                 SELECT updated.* FROM updated CROSS JOIN logged`,
+                [name, req.shopId, id, req.admin.sub]
+            );
+            if (!rows[0]) return res.status(404).json({ error: 'Category not found.' });
+            return res.json({ data: rows[0] });
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ error: 'A category with that name already exists.' });
+            return next(error);
+        }
+    });
+    app.delete('/api/v1/admin/shop/categories/:id', authenticateAdmin, requireShopManager, async (req, res, next) => {
+        const id = req.params.id;
+        const deleteProducts = req.body?.deleteProducts;
+        if (!PRODUCT_CATEGORY_PATTERN.test(id) || typeof deleteProducts !== 'boolean') {
+            return res.status(400).json({ error: 'Choose whether to keep or delete products in this category.' });
+        }
+        const client = await pool.connect();
+        let transactionOpen = false;
+        try {
+            await client.query('BEGIN');
+            transactionOpen = true;
+            const { rows: categoryRows } = await client.query(
+                `SELECT id, is_default AS "isDefault" FROM shop_product_categories
+                 WHERE shop_id = $1 AND id = $2 AND is_active = TRUE FOR UPDATE`,
+                [req.shopId, id]
+            );
+            const category = categoryRows[0];
+            if (!category) {
+                await client.query('ROLLBACK');
+                transactionOpen = false;
+                return res.status(404).json({ error: 'Category not found.' });
+            }
+            let removedProducts = [];
+            if (deleteProducts) {
+                const { rows } = await client.query(
+                    `DELETE FROM managed_products WHERE shop_id = $1 AND category = $2
+                     RETURNING id, image, images`,
+                    [req.shopId, id]
+                );
+                removedProducts = rows;
+            } else {
+                await client.query(
+                    `UPDATE managed_products SET category = 'uncategorized'
+                     WHERE shop_id = $1 AND category = $2`,
+                    [req.shopId, id]
+                );
+            }
+            if (category.isDefault) {
+                await client.query(
+                    `UPDATE shop_product_categories SET is_active = FALSE
+                     WHERE shop_id = $1 AND id = $2`,
+                    [req.shopId, id]
+                );
+            } else {
+                await client.query(
+                    `DELETE FROM shop_product_categories WHERE shop_id = $1 AND id = $2`,
+                    [req.shopId, id]
+                );
+            }
+            await client.query(
+                `INSERT INTO shop_activity_logs (shop_id, actor_email, action, entity_type, entity_id, details)
+                 VALUES ($1, $2, 'category.deleted', 'category', $3, $4::jsonb)`,
+                [req.shopId, req.admin.sub, id, JSON.stringify({ deleteProducts, productCount: removedProducts.length })]
+            );
+            await client.query('COMMIT');
+            transactionOpen = false;
+            for (const product of removedProducts) removeManagedProduct(product.id);
+            if (deleteProducts) {
+                const paths = removedProducts.flatMap((product) => imagePathsForProduct(uploadsDirectory, product));
+                await Promise.all(paths.map((path) => removeUploadedFile(path).catch((error) => {
+                    if (error.code !== 'ENOENT') console.error('Could not remove deleted category product image:', error.message);
+                })));
+            } else {
+                for (const product of getUploadedProductsForShop(req.shopId).filter((item) => item.category === id)) {
+                    updateManagedProduct({ ...product, category: 'uncategorized' });
+                }
+            }
+            return res.json({ data: { id, deletedProducts: removedProducts.length } });
+        } catch (error) {
+            if (transactionOpen) await client.query('ROLLBACK');
+            return next(error);
+        } finally {
+            client.release();
+        }
+    });
     app.get('/api/v1/storefront-config', publicCatalogLimit, async (_req, res, next) => {
         res.set('Cache-Control', 'no-store');
         try {
@@ -825,7 +1100,10 @@ export function createApp({ pool, config }) {
         res.set('Cache-Control', 'no-store');
         try {
             const { rows } = await pool.query(
-                `SELECT id AS "shopId", slug, name, hero_image AS "heroImage",
+                `SELECT id AS "shopId", slug, name, description, location,
+                        contact_email AS "contactEmail", contact_phone AS "contactPhone",
+                        contact_whatsapp AS "contactWhatsApp", logo_image AS "logoImage",
+                        hero_image AS "heroImage",
                         banner_image AS "bannerImage", advance_charge AS "advanceCharge"
                  FROM shops WHERE slug = $1 AND status = 'active'`,
                 [req.params.slug]
@@ -852,7 +1130,7 @@ export function createApp({ pool, config }) {
                 `SELECT id, name, description, image_alt AS "imageAlt",
                         seo_title AS "seoTitle", meta_description AS "metaDescription",
                         price, old_price AS "oldPrice",
-                        category, image, stock_quantity AS "stockQuantity",
+                        category, image, images, stock_quantity AS "stockQuantity",
                         is_available AS "isAvailable", shop_id AS "shopId",
                         created_at AS "createdAt"
                  FROM managed_products
@@ -865,29 +1143,43 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.post('/api/v1/admin/products', authenticateAdmin, requireShopManager, productUploadLimit, uploadProductImage.single('image'), async (req, res, next) => {
-        const imageFile = req.file;
+    const productImagesUpload = uploadProductImage.fields([
+        { name: 'image', maxCount: 1 },
+        { name: 'images', maxCount: 10 }
+    ]);
+    app.post('/api/v1/admin/products', authenticateAdmin, requireShopManager, productUploadLimit, productImagesUpload, async (req, res, next) => {
+        const imageFiles = [...(req.files?.images ?? []), ...(req.files?.image ?? [])];
         try {
-            const product = validateManagedProduct(req.body, imageFile);
-            if (!await validImageSignature(imageFile)) {
-                throw new ProductInputError('The uploaded file does not match its JPEG, PNG, or WebP image type.');
+            const product = validateManagedProduct(req.body, imageFiles);
+            if (product.category !== 'uncategorized') {
+                const category = await pool.query(
+                    'SELECT id FROM shop_product_categories WHERE shop_id = $1 AND id = $2 AND is_active = TRUE',
+                    [req.shopId, product.category]
+                );
+                if (!category.rows[0]) throw new ProductInputError('Choose a valid product category.');
+            }
+            for (const imageFile of imageFiles) {
+                if (!await validImageSignature(imageFile)) {
+                    throw new ProductInputError('The uploaded file does not match its JPEG, PNG, or WebP image type.');
+                }
             }
             const record = {
                 id: `admin-${randomUUID()}`,
                 shopId: req.shopId,
                 ...product,
-                image: `/uploads/${imageFile.filename}`
+                image: `/uploads/${imageFiles[0].filename}`,
+                images: imageFiles.map((file) => `/uploads/${file.filename}`)
             };
             const { rows } = await pool.query(
                 `WITH saved AS (
                     INSERT INTO managed_products
                     (id, name, description, image_alt, seo_title, meta_description,
-                     price, old_price, category, image, stock_quantity, is_available, shop_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                     price, old_price, category, image, stock_quantity, is_available, shop_id, images)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                     RETURNING *
                  ), logged AS (
                     INSERT INTO shop_activity_logs (shop_id, actor_email, action, entity_type, entity_id, details)
-                    SELECT shop_id, $14, 'product.created', 'product', id,
+                    SELECT shop_id, $15, 'product.created', 'product', id,
                            jsonb_build_object('name', name)
                     FROM saved
                     RETURNING id
@@ -896,19 +1188,20 @@ export function createApp({ pool, config }) {
                         saved.image_alt AS "imageAlt", saved.seo_title AS "seoTitle",
                         saved.meta_description AS "metaDescription", saved.price,
                         saved.old_price AS "oldPrice", saved.category, saved.image,
+                        saved.images,
                         saved.stock_quantity AS "stockQuantity",
                         saved.is_available AS "isAvailable", saved.shop_id AS "shopId",
                         saved.created_at AS "createdAt"
                  FROM saved CROSS JOIN logged`,
                 [record.id, record.name, record.description, record.imageAlt, record.seoTitle,
                     record.metaDescription, record.price, record.oldPrice, record.category,
-                    record.image, record.stockQuantity, record.isAvailable, record.shopId, req.admin.sub]
+                    record.image, record.stockQuantity, record.isAvailable, record.shopId, record.images, req.admin.sub]
             );
             const saved = rows[0];
             const published = addManagedProduct(saved);
             return res.status(201).json({ data: published });
         } catch (error) {
-            if (imageFile) {
+            for (const imageFile of imageFiles) {
                 await removeUploadedFile(imageFile.path).catch((cleanupError) => {
                     console.error('Could not remove rejected product image:', cleanupError.message);
                 });
@@ -916,31 +1209,41 @@ export function createApp({ pool, config }) {
             return next(error);
         }
     });
-    app.put('/api/v1/admin/products/:id', authenticateAdmin, requireShopManager, productUploadLimit, uploadProductImage.single('image'), async (req, res, next) => {
-        const imageFile = req.file;
+    app.put('/api/v1/admin/products/:id', authenticateAdmin, requireShopManager, productUploadLimit, productImagesUpload, async (req, res, next) => {
+        const imageFiles = [...(req.files?.images ?? []), ...(req.files?.image ?? [])];
         try {
             const id = req.params.id;
             if (!isManagedProductId(id)) throw new ProductNotFoundError();
-            const product = validateManagedProduct(req.body, imageFile, { requireImage: false });
-            if (imageFile && !await validImageSignature(imageFile)) {
-                throw new ProductInputError('The uploaded file does not match its JPEG, PNG, or WebP image type.');
+            const product = validateManagedProduct(req.body, imageFiles, { requireImage: false });
+            if (product.category !== 'uncategorized') {
+                const category = await pool.query(
+                    'SELECT id FROM shop_product_categories WHERE shop_id = $1 AND id = $2 AND is_active = TRUE',
+                    [req.shopId, product.category]
+                );
+                if (!category.rows[0]) throw new ProductInputError('Choose a valid product category.');
             }
-            const imageUrl = imageFile ? `/uploads/${imageFile.filename}` : null;
+            for (const imageFile of imageFiles) {
+                if (!await validImageSignature(imageFile)) {
+                    throw new ProductInputError('The uploaded file does not match its JPEG, PNG, or WebP image type.');
+                }
+            }
+            const imageUrls = imageFiles.length ? imageFiles.map((file) => `/uploads/${file.filename}`) : null;
+            const imageUrl = imageUrls?.[0] ?? null;
             const { rows } = await pool.query(
                 `WITH previous AS MATERIALIZED (
-                     SELECT image FROM managed_products WHERE id = $6 AND shop_id = $10
+                     SELECT image, images FROM managed_products WHERE id = $6 AND shop_id = $10
                  ),
                  updated AS (
                      UPDATE managed_products
                      SET name = $1, description = $2, price = $3, old_price = $4,
                          category = $5, stock_quantity = $7, is_available = $8,
-                         image = COALESCE($9, image), image_alt = $12,
+                         image = COALESCE($9, image), images = COALESCE($15, images), image_alt = $12,
                          seo_title = $13, meta_description = $14
                      WHERE id = $6 AND shop_id = $10
                      RETURNING id, name, description, image_alt AS "imageAlt",
                                seo_title AS "seoTitle", meta_description AS "metaDescription",
                                price, old_price AS "oldPrice",
-                               category, image, stock_quantity AS "stockQuantity",
+                               category, image, images, stock_quantity AS "stockQuantity",
                                is_available AS "isAvailable", shop_id AS "shopId",
                                created_at AS "createdAt"
                  ),
@@ -952,20 +1255,23 @@ export function createApp({ pool, config }) {
                      FROM updated
                      RETURNING id
                  )
-                 SELECT updated.*, previous.image AS "previousImage"
+                 SELECT updated.*, previous.image AS "previousImage", previous.images AS "previousImages"
                  FROM updated CROSS JOIN previous CROSS JOIN logged`,
                 [product.name, product.description, product.price, product.oldPrice, product.category, id,
                     product.stockQuantity, product.isAvailable, imageUrl, req.shopId, req.admin.sub,
-                    product.imageAlt, product.seoTitle, product.metaDescription]
+                    product.imageAlt, product.seoTitle, product.metaDescription, imageUrls]
             );
             const saved = rows[0];
             if (!saved) throw new ProductNotFoundError();
             const published = updateManagedProduct(saved);
-            const previousImagePath = imageFile && saved.previousImage !== saved.image
-                ? managedImagePath(uploadsDirectory, saved.previousImage)
-                : null;
+            const previousImages = [...new Set([saved.previousImage, ...(saved.previousImages ?? [])])];
+            const nextImages = new Set(saved.images ?? [saved.image]);
+            const previousImagePaths = imageFiles.length
+                ? previousImages.filter((image) => !nextImages.has(image))
+                    .map((image) => managedImagePath(uploadsDirectory, image)).filter(Boolean)
+                : [];
             let warning;
-            if (previousImagePath) {
+            for (const previousImagePath of previousImagePaths) {
                 await removeUploadedFile(previousImagePath).catch((cleanupError) => {
                     console.error('Could not remove replaced product image:', cleanupError.message);
                     warning = 'Product details were saved, but the previous image could not be deleted. Review the server logs.';
@@ -973,7 +1279,7 @@ export function createApp({ pool, config }) {
             }
             return res.json({ data: published, ...(warning ? { warning } : {}) });
         } catch (error) {
-            if (imageFile) {
+            for (const imageFile of imageFiles) {
                 await removeUploadedFile(imageFile.path).catch((cleanupError) => {
                     console.error('Could not remove rejected product image:', cleanupError.message);
                 });
@@ -989,7 +1295,7 @@ export function createApp({ pool, config }) {
                 `WITH deleted AS (
                     DELETE FROM managed_products
                     WHERE id = $1 AND shop_id = $2
-                    RETURNING id, image, shop_id
+                    RETURNING id, image, images, shop_id
                  ), logged AS (
                     INSERT INTO shop_activity_logs
                         (shop_id, actor_email, action, entity_type, entity_id, details)
@@ -997,15 +1303,15 @@ export function createApp({ pool, config }) {
                     FROM deleted
                     RETURNING id
                  )
-                 SELECT deleted.id, deleted.image FROM deleted CROSS JOIN logged`,
+                 SELECT deleted.id, deleted.image, deleted.images FROM deleted CROSS JOIN logged`,
                 [id, req.shopId, req.admin.sub]
             );
             const deleted = rows[0];
             if (!deleted) throw new ProductNotFoundError();
             removeManagedProduct(id);
-            const imagePath = managedImagePath(uploadsDirectory, deleted.image);
+            const imagePaths = imagePathsForProduct(uploadsDirectory, deleted);
             let warning;
-            if (imagePath) {
+            for (const imagePath of imagePaths) {
                 await removeUploadedFile(imagePath).catch((cleanupError) => {
                     console.error('Could not remove deleted product image:', cleanupError.message);
                     warning = 'The product was removed, but its image file could not be deleted. Review the server logs.';
@@ -1022,7 +1328,10 @@ export function createApp({ pool, config }) {
             await pool.query('SELECT 1');
             return res.json({ status: 'ok' });
         } catch (error) {
-            console.error('Readiness check failed:', error.message);
+            console.error('Readiness check failed:', {
+                name: error.name || 'Error',
+                code: typeof error.code === 'string' ? error.code : undefined
+            });
             return res.status(503).json({ status: 'unavailable' });
         }
     });
@@ -1108,7 +1417,10 @@ export function createApp({ pool, config }) {
             });
         } catch (error) {
             if (transactionOpen) await client.query('ROLLBACK').catch((rollbackError) => {
-                console.error('Could not roll back checkout inventory reservation:', rollbackError.message);
+                console.error('Could not roll back checkout inventory reservation:', {
+                    name: rollbackError.name || 'Error',
+                    code: typeof rollbackError.code === 'string' ? rollbackError.code : undefined
+                });
             });
             if (error instanceof InventoryUnavailableError) {
                 let saved;
@@ -1177,7 +1489,8 @@ export function createApp({ pool, config }) {
         const password = typeof req.body?.password === 'string' ? req.body.password : '';
         try {
             const { rows } = await pool.query(
-                `SELECT u.id, u.email, u.password_hash,
+                `SELECT u.id, u.email, u.password_hash, u.mfa_secret AS "mfaSecret",
+                        u.mfa_enabled AS "mfaEnabled", u.last_mfa_counter AS "lastMfaCounter",
                         u.session_version AS "sessionVersion",
                         (pa.user_id IS NOT NULL) AS "isPlatformAdmin"
                  FROM admin_users u
@@ -1188,6 +1501,46 @@ export function createApp({ pool, config }) {
             const account = rows[0];
             if (!account || !await verifyAdminPassword(password, account.password_hash)) {
                 return res.status(401).json({ error: 'Email or password is incorrect.' });
+            }
+            if (account.isPlatformAdmin && !account.mfaEnabled) {
+                const secret = generateTotpSecret();
+                const setupToken = jwt.sign({
+                    sub: account.email,
+                    userId: account.id,
+                    purpose: 'mfa-enrollment',
+                    encryptedSecret: encryptTotpSecret(secret, config.mfaEncryptionKey)
+                }, config.jwtSecret, {
+                    algorithm: 'HS256',
+                    expiresIn: '10m',
+                    issuer: 'shopademia-mfa'
+                });
+                return res.json({
+                    mfaSetupRequired: true,
+                    setupToken,
+                    totpSecret: secret,
+                    provisioningUri: totpProvisioningUri(secret, account.email)
+                });
+            }
+            if (account.isPlatformAdmin) {
+                let secret;
+                try {
+                    secret = decryptTotpSecret(account.mfaSecret, config.mfaEncryptionKey);
+                } catch (error) {
+                    return next(error);
+                }
+                const counter = verifyTotpCode(secret, req.body?.totpCode);
+                if (counter === null) {
+                    return res.status(401).json({ error: 'Email, password, or authenticator code is incorrect.' });
+                }
+                const consumedCode = await pool.query(
+                    `UPDATE admin_users SET last_mfa_counter = $1
+                     WHERE id = $2 AND mfa_enabled = TRUE AND last_mfa_counter < $1
+                     RETURNING id`,
+                    [counter, account.id]
+                );
+                if (!consumedCode.rows[0]) {
+                    return res.status(401).json({ error: 'Email, password, or authenticator code is incorrect.' });
+                }
             }
             let shopId = null;
             if (!account.isPlatformAdmin) {
@@ -1222,6 +1575,7 @@ export function createApp({ pool, config }) {
                  VALUES ($1, NOW() + INTERVAL '8 hours', $2, $3)`,
                 [tokenId, account.id, shopId]
             );
+            setAdminCookie(res, token, 8 * 60 * 60, secureAdminCookie);
             if (shopId) {
                 await pool.query(
                     `INSERT INTO shop_activity_logs
@@ -1230,7 +1584,71 @@ export function createApp({ pool, config }) {
                     [shopId, account.email, account.id]
                 );
             }
-            return res.json({ token, expiresIn: 28800 });
+            return res.json({
+                ...(!req.get('origin') ? { token } : {}),
+                expiresIn: 28800
+            });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    app.post('/api/v1/admin/mfa/enroll', loginLimit, async (req, res, next) => {
+        res.set('Cache-Control', 'no-store');
+        const setupToken = typeof req.body?.setupToken === 'string' ? req.body.setupToken : '';
+        const code = req.body?.totpCode;
+        let challenge;
+        try {
+            challenge = jwt.verify(setupToken, config.jwtSecret, {
+                algorithms: ['HS256'],
+                issuer: 'shopademia-mfa'
+            });
+        } catch {
+            return res.status(401).json({ error: 'The MFA setup session expired. Sign in again.' });
+        }
+        if (challenge.purpose !== 'mfa-enrollment'
+            || typeof challenge.userId !== 'string'
+            || typeof challenge.sub !== 'string'
+            || typeof challenge.encryptedSecret !== 'string') {
+            return res.status(401).json({ error: 'The MFA setup session is invalid. Sign in again.' });
+        }
+        try {
+            const secret = decryptTotpSecret(challenge.encryptedSecret, config.mfaEncryptionKey);
+            const counter = verifyTotpCode(secret, code);
+            if (counter === null) {
+                return res.status(400).json({ error: 'Enter the current six-digit code from your authenticator app.' });
+            }
+            const updated = await pool.query(
+                `UPDATE admin_users AS u
+                 SET mfa_secret = $1, mfa_enabled = TRUE, last_mfa_counter = $2, updated_at = NOW()
+                 WHERE u.id = $3 AND u.email = $4 AND u.mfa_enabled = FALSE
+                   AND EXISTS (SELECT 1 FROM platform_admins WHERE user_id = u.id)
+                 RETURNING u.id, u.email, u.session_version AS "sessionVersion"`,
+                [challenge.encryptedSecret, counter, challenge.userId, challenge.sub]
+            );
+            const account = updated.rows[0];
+            if (!account) return res.status(409).json({ error: 'MFA is already enabled or this account is no longer a platform administrator.' });
+            await revokeAdminSessions(pool, account.id);
+            const tokenId = randomUUID();
+            const token = jwt.sign({
+                sub: account.email,
+                role: 'admin',
+                userId: account.id,
+                isPlatformAdmin: true,
+                sessionVersion: Number(account.sessionVersion)
+            }, config.jwtSecret, {
+                algorithm: 'HS256', expiresIn: '8h', issuer: 'shopademia', jwtid: tokenId
+            });
+            await pool.query(
+                `INSERT INTO admin_sessions (token_id, expires_at, user_id, shop_id)
+                 VALUES ($1, NOW() + INTERVAL '8 hours', $2, NULL)`,
+                [tokenId, account.id]
+            );
+            setAdminCookie(res, token, 8 * 60 * 60, secureAdminCookie);
+            return res.json({
+                ...(!req.get('origin') ? { token } : {}),
+                expiresIn: 28800
+            });
         } catch (error) {
             return next(error);
         }
@@ -1259,6 +1677,7 @@ export function createApp({ pool, config }) {
                 'UPDATE admin_sessions SET revoked_at = NOW() WHERE token_id = $1 AND revoked_at IS NULL',
                 [req.admin.jti]
             );
+            clearAdminCookie(res, secureAdminCookie);
             if (req.shopId) {
                 await pool.query(
                     `INSERT INTO shop_activity_logs
@@ -1490,7 +1909,10 @@ export function createApp({ pool, config }) {
             return res.json({ data: updated.rows[0] });
         } catch (error) {
             if (transactionOpen) await client.query('ROLLBACK').catch((rollbackError) => {
-                console.error('Could not roll back order status inventory update:', rollbackError.message);
+                console.error('Could not roll back order status inventory update:', {
+                    name: rollbackError.name || 'Error',
+                    code: typeof rollbackError.code === 'string' ? rollbackError.code : undefined
+                });
             });
             return next(error);
         } finally {
@@ -1512,14 +1934,17 @@ export function createApp({ pool, config }) {
         if (error instanceof multer.MulterError) {
             const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
             const message = error.code === 'LIMIT_FILE_SIZE'
-                ? 'Product images must be 5 MB or smaller.'
-                : 'Upload one product image and no more than seven product fields.';
+                ? 'Uploaded images must be 5 MB or smaller.'
+                : 'The upload exceeds the allowed file count or form limits.';
             return res.status(status).json({ error: message });
         }
         if (error?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Request body must be valid JSON.' });
         if (error?.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large.' });
         if (error?.status === 404 || error?.statusCode === 404) return res.status(404).json({ error: 'Not found.' });
-        console.error('Request failed:', error);
+        console.error('Request failed:', {
+            name: error?.name || 'Error',
+            code: typeof error?.code === 'string' ? error.code : undefined
+        });
         return res.status(500).json({ error: 'The request could not be completed. Please try again.' });
     });
 

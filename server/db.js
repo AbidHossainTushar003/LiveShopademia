@@ -72,13 +72,17 @@ export async function initializeDatabase(pool, admin) {
             meta_description TEXT NOT NULL DEFAULT '' CHECK (char_length(meta_description) <= 160),
             price BIGINT NOT NULL CHECK (price > 0),
             old_price BIGINT CHECK (old_price IS NULL OR old_price > price),
-            category TEXT NOT NULL CHECK (category IN ('gadgets', 'accessories', 'clothing', 'more')),
+            category TEXT NOT NULL DEFAULT 'uncategorized',
             image TEXT NOT NULL UNIQUE,
+            images TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
             stock_quantity BIGINT NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
             is_available BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     `);
+    await pool.query('ALTER TABLE managed_products DROP CONSTRAINT IF EXISTS managed_products_category_check');
+    await pool.query("ALTER TABLE managed_products ALTER COLUMN category SET DEFAULT 'uncategorized'");
+    await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS images TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]');
     await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS stock_quantity BIGINT NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0)');
     await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS is_available BOOLEAN NOT NULL DEFAULT TRUE');
     await pool.query('ALTER TABLE managed_products ADD COLUMN IF NOT EXISTS image_alt TEXT NOT NULL DEFAULT \'\' CHECK (char_length(image_alt) <= 250)');
@@ -102,6 +106,12 @@ async function initializeShopPlatform(pool, admin) {
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             slug TEXT NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,47}$'),
             name TEXT NOT NULL CHECK (char_length(name) BETWEEN 2 AND 120),
+            description TEXT NOT NULL DEFAULT '' CHECK (char_length(description) <= 2000),
+            location TEXT NOT NULL DEFAULT '' CHECK (char_length(location) <= 200),
+            contact_email TEXT NOT NULL DEFAULT '' CHECK (char_length(contact_email) <= 254),
+            contact_phone TEXT NOT NULL DEFAULT '' CHECK (char_length(contact_phone) <= 40),
+            contact_whatsapp TEXT NOT NULL DEFAULT '' CHECK (char_length(contact_whatsapp) <= 40),
+            logo_image TEXT,
             hero_image TEXT,
             banner_image TEXT,
             advance_charge BIGINT NOT NULL DEFAULT 100 CHECK (advance_charge >= 0),
@@ -111,6 +121,12 @@ async function initializeShopPlatform(pool, admin) {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     `);
+    await pool.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS contact_whatsapp TEXT NOT NULL DEFAULT ''");
+    await pool.query('ALTER TABLE shops ADD COLUMN IF NOT EXISTS logo_image TEXT');
     await pool.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'");
     await pool.query('ALTER TABLE shops ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()');
     await pool.query(`
@@ -130,6 +146,9 @@ async function initializeShopPlatform(pool, admin) {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     `);
+    await pool.query('ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS mfa_secret TEXT');
+    await pool.query('ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await pool.query('ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS last_mfa_counter BIGINT NOT NULL DEFAULT -1');
     await pool.query(`
         CREATE TABLE IF NOT EXISTS shop_memberships (
             shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -150,6 +169,32 @@ async function initializeShopPlatform(pool, admin) {
         VALUES ($1, 'main', 'Main Shop', $2)
         ON CONFLICT (id) DO NOTHING
     `, [defaultShopId, Number.isSafeInteger(admin.advanceCharge) ? admin.advanceCharge : 100]);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS shop_product_categories (
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            id TEXT NOT NULL CHECK (id ~ '^[a-z0-9][a-z0-9-]{1,47}$'),
+            name TEXT NOT NULL CHECK (char_length(name) BETWEEN 2 AND 60),
+            icon TEXT NOT NULL DEFAULT 'fa-box' CHECK (icon ~ '^fa-[a-z0-9-]{1,48}$'),
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            is_default BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (shop_id, id)
+        )
+    `);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS shop_product_categories_active_name_idx
+        ON shop_product_categories (shop_id, lower(name)) WHERE is_active = TRUE`);
+    await pool.query(`
+        INSERT INTO shop_product_categories (shop_id, id, name, icon, is_default)
+        SELECT s.id, defaults.id, defaults.name, defaults.icon, TRUE
+        FROM shops s
+        CROSS JOIN (VALUES
+            ('gadgets', 'Electronics', 'fa-laptop'),
+            ('accessories', 'Jewelry & Accessories', 'fa-gem'),
+            ('clothing', 'Clothing', 'fa-shirt'),
+            ('more', 'Other', 'fa-box')
+        ) AS defaults(id, name, icon)
+        ON CONFLICT (shop_id, id) DO NOTHING
+    `);
     await pool.query(`
         INSERT INTO admin_users (email, password_hash)
         SELECT email, password_hash FROM admin_credentials WHERE id = TRUE
@@ -218,6 +263,10 @@ async function initializeShopPlatform(pool, admin) {
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS shop_transactions_shop_created_idx ON shop_transactions (shop_id, created_at DESC, id DESC)');
     await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS shop_transactions_shop_reference_idx
+        ON shop_transactions (shop_id, lower(btrim(reference)))
+    `);
+    await pool.query(`
         CREATE TABLE IF NOT EXISTS shop_offers (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -281,10 +330,18 @@ export async function loadManagedProducts(pool) {
         `SELECT id, name, description, image_alt AS "imageAlt",
                 seo_title AS "seoTitle", meta_description AS "metaDescription",
                 price, old_price AS "oldPrice",
-                category, image, stock_quantity AS "stockQuantity", is_available AS "isAvailable",
+                category, image, images, stock_quantity AS "stockQuantity", is_available AS "isAvailable",
                 shop_id AS "shopId", created_at AS "createdAt"
          FROM managed_products
          ORDER BY created_at DESC, id DESC`
+    );
+    return rows;
+}
+
+export async function loadShopCategories(pool) {
+    const { rows } = await pool.query(
+        `SELECT shop_id AS "shopId", id, name, icon, is_active AS active, is_default AS "isDefault"
+         FROM shop_product_categories ORDER BY created_at, id`
     );
     return rows;
 }
