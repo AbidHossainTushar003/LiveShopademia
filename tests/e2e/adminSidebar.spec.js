@@ -81,6 +81,12 @@ test('platform-admin sidebar reveals only permission-granted built links', async
     await expect(sidebar.getByRole('link', { name: 'Roles & Permissions' })).toBeVisible();
     await expect(sidebar.getByRole('link', { name: 'Security Audit' })).toBeVisible();
     await expect(sidebar.getByRole('button', { name: 'Courier API' })).toBeDisabled();
+    await sidebar.getByText('Website Setup', { exact: true }).click();
+    await expect(sidebar.getByRole('link', { name: 'Store Banner' })).toHaveAttribute('href', '#brandingPanel');
+    await sidebar.getByText('Campaign / Offer', { exact: true }).click();
+    await expect(sidebar.getByRole('link', { name: 'Manage Offers' })).toHaveAttribute('href', '#offersPanel');
+    await expect(sidebar.getByRole('button', { name: 'Coupons' })).toBeDisabled();
+    await expect(sidebar.getByRole('button', { name: 'Offer Banner' })).toBeDisabled();
     await page.locator('#adminSidebarClose').click();
     await expect(sidebar).toBeHidden();
     expect(pageErrors).toEqual([]);
@@ -102,7 +108,7 @@ test('shop-admin can open shop features without platform-only controls', async (
     const sidebar = page.getByRole('dialog', { name: 'Admin navigation' });
     await sidebar.getByText('Website Setup', { exact: true }).click();
     await expect(sidebar.getByRole('link', { name: 'Public product API' })).toBeVisible();
-    await expect(sidebar.getByRole('button', { name: 'Header & Footer' })).toBeDisabled();
+    await expect(sidebar.getByRole('button', { name: 'Store Banner' })).toBeDisabled();
     await expect(sidebar.getByRole('link', { name: 'Create shop' })).toHaveCount(0);
     await sidebar.getByRole('link', { name: 'Public product API' }).click();
     await expect(page).toHaveURL(/#shopProductApiPanel$/);

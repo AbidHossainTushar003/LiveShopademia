@@ -108,11 +108,9 @@ export function adminSidebarGroups({ page, isPlatformAdmin, shopRole, permission
                 : [
                     ...(isPlatformAdmin
                         ? [
-                            item('Header & Footer', '#brandingPanel'),
-                            item('Theme Color', '#brandingPanel'),
-                            item('Pages', '#brandingPanel')
+                            item('Store Banner', '#brandingPanel')
                         ]
-                        : [unavailable('Header & Footer'), unavailable('Theme Color'), unavailable('Pages')]),
+                        : [unavailable('Store Banner')]),
                     item('Public product API', '#shopProductApiPanel')
                 ]
         },
@@ -125,10 +123,9 @@ export function adminSidebarGroups({ page, isPlatformAdmin, shopRole, permission
                         ? [item('General Settings', '#adminSettingsPanel', { permission: 'settings.read' })]
                         : []),
                     item('Shop Settings', '#shopSettingsPanel'),
-                    item('Marketing', '#offersPanel'),
                     unavailable('Courier API'),
                     unavailable('Invoice Address'),
-                    item('Delivery Charge', '#shopSettingsPanel'),
+                    item('Delivery Advance', '#shopSettingsPanel'),
                     unavailable('Social Login'),
                     unavailable('City, Sub City'),
                     unavailable('Courier'),
@@ -143,7 +140,7 @@ export function adminSidebarGroups({ page, isPlatformAdmin, shopRole, permission
             label: 'Campaign / Offer',
             icon: 'campaign',
             items: page === 'platform' && isPlatformAdmin
-                ? [item('Coupons', '#offersPanel'), item('Offer Banner', '#offersPanel')]
+                ? [item('Manage Offers', '#offersPanel'), unavailable('Coupons'), unavailable('Offer Banner')]
                 : [unavailable('Coupons'), unavailable('Offer Banner')]
         },
         {
