@@ -56,6 +56,7 @@ async function loadShops() {
     const profile = await api('/admin/profile');
     isPlatformAdmin = profile.data.isPlatformAdmin === true;
     currentEmail = profile.data.email;
+    document.getElementById('platformLogoutButton').hidden = false;
     const dashboardLink = document.getElementById('dashboardLink');
     dashboardLink.href = isPlatformAdmin ? '/' : '/admin';
     dashboardLink.textContent = isPlatformAdmin ? 'Storefront' : 'Back to orders';
@@ -554,6 +555,18 @@ document.getElementById('adminSettingForm').addEventListener('submit', async (ev
 document.getElementById('shopPicker').addEventListener('change', async () => {
     sessionStorage.setItem(shopKey, shopPicker.value);
     window.location.reload();
+});
+
+document.getElementById('platformLogoutButton').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+        await api('/admin/logout', { method: 'POST' });
+        window.location.assign('/admin');
+    } catch (error) {
+        showMessage(`Could not sign out. ${error.message}`, true);
+        button.disabled = false;
+    }
 });
 
 async function copyShopApiText(text, label) {

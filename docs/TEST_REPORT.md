@@ -3,6 +3,43 @@
 **Updated:** 2026-10-12
 **Environment:** Local Windows development workspace; local app at `http://localhost:3000`; isolated development PostgreSQL cluster as recorded in [PROGRESS.md](./PROGRESS.md). No production service or database was accessed.
 
+## Production-readiness prompt execution (2026-10-12)
+
+**Base release source:** `828aca0597b4c25e14956c4c52b6e6ab37c9fb77` on `feature/admin-v2`. That commit's CI results below apply only to the base commit. The platform-admin sign-out follow-up has separate local verification below; its CI status is pending until a feature-branch commit is pushed.
+
+| Gate/check | Result | Evidence and limits |
+|---|---|---|
+| GitHub CI for base release source | **PASS** | [Workflow run 38265641287](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38265641287) succeeded for `828aca0597b4c25e14956c4c52b6e6ab37c9fb77`. Node tests and `npm audit --audit-level=low` succeeded. The deploy job was skipped because this is not a push to `main`. This is not CI evidence for the logout follow-up. |
+| Local `npm.cmd test` after logout follow-up | **PASS — 100/100** | Fresh full suite: 100 passed, 0 failed, 0 skipped. |
+| Local `npm.cmd audit --audit-level=low` after logout follow-up | **PASS — 0 vulnerabilities** | Dependency advisory audit completed successfully. |
+| `npm.cmd run build:css` | **PASS** | Tailwind production CSS build completed after the local logout follow-up; generated output introduced no additional tracked changes. |
+| Chromium E2E after logout follow-up | **PASS — 13 passed, 1 skipped** | Serial run against the disposable PostgreSQL 17 cluster. Product-detail skipped because the isolated catalog is empty. |
+| Firefox and WebKit full E2E | **PASS on pre-follow-up source — 12 passed, 1 skipped each** | Ran serially per project before the logout change. The current logout regression separately passes in both browsers below; do not interpret these full-suite counts as reruns on the final source. |
+| Automated accessibility checks | **PASS, limited** | Each browser suite reported no axe violations on `/?shop=main`, `/privacy`, and `/terms`. Admin pages and manual assistive-technology conformance are not covered by this result. |
+| Local readiness | **PASS, limited** | App started against the new disposable database and `GET /healthz` returned `{"status":"ok"}`. No restored or production data was used. |
+| All-project single Playwright invocation | **PARTIAL — 34 passed, 3 failed, 2 skipped** | Three Chromium storefront tests received HTTP 429 during the combined 39-test run due to the shared app rate limiter. The same browser suites passed when executed one browser at a time. This run is not reported as a full cross-browser pass. |
+| Staging deployment | **BLOCKED** | No staging host/configuration or staging workflow is present in the inspected repository. No staging credentials or authorized target were available. |
+| Backup/restore verification | **NOT VERIFIED HERE** | The supplied prompt says restore was reported verified, but no timestamps, checksums, restore logs, or isolated recovery evidence were available in this workspace. It remains a user-reported assertion, not a verified gate. |
+| Existing public site reachability | **BLOCKED / INCONCLUSIVE** | Read-only requests to `https://shopademia.store/healthz` and `/` both timed out after 15 seconds from this environment. This does not distinguish an origin outage from a network/path restriction here; no server-side access or changes were attempted. |
+| Production release/deployment | **BLOCKED / NOT RUN** | Required operational, recovery, host, monitoring, and approval evidence remains incomplete. No `main` push, production deployment, migration, or production data access was performed. |
+
+The prior setup-blocked browser attempt below is superseded for local browser coverage by the dedicated isolated-database runs above. The earlier wrong-host canonical assertion and combined-suite rate-limit failures are test-invocation/environment issues; they were not addressed by weakening assertions or changing production rate limits.
+
+### Follow-up repair: platform-admin logout
+
+The real-backend login smoke test exposed that the platform shop-management page had no sign-out control, despite the shop dashboard having one. Added a platform-page **Sign out** button, wired it to session revocation, and added a regression that verifies `POST /api/v1/admin/logout` returns to the login page. This is not a deployment authorization.
+
+| Follow-up check | Result | Evidence and limits |
+|---|---|---|
+| Source security review of the logout follow-up | **PASS, source-review scope only** | Read-only specialist review checked the logout flow and related session/revocation path; it reported no findings. This does not establish overall application security or production configuration safety. |
+| Local `npm.cmd test` after logout repair | **PASS — 100/100** | Fresh full suite: 100 passed, 0 failed, 0 skipped. |
+| Local `npm.cmd audit --audit-level=low` after logout repair | **PASS — 0 vulnerabilities** | Repeated after the code change. |
+| Full Chromium suite after logout repair | **PASS — 13 passed, 1 skipped** | Serial run against disposable PostgreSQL. |
+| Logout regression after repair | **PASS — Chromium 1/1, Firefox 1/1, WebKit 1/1** | Tested serially in each browser against the browser/API harness. Confirms POST logout, profile API rejection (401), and redirect from a protected workspace to login. A concurrent Firefox attempt failed during Playwright artifact teardown with `ENOENT`; serial rerun passed. |
+| Real-backend platform-admin login/profile/logout | **PASS, local only** | Actual configured local account on the disposable database: login redirected to platform workspace, profile returned HTTP 200, logout returned HTTP 204, the revoked session then received HTTP 401, and protected workspace navigation redirected to login. Credentials are not recorded. |
+| Syntax and diff checks | **PASS** | `node --check` on the modified module and E2E test, and `git diff --check`, passed. |
+| GitHub CI for logout follow-up | **PENDING** | The follow-up is not yet committed or pushed. The base-commit run above is not substituted for CI on the new source. |
+
 ## Interaction audit verification (2026-10-12)
 
 | Check | Result | Evidence and limits |
@@ -12,9 +49,9 @@
 | Complete Chromium E2E rerun | **BLOCKED — 13 setup failures** | The runner could not connect to `http://localhost:3000` (`ERR_CONNECTION_REFUSED`). Starting the app failed with PostgreSQL authentication error `28P01` against the isolated local database on port 5433. No E2E assertion ran to a meaningful pass/fail result. This is not counted as a test regression or pass. |
 | `node --check admin-assets/platform.js` and `node --check tests/e2e/adminSidebar.spec.js` | **PASS** | Modified JavaScript files parse. |
 | `git diff --check` | **PASS** | No whitespace errors in the current diff. |
-| Interaction inventory/report | **COMPLETE** | [INTERACTION_AUDIT.md](./INTERACTION_AUDIT.md) inventories 56 static buttons, 16 static forms, generated controls, all 16 sidebar groups, external UX/accessibility guidance, scope limits, and ranked findings. |
+| Interaction inventory/report | **COMPLETE** | [INTERACTION_AUDIT.md](./INTERACTION_AUDIT.md) inventories 57 static buttons, 16 static forms, generated controls, all 16 sidebar groups, external UX/accessibility guidance, scope limits, and ranked findings. |
 
-The current complete-suite browser result remains **NOT VERIFIED** due to the unavailable local API server. The earlier passing full Chromium run recorded below predates this audit's changes; the focused 5/5 run does verify the authorization/UI fix.
+At the time this earlier section was written, the complete-suite run was **NOT VERIFIED** because the local API server was unavailable. This status was superseded by the isolated-database Chromium, Firefox, and WebKit runs in “Production-readiness prompt execution” above; that newer evidence includes the staff authorization regression but predates the platform logout follow-up.
 
 ## Executed checks
 

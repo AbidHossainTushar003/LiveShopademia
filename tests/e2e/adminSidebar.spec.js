@@ -147,6 +147,62 @@ test('shop staff can use platform workspace without requesting team-management d
     expect(requests).not.toContain('/api/v1/admin/shop/members');
 });
 
+test('platform admins can sign out and return to the login form', async ({ page }) => {
+    let signedOut = false;
+    let logoutMethod = '';
+    await page.route('**/api/v1/admin/**', async (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname === '/api/v1/admin/profile') {
+            await route.fulfill(signedOut
+                ? { status: 401, json: { error: 'Please sign in.' } }
+                : { json: { data: { email: 'platform@example.test', isPlatformAdmin: true } } });
+            return;
+        }
+        if (url.pathname === '/api/v1/admin/shops') {
+            await route.fulfill({
+                json: {
+                    data: [{ id: '7', slug: 'demo-shop', name: 'Demo Shop', status: 'active', role: 'owner', advanceCharge: 100 }]
+                }
+            });
+            return;
+        }
+        if (url.pathname === '/api/v1/admin/shop/reports') {
+            await route.fulfill({
+                json: {
+                    data: {
+                        days: 30,
+                        orders: { orderCount: 0, cancelledCount: 0, grossSales: 0, deliveredSales: 0, averageOrderValue: 0 },
+                        topProducts: [],
+                        transactions: []
+                    }
+                }
+            });
+            return;
+        }
+        if (url.pathname === '/api/v1/admin/logout') {
+            logoutMethod = route.request().method();
+            signedOut = true;
+            await route.fulfill({ status: 204, body: '' });
+            return;
+        }
+        await route.fulfill({ json: { data: [] } });
+    });
+
+    await page.goto('/admin/platform');
+    const signOut = page.getByRole('button', { name: 'Sign out' });
+    await expect(signOut).toBeVisible();
+    await signOut.click();
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.locator('#loginPanel')).toBeVisible();
+    expect(logoutMethod).toBe('POST');
+
+    const profileStatus = await page.evaluate(async () => (await fetch('/api/v1/admin/profile')).status);
+    expect(profileStatus).toBe(401);
+    await page.goto('/admin/platform');
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.locator('#loginPanel')).toBeVisible();
+});
+
 test('platform workspace shows one selected feature and navigates to it from the sidebar', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await disablePageController(page, 'platform');

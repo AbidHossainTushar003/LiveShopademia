@@ -18,7 +18,7 @@ This project contains a real storefront and usable shop/platform administration 
 
 ## Scope, method, and evidence limits
 
-Reviewed the rendered controls in `index.html`, `admin.html`, and `admin-platform.html`; their browser modules under `js/views/` and `admin-assets/`; sidebar definitions; relevant API behavior and tests; and current feature-status documentation. The static HTML contains **56 buttons and 16 forms** (22/2 in the storefront, 17/6 in shop admin, 17/8 in platform admin). Repeated and dynamically created controls are inventoried separately below.
+Reviewed the rendered controls in `index.html`, `admin.html`, and `admin-platform.html`; their browser modules under `js/views/` and `admin-assets/`; sidebar definitions; relevant API behavior and tests; and current feature-status documentation. The static HTML contains **57 buttons and 16 forms** (22/2 in the storefront, 17/6 in shop admin, 18/8 in platform admin). Repeated and dynamically created controls are inventoried separately below.
 
 The local project test baseline before this audit was 100 passing Node tests and a serial Chromium suite of 11 passed, 1 skipped, 0 failed. During this audit:
 
@@ -90,7 +90,7 @@ Primary and mobile navigation links route to Home, Shop, Categories, Deals, Stor
 | `shopProfileForm` / `saveShopProfileButton` | Saves the shop profile fields exposed on this page. |
 | `passwordForm` / `changePasswordButton` | Changes the signed-in admin password subject to server validation. |
 
-### Platform/shop-management admin (`admin-platform.html`): 17 buttons, 8 forms
+### Platform/shop-management admin (`admin-platform.html`): 18 buttons, 8 forms
 
 | Control/form | Purpose and effect |
 |---|---|
@@ -99,6 +99,7 @@ Primary and mobile navigation links route to Home, Shop, Categories, Deals, Stor
 | `suspendShopButton`, `reactivateShopButton`, `archiveShopButton` | Platform-admin shop lifecycle actions. Confirmations/status rules apply; these actions do not delete production data automatically. |
 | `shopSettingsForm` | Saves selected shop name and delivery-advance configuration. |
 | `createShopForm` | Creates a shop and its public slug/advance configuration. |
+| `platformLogoutButton` (“Sign out”) | Revokes the authenticated admin session through the logout API and returns to login; on failure, shows the error and keeps the current session visible. |
 | `memberForm` | Adds a shop member (staff; platform admins can grant admin where supported). Owner/admin team-management access is required. |
 | `copyShopProductApiUrl`, `copyShopProductApiExample` | Copies the selected active shop's public, read-only product endpoint or sample integration. No API key is required. |
 | Branding form (`data-kind="banner"`) | Uploads/replaces the shop banner image. |
