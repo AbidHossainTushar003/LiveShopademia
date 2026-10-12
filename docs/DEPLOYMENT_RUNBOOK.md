@@ -17,9 +17,9 @@ Do not push to `main`, enable the cPanel workflow, apply migrations to a product
 
 ## 1.1 Current evidence and unresolved external blockers (2026-10-12)
 
-The feature branch was clean at `808871045abf6ab0369b1d1ccdbce51468b3a755` before this evidence update. It contains logout fix commit `dccff169b207cc4d5b8c18e3e81dd769446df4fc` and evidence commit `808871045abf6ab0369b1d1ccdbce51468b3a755`. GitHub Actions runs [38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) and [38270844665](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270844665) passed for those exact commits. CI verifies Node tests and dependency audit only; deployment was skipped on the feature branch.
+The latest verified feature branch is clean at `b248f2377153464d08c03d7791c609e5865c00f6`. Its exact-commit GitHub Actions run [38273127995](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38273127995) passed the Node test and dependency-audit jobs; the production deploy job was skipped. Earlier logout fix and evidence commits remain ancestors. These CI results verify repository tests, not production/staging infrastructure.
 
-The later infrastructure documentation commit `1e80d56620304c9023dd4c613f6c632f709d1eba` passed CI run [38271421414](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38271421414). The follow-up clarifying PostgreSQL authority and adding the support template/staging proposal, `21a11f616b23c465861a009ea12dba818dfac710`, passed CI run [38272992537](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38272992537). Both runs passed tests and dependency audit; deploy was skipped.
+Earlier commits `1e80d56620304c9023dd4c613f6c632f709d1eba` and `21a11f616b23c465861a009ea12dba818dfac710` also passed their exact-commit CI runs [38271421414](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38271421414) and [38272992537](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38272992537).
 
 Read-only reachability checks at 2026-10-12 21:33 +06 resolved `shopademia.store` to `122.173.84.249`. HTTP port 80 connected and returned a redirect to HTTPS for `/healthz` and `/`; HTTPS port 443 timed out before an HTTP response. A TCP 443 check to `github.com` connected. This proves only that HTTPS to this hostname was unreachable from this test vantage at that time. It does not establish an origin outage or locate the fault in the origin, CDN/proxy, firewall, or route. No origin/hosting logs or independent network-vantage test were available. Do not make a speculative firewall, DNS, TLS, or service change; obtain authorized host/CDN logs and provider-side listener/firewall status first.
 
@@ -30,6 +30,18 @@ No backup artifact, paired uploads archive, decryption identity, checksums, time
 The repository provides a database-backed `/healthz` endpoint and a Compose container healthcheck. External uptime monitoring/alerting appears as a recommendation, not a configured or delivery-tested integration; no provider evidence, alert destination, named on-call contact, or SLO was supplied. Application rollback and database migration recovery are likewise not demonstrated.
 
 These are evidence gaps, not completed repairs. Continue to block release until the owner/operator supplies authorized staging host and isolated PostgreSQL access, separate stage credentials configured through the approved secret store, a real paired backup plus separately held decryption identity and isolated restore target, hosting/CDN logs for the HTTPS failure, and monitoring/rollback ownership and procedures. Never send credentials or private keys in this runbook or chat.
+
+### Hosting-provider response status and conditional remediation
+
+No provider response was included in the current request or available shared workspace. Therefore there are no confirmed provider-side findings to distinguish from the network observations above; provider endpoint ownership, listener state, firewall/routing, virtual-host mapping, and logs remain **UNVERIFIED**. The support request below is a template, not a sent ticket or provider finding.
+
+If the provider reports a specific fault, record the provider name, ticket/reference, responder and timestamp, affected endpoint, exact observed server-side evidence/log window, confirmed cause, proposed change and impact, and their recommended rollback. Before any production remediation:
+
+1. Obtain the provider's written diagnosis and exact proposed configuration delta; keep hypotheses labeled as such.
+2. Obtain separate owner authorization for that exact DNS, certificate, listener, firewall, proxy, or virtual-host operation and its change window. This runbook itself is not authorization.
+3. Confirm an independent recovery path and preserve the current configuration/certificate metadata without exposing private keys.
+4. Have the authorized provider/operator apply only the approved change; verify HTTP redirect, TCP 443, TLS/SNI/certificate chain, `/healthz`, and homepage from two independent paths.
+5. If any check fails, stop further changes and use the provider-reviewed rollback for that exact change; capture timestamps and sanitized logs. Do not change application files, database, or deployment as part of HTTPS remediation.
 
 ### Provider support request template (not sent)
 
@@ -49,7 +61,15 @@ This is a prepared template only. It was not sent; provider-side evidence and ti
 
 No staging provider/host, hostname, account, isolated PostgreSQL service, or credentials have been selected or supplied. A compatible candidate, subject to owner/provider approval, is a separate Linux VM or staging service with Node.js 20+ (the repository requires Node `>=20`; CI uses Node 22), PostgreSQL, persistent uploads, and an HTTPS proxy. It must not share the production cPanel filesystem, production database, production secrets, backup identity, or deploy key.
 
-Before implementation or a first deploy, the owner/operator must provision a staging-only hostname and network/host, a new PostgreSQL database and least-privilege roles, separate secrets in an approved secret store, upload storage, TLS, restricted staging access, and log/alert access. Use synthetic data only. Verify `sharp` against the selected Node/OS runtime. Then add a separately named GitHub Actions `staging` environment and a feature-branch/manual staging workflow that can access only staging credentials, runs CI first, deploys the selected feature commit, checks `/healthz`, and runs approved smoke tests. Keep the existing main-only production job unchanged; do not reuse its cPanel host variables, credentials, or `rsync --delete` target. No staging workflow is added until a real target and authorization are available, because a targetless workflow cannot be safely or meaningfully tested.
+Before implementation or a first deploy, the owner/operator must provision a staging-only hostname and network/host, a new PostgreSQL database and least-privilege roles, separate secrets in an approved secret store, upload storage, TLS, restricted staging access, and log/alert access. Use synthetic data only. Runtime compatibility evidence required before deploy:
+
+- Repository contract: `package.json` requires Node `>=20`; CI runs Node 22; the container build pins Node `22.22.0` on Alpine. The production cPanel workflow activates a Node 20 virtualenv path, but this path does not prove the installed binary/version or native-module compatibility.
+- PostgreSQL: Compose builds from `postgres:16-alpine`; this is the repository's tested deployment image target, not proof of the hosted PostgreSQL version. Provision staging on PostgreSQL 16 for closest parity, or review and test any other major version explicitly. Compare `SHOW server_version`, `SHOW server_encoding`, extensions, collation, and migration state on staging. Use staging-matched PostgreSQL client utilities; record `pg_dump --version`/`pg_restore --version`, and do not assume a newer server can be safely restored with older client tools.
+- Native/upload compatibility: perform a clean locked production install on the actual Linux/Node target (`npm ci --omit=dev`), verify `sharp` loads and processes a synthetic image, verify upload persistence across app restart, and inspect application logs. No production credentials, data, backup identity, or deploy key may be reused.
+
+Then add a separately named GitHub Actions `staging` environment and a feature-branch/manual staging workflow that can access only staging credentials, runs CI first, deploys the selected feature commit, checks `/healthz`, and runs approved smoke tests. Keep the existing main-only production job unchanged; do not reuse its cPanel host variables, credentials, or `rsync --delete` target. No staging workflow is added until a real target and authorization are available, because a targetless workflow cannot be safely or meaningfully tested.
+
+Staging acceptance should record the release SHA, runtime and PostgreSQL versions, migration IDs/checksums, synthetic test-data identifier, health/API smoke results, upload round trip, logs, and cleanup. Keep the database private to the staging network; the web role must not receive migration privileges. Recreate staging from a clean database at least once before treating the deployment instructions as repeatable.
 
 ## 2. Existing deployment paths (not interchangeable)
 
@@ -82,6 +102,19 @@ Only after the stop gates are signed off by the responsible owner/operator:
 
 README documents scripts at [backup-production.sh](../scripts/backup-production.sh), [restore-production.sh](../scripts/restore-production.sh), and [upgrade-database-role.sh](../scripts/upgrade-database-role.sh). Their production execution and restore success are **UNVERIFIED**. Never run the role-upgrade or migration scripts against production as an exploratory check.
 
+#### Isolated backup/restore drill checklist (not performed)
+
+The repository backup script creates a paired encrypted custom-format PostgreSQL dump and `uploads` tarball. It does not create a backup of application secrets/configuration or prove that the two artifacts are mutually consistent. Before relying on it, an authorized operator must:
+
+1. Obtain the approved backup pair and separately held `age` identity through the authorized secure channel. Record UTC file timestamps, sizes, source database major version, backup job ID/log, and SHA-256 hashes of both encrypted files. Do not copy credentials or the identity into the evidence report.
+2. Confirm both artifacts decrypt successfully to temporary restricted files and inspect the dump with `pg_restore --list`; inspect the uploads archive listing and link/path safety. Fail the drill if either pair member or integrity check is missing.
+3. Create a newly named isolated PostgreSQL database and an empty restore directory in staging or a disposable isolated host. Confirm target identity and empty-state before restore. Never point `ENV_FILE` at production for the drill.
+4. Restore with the existing [restore-production.sh](../scripts/restore-production.sh), which creates a new named database and extracts uploads under a new directory. Capture command/version, start/end UTC, sanitized logs, and elapsed time. Its current database connection uses the Compose database service; adapt only in a separately reviewed staging-specific procedure if staging is not that Compose host.
+5. Verify PostgreSQL `server_version`, migration IDs/checksums, expected schema objects, representative synthetic/approved row counts and constraints, plus application read queries against the restored isolated database. Verify expected upload counts and that a synthetic test image can be read. Compare against a manifest from the backup source; do not invent expected counts.
+6. Have a second operator review results, hashes, and any mismatches; record actual recovery time and observed data-loss window. RPO/RTO are owner decisions and are not currently set. Keep the restored database isolated until approval, then remove only the specifically named test database and restore directory using the reviewed cleanup command.
+
+The drill is **NOT VERIFIED** until this evidence exists. A successful decryption, `pg_restore` exit code, or script presence alone is insufficient.
+
 ## 5. Deployment and smoke tests
 
 After separate deployment authorization and a completed rehearsal:
@@ -99,10 +132,14 @@ The repo README recommends an external uptime monitor on `/healthz`, service log
 
 Before launch, assign named owners and measurable targets for availability, alert response, retention, backup cadence, RPO/RTO, log access, incident escalation, and key recovery. These operational values are not approved by this runbook.
 
+For a staging verification, configure external checks for HTTPS homepage and `/healthz`, plus alert rules for endpoint failures, sustained HTTP 5xx, app process restarts, database connection errors, and host disk/memory exhaustion where telemetry is available. Route alerts to an owner-approved test destination, intentionally trigger a staging-only harmless condition, confirm delivery and acknowledgement, then restore the condition and record timestamps. Never test by taking production offline. No monitoring or alert delivery is currently configured or verified by this repository evidence.
+
 ## 7. Recovery and rollback
 
 - Stop rollout and preserve logs if health, migration, permissions, or smoke checks fail.
 - Do not automatically reverse a schema or restore over a live database. Use only the pre-reviewed, target-specific forward-repair or isolated restore procedure approved for that release.
+- Application rollback and database recovery are separate decisions. A code rollback is appropriate only if the prior app release is compatible with the already-applied schema and data. The current cPanel deploy is an in-place `rsync --delete`; it has no release-directory switch or built-in rollback. Before any authorized deployment, preserve an access-controlled copy of the exact prior app release and dependency lock/config references, and rehearse restoration/switch-back on staging. Exclude `.env`, uploads, and database data from code rollback; retain these under their independent recovery procedures.
+- For database changes, prefer reviewed additive/expand-contract migrations that keep old and new app versions compatible. If migration failure or incompatible data is suspected, stop writes/rollout, preserve logs, and use only the release-specific reviewed forward repair or restore of a verified backup into an isolated database. Do not blindly run down migrations or restore over the live database. Any production database switch/restore requires separate explicit authorization.
 - Preserve the failed release identifier, migration IDs/checksums, timestamps, relevant redacted logs, and backup pair. Avoid copying customer or secret values into incident notes.
 - Restore to an isolated target first; compare integrity and confirm the chosen recovery point before an authorized operator makes any production switch.
 - Record recovery duration, data-loss window, integrity checks, and follow-up actions. Reopen launch only after the owner reviews the evidence.

@@ -10,6 +10,7 @@
 **Current verified branch head before this infrastructure evidence update:** `808871045abf6ab0369b1d1ccdbce51468b3a755`; CI run [38270844665](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270844665) passed for that exact commit. See the infrastructure recheck below for evidence gathered after that run.
 **Infrastructure evidence documentation:** commit `1e80d56620304c9023dd4c613f6c632f709d1eba`; exact-commit CI [38271421414](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38271421414) passed. The current infrastructure follow-up below records a later public connectivity sample; no application tests were repeated because the source/runtime is unchanged.
 **Staging proposal, support template, and PostgreSQL-authority clarification:** commit `21a11f616b23c465861a009ea12dba818dfac710`; exact-commit CI [38272992537](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38272992537) passed the test and dependency-audit jobs. The production deploy job was skipped. No staging or production service was accessed.
+**Latest documentation baseline before this update:** clean feature branch at `b248f2377153464d08c03d7791c609e5865c00f6`; exact-commit CI [38273127995](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38273127995) passed tests and dependency audit, with deploy skipped.
 
 | Gate/check | Result | Evidence and limits |
 |---|---|---|
@@ -49,6 +50,12 @@ No production or staging logs were accessible from this workspace. The result su
 #### Follow-up public connectivity sample (2026-10-12 21:43:27 +06)
 
 Read-only PowerShell DNS lookup again returned A `122.173.84.249` and nameservers `ns1.chephost.top` / `ns2.chephost.top`; no AAAA answer was returned. `curl.exe --noproxy '*' --head http://shopademia.store/healthz` returned HTTP 301 to `https://shopademia.store/healthz` in 0.147 seconds. Direct TCP checks: port 80 connected, port 443 timed out after 4 seconds. A separate `web_fetch` request to HTTPS failed at transport level. Since no TCP 443 connection completed, no TLS handshake or certificate inspection was possible. These observations do not establish endpoint ownership or distinguish provider listener, firewall, routing, proxy/CDN, or hosting configuration. An unsent support-request template is recorded in [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md); no hosting ticket was submitted.
+
+#### Provider-response status and safe preparation
+
+No hosting-provider response was included in the current user message or available shared workspace. There are therefore no provider-confirmed findings; only client-side observations above are established. The runbook now records conditional production remediation prerequisites (written diagnosis, exact delta, separate owner approval, change window, recovery/rollback, and post-change checks), an unprovisioned staging compatibility/acceptance plan, and a detailed isolated PostgreSQL backup/restore drill checklist. These are plans, not executed infrastructure work or proof of readiness.
+
+Repository compatibility evidence: `package.json` declares Node `>=20`; CI uses Node 22; `Dockerfile` pins Node `22.22.0-alpine3.22`; `database/Dockerfile` uses `postgres:16-alpine`. The cPanel workflow activates a Node 20 path, but actual host binary/version and hosted PostgreSQL version remain unverified. No staging host, backup pair, decryption identity, restore result, monitoring provider, alert-delivery evidence, or rollback rehearsal was available.
 
 ### Follow-up repair: platform-admin logout
 
