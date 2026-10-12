@@ -8,7 +8,7 @@ Updated: 2026-10-12
 - The owner explicitly authorized implementation on 2026-10-12: “i approve all now implement those now”.
 - The supplied V3 prompt is the implementation scope for this authorization. This does not claim that the missing SHOPADEMIA-MGS-001 was found or separately approved.
 - B1 implementation is limited to foundational/admin capabilities that do not depend on unresolved commerce decisions. D1–D12 remain unresolved; dependent checkout, payment, stock, costing, returns, and migration behavior must not be guessed.
-- To preserve the existing app and local data, implementation targets the current PostgreSQL stack locally. Production database migration/deployment remains blocked until the PostgreSQL/MySQL conflict and production readiness are explicitly resolved.
+- To preserve the existing app and local data, implementation targets the current PostgreSQL stack locally. PostgreSQL is authoritative per the owner-provided release instructions; production migration/deployment remains blocked pending host/database and recovery verification.
 - The V3 specification is preserved at [ADMIN-MASTER-PROMPT.md](./ADMIN-MASTER-PROMPT.md). The attachment contains an approval template, not an approval record.
 - Detailed evidence and blockers: [ADMIN-GAP-REPORT.md](./ADMIN-GAP-REPORT.md).
 - Current handoff documents: [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), [TEST_REPORT.md](./TEST_REPORT.md), [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md), and [FEATURE_MATRIX.md](./FEATURE_MATRIX.md).
@@ -51,7 +51,7 @@ The existing partial features are not yet acceptance-tested against the V3 requi
 - SHOPADEMIA-MGS-001 v1.0: **MISSING**.
 - Explicit owner approval record for SHOPADEMIA-MGS-001: **MISSING**; owner authorized only the safe B1 scope described here.
 - Full V2 menu/module annex and MGS-to-B0–B9 mapping: **MISSING**.
-- Database-engine authority: **BLOCKED**. The project is PostgreSQL-backed; the V3 hosting section requires MySQL/MariaDB.
+- Database-engine authority: **RESOLVED — PostgreSQL** per the owner-provided release instructions; do not migrate to MySQL/MariaDB. Hosted PostgreSQL service/version and connectivity remain **UNVERIFIED**.
 - Legacy production schema/data inventory and status/stock reconciliation: **UNVERIFIED**; production was not accessed.
 - Remaining B1 work: **PARTIALLY BLOCKED** on the missing V2 role/menu annex and unresolved business/hosting decisions.
 
@@ -108,7 +108,7 @@ The existing partial features are not yet acceptance-tested against the V3 requi
 ## Next five actions
 
 1. Obtain the authoritative SHOPADEMIA-MGS-001 v1.0, its explicit owner approval record, the complete V2 module/menu annex, and intended phase mapping.
-2. Resolve and record D1–D12, including PostgreSQL vs MySQL/MariaDB and the repository location, before implementing dependent business behavior.
+2. Resolve and record D1–D12 and the repository location before implementing dependent business behavior. PostgreSQL is authoritative and is not an open engine-selection decision.
 3. Agree the role matrix and self-demotion/last-super-admin safeguards before building role assignment or expanding non-platform grants.
 4. Approve audit coverage, secret rotation/recovery, and retention requirements before extending those security-sensitive foundation services.
 5. After each decision gate, update the feature matrix, implement only approved scope, run acceptance checks in isolated test environments, and stop for review before advancing; keep deployment blocked until restore and host verification pass.
@@ -147,3 +147,5 @@ The existing partial features are not yet acceptance-tested against the V3 requi
 - Local tooling check found no Docker, `age`, or `rsync`; only a local `.env` was present and its contents were not read. No backup artifacts were found in the repository or session artifact directory. No age identity, restore environment, checksums, or restore evidence was available; backup integrity and isolated restore remain **BLOCKED / NOT VERIFIED**. No backup/restore script was run.
 - Repository provides an app health endpoint and Compose healthcheck, but only recommends an external uptime monitor. No configured provider, alert receiver/delivery proof, on-call owner, or SLO evidence is present. Application rollback is not configured in the in-place cPanel workflow; database rollback/forward recovery and restore drill remain unverified.
 - Exact evidence and release decision are in [TEST_REPORT.md](./TEST_REPORT.md) and [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md). Production remains **NO-GO**; no production/staging deployment, production data access, flag change, or migration occurred.
+- Prepared an unsent hosting-support request and an unprovisioned staging candidate architecture in [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md). They explicitly require provider confirmation and an owner-selected staging host before implementation; no support ticket or staging workflow was fabricated.
+- A later public connectivity sample at 2026-10-12 21:43:27 +06 again found HTTP 301 over port 80 and TCP 443 timeout, with independent HTTPS fetch failure. No TLS handshake was established. Full observations and limits are in [TEST_REPORT.md](./TEST_REPORT.md).

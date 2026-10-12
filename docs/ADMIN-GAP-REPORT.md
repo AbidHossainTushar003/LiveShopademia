@@ -16,7 +16,7 @@ This repository is an existing PostgreSQL-backed Node/Express storefront with or
 |---|---|
 | Frontend | Static HTML/CSS and browser ES modules; storefront files under `index.html`, `js/`, `css/`; admin pages in `admin.html` and `admin-platform.html`, with `admin-assets/`. |
 | Backend | Node.js ES modules, Express 4, route handlers/business logic in `server/app.js` and `server/platform.js`; domain helpers include `server/orders.js` and `server/catalog.js`. |
-| Database | PostgreSQL, accessed through `pg` and initialized by `server/db.js`. The V3 MySQL/MariaDB hosting requirement conflicts with this existing stack and must be resolved before migrations are designed. |
+| Database | PostgreSQL, accessed through `pg` and initialized by `server/db.js`. Owner-provided release instructions confirm PostgreSQL as authoritative; hosted service/version and connectivity remain unverified. |
 | Declared versions | `package.json` declares Node `>=20`, Express `^4.21.2`, and `pg` `^8.13.1`. Current installed versions include Express 4.22.3, `pg` 8.23.1, and `sharp` 0.35.5. |
 | Local runtime | Node.js 24.21.0 and npm 11.19.0. CI config uses Ubuntu and Node 22. |
 | Tests/build | `npm test`, API tests, Playwright browser tests, and Tailwind CSS build are declared in `package.json`. Existing installed test dependencies include Playwright and axe-core. |
@@ -159,7 +159,7 @@ All are **UNANSWERED**. Current implementation behavior below is evidence, not a
 ## 9. Migration, operations, and hosting risks
 
 - **P0 — Authority absent:** no approved MGS/approval; blocks B1 and all dependent implementation.
-- **P0 — PostgreSQL/MySQL conflict:** code, Docker config, app, and prior deployment history identify PostgreSQL; V3 C12 specifies MySQL/MariaDB. Choosing the wrong engine would make migrations and deployment unsafe.
+- **P0 — Production target/recovery unknown:** PostgreSQL is authoritative, but the actual hosted service/version, connectivity, schema/data state, backup integrity, and restoreability are unverified. Do not migrate the engine or perform production migration work without an isolated rehearsal and approved recovery plan.
 - **P0 — Financial/inventory rules unresolved:** D3, D8–D11 and Part D acceptance details block order/accounting/stock-dependent work.
 - **P1 — Unknown production data:** no production table/row/status/stock inventory was run, by design. Any data migration requires a verified local backup, reconciliation report, and approved mapping first.
 - **P1 — Migration recovery gap:** current initializer is not a versioned, dry-run, reconciliation-based migration system. Backup/restore scripts exist but successful restore evidence is absent.
@@ -211,7 +211,7 @@ Still incomplete or blocked:
 - Role assignment/editing remains disabled until the original V2 role matrix and self-demotion/last-super-admin rules are supplied.
 - Secret-read, multi-key rotation, key recovery verification, retention configuration, and dry-run pruning are not implemented.
 - The V2 child-menu annex and MGS-to-B0–B9 mapping remain unavailable; the full V3 module tree is not implemented.
-- PostgreSQL versus MySQL/MariaDB and all D1–D12 business decisions remain unresolved. No production migration, data reconciliation, or deployment was performed.
+- PostgreSQL is authoritative per the owner-provided release instructions; hosted target details and other D1–D12 business decisions remain unresolved. No production migration, data reconciliation, or deployment was performed.
 
 ## 13. Current implementation and decision status addendum — 2026-10-12
 
@@ -220,7 +220,7 @@ Sections 1 and 3 above record the original B0-only state and are historical. Sin
 - The current local changes include PostgreSQL schema-migration tracking, additive settings/permission/audit foundations, and the requested Shop Admin and Platform/Super Admin sidebar UI.
 - The settings viewer currently audits settings changes only. General audit coverage, role assignment/editing, secret rotation/recovery, retention/pruning, and complete V3 modules are not implemented.
 - `npm.cmd test` passes **99/99**. Two Chromium sidebar component tests pass using mocked identity/permission data; they do not prove real authenticated admin authorization.
-- D1–D12, the approved MGS and V2 annex, and PostgreSQL-versus-MySQL authority remain unresolved. Existing behavior is evidence, not a substitute for those decisions.
+- D1–D12, the approved MGS and V2 annex remain unresolved. PostgreSQL is authoritative per the owner-provided release instructions; the hosted target remains unverified. Existing behavior is evidence, not a substitute for those decisions.
 - No production database connection, migration, data reconciliation, financial transaction, shipment, or deployment was performed.
 
 Current handoff: [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), [TEST_REPORT.md](./TEST_REPORT.md), [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md), and [FEATURE_MATRIX.md](./FEATURE_MATRIX.md). Production status remains **NO-GO**.

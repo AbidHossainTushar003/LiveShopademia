@@ -204,7 +204,7 @@ Previous axe evidence for `/`, `/privacy`, and `/terms` does not cover the admin
 
 The disabled sidebar labels are product scope gaps, not hidden features. Before enabling them, implement and test: office/wholesale sales; supplier/purchase management; product variants/attributes/brands; product reviews and view reporting; customer management/messaging; exchanges; courier integration; complete financial accounts, balanced ledger and reconciliation; coupons/offer banners; and landing-page editing.
 
-Business behavior is also blocked on requirements and external evidence. Do not invent payment posting/refund rules, inventory reservation/fulfilment and return policy, product-costing method, customer identity/cart ownership, legal retention, or PostgreSQL-vs-MySQL authority. See [ADMIN-GAP-REPORT.md](./ADMIN-GAP-REPORT.md) and [FEATURE_MATRIX.md](./FEATURE_MATRIX.md). Production database, recovery, deployment, load, and provider integrations remain unverified.
+Business behavior is also blocked on requirements and external evidence. Do not invent payment posting/refund rules, inventory reservation/fulfilment and return policy, product-costing method, customer identity/cart ownership, or legal retention. PostgreSQL is authoritative per the owner-provided release instructions and must not be replaced; hosted database and production integrations remain unverified. See [ADMIN-GAP-REPORT.md](./ADMIN-GAP-REPORT.md) and [FEATURE_MATRIX.md](./FEATURE_MATRIX.md). Production database, recovery, deployment, load, and provider integrations remain unverified.
 
 ## Prioritized next actions
 

@@ -9,7 +9,7 @@
 Do not push to `main`, enable the cPanel workflow, apply migrations to a production database, or alter production data until all of these are resolved:
 
 - The authoritative MGS, full V2 module annex, explicit approval record, and required owner decisions are recorded.
-- PostgreSQL versus MySQL/MariaDB is explicitly resolved. This checkout's app, migration code, and production Compose use PostgreSQL; the supplied V3 hosting requirement names MySQL/MariaDB.
+- Database authority is PostgreSQL, as explicitly required by the owner. Do not migrate to MySQL/MariaDB. The intended hosted PostgreSQL service/version, credentials, and connectivity remain unverified.
 - D1–D12 and any dependent compatibility/data/status mappings are answered, especially checkout/payment, refunds, inventory, costing, returns, hosting, and repository location.
 - Intended host/runtime, database version, native `sharp` compatibility, DNS/TLS, environment variables, and operator access are independently verified.
 - A protected production backup has been taken and an isolated restore has been completed and reviewed. Backup/restore scripts and their success are not assumed to be valid merely because they exist.
@@ -29,6 +29,26 @@ The repository provides a database-backed `/healthz` endpoint and a Compose cont
 
 These are evidence gaps, not completed repairs. Continue to block release until the owner/operator supplies authorized staging host and isolated PostgreSQL access, separate stage credentials configured through the approved secret store, a real paired backup plus separately held decryption identity and isolated restore target, hosting/CDN logs for the HTTPS failure, and monitoring/rollback ownership and procedures. Never send credentials or private keys in this runbook or chat.
 
+### Provider support request template (not sent)
+
+**Subject:** Read-only investigation requested: HTTPS port 443 timeout for `shopademia.store`
+
+> Please investigate without changing production configuration.
+>
+> At 2026-10-12 21:43:27 +06, read-only checks resolved `shopademia.store` to A record `122.173.84.249`; the reported authoritative nameservers were `ns1.chephost.top` and `ns2.chephost.top`. TCP port 80 connected. An HTTP HEAD request to `/healthz` returned HTTP 301 with `Location: https://shopademia.store/healthz` in about 0.147 seconds. TCP port 443 timed out. HTTPS `/healthz` and `/` requests timed out before a TLS handshake; an independent public fetch also failed at the transport level.
+>
+> Please confirm whether `122.173.84.249` is the currently assigned endpoint for this domain; whether a listener/front end accepts TCP 443; and whether firewall/network ACL, routing, reverse proxy, or CDN configuration is dropping the connection. Please verify the HTTPS virtual-host/SNI mapping and TLS logs after confirming 443 reachability, and provide relevant connection, proxy, and web-server logs for approximately 2026-10-12 21:40–21:44 +06. Please report findings and a recommended corrective action before making any production change.
+>
+> No production files, databases, DNS, certificates, firewall rules, or hosting configuration have been changed or authorized for change as part of this investigation.
+
+This is a prepared template only. It was not sent; provider-side evidence and ticket status are unavailable here.
+
+### Staging candidate architecture (not provisioned)
+
+No staging provider/host, hostname, account, isolated PostgreSQL service, or credentials have been selected or supplied. A compatible candidate, subject to owner/provider approval, is a separate Linux VM or staging service with Node.js 20+ (the repository requires Node `>=20`; CI uses Node 22), PostgreSQL, persistent uploads, and an HTTPS proxy. It must not share the production cPanel filesystem, production database, production secrets, backup identity, or deploy key.
+
+Before implementation or a first deploy, the owner/operator must provision a staging-only hostname and network/host, a new PostgreSQL database and least-privilege roles, separate secrets in an approved secret store, upload storage, TLS, restricted staging access, and log/alert access. Use synthetic data only. Verify `sharp` against the selected Node/OS runtime. Then add a separately named GitHub Actions `staging` environment and a feature-branch/manual staging workflow that can access only staging credentials, runs CI first, deploys the selected feature commit, checks `/healthz`, and runs approved smoke tests. Keep the existing main-only production job unchanged; do not reuse its cPanel host variables, credentials, or `rsync --delete` target. No staging workflow is added until a real target and authorization are available, because a targetless workflow cannot be safely or meaningfully tested.
+
 ## 2. Existing deployment paths (not interchangeable)
 
 The repository documents two deployment shapes. Select and verify one; do not combine instructions or infer that either is production-ready:
@@ -36,7 +56,7 @@ The repository documents two deployment shapes. Select and verify one; do not co
 1. **Docker Compose + PostgreSQL + Caddy:** single Linux VM, one public `DOMAIN`, app and database services, one-shot migration service, and Caddy TLS proxy. See [docker-compose.production.yml](../docker-compose.production.yml) and the deployment section in [README.md](../README.md).
 2. **cPanel GitHub Actions:** push to `main` can deploy when `CPANEL_DEPLOY_ENABLED=true`; workflow uses SSH/rsync and a Node 20 virtual environment path. The workflow is not a backup or database migration system and must remain disabled until its documented prerequisites and live environment are verified. See [ci.yml](../.github/workflows/ci.yml).
 
-The V3 request for MySQL/MariaDB conflicts with the currently documented PostgreSQL stack; migration/deployment steps are therefore conditional on resolving database authority.
+PostgreSQL remains the authoritative database engine. Deployment and migration steps remain blocked on a verified hosting target, PostgreSQL version/connectivity, backup/restore evidence, and the other release gates; no engine migration is authorized.
 
 ## 3. Configuration and secrets
 

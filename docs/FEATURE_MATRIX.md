@@ -28,7 +28,7 @@
 | Inventory reservation/fulfillment lifecycle | BLOCKED | D9 unanswered. Existing product-level stock reservation does not prove concurrent, partial shipment, delivery failure, return, or exchange correctness. |
 | Product cost/purchase and return policy | BLOCKED | D10–D11 unanswered; do not invent weighted-average costing, adjustments, eligibility, or return windows. |
 | MGS, V2 annex, phase mapping | BLOCKED | Authoritative SHOPADEMIA-MGS-001 approval, full V2 module/menu annex, and mapping are missing. |
-| Database/hosting authority | BLOCKED | Current app and Compose use PostgreSQL; supplied V3 hosting section specifies MySQL/MariaDB. Resolve before dependent migrations/deployment. |
+| Database engine authority | DECIDED — PostgreSQL | Owner-provided release instructions make PostgreSQL authoritative; do not migrate to MySQL/MariaDB. Hosted service/version, credentials, connectivity, and production data/schema remain unverified. |
 | Production data/schema inventory | NOT TESTED | No production database connection or row/status/stock inventory was made. |
 | Production backup restore and rollback | NOT TESTED | Scripts/configuration exist; restoreability and recovery time are not evidenced. |
 | Production deployment, TLS/DNS, monitoring | NOT TESTED | No production change or authorized staging check was performed. |

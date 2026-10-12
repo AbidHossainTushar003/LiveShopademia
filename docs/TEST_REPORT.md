@@ -8,6 +8,7 @@
 **Base release source:** `828aca0597b4c25e14956c4c52b6e6ab37c9fb77` on `feature/admin-v2`.
 **Verified follow-up:** `dccff169b207cc4d5b8c18e3e81dd769446df4fc` on `feature/admin-v2`, pushed to the GitHub feature branch. CI run [38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) passed for this exact commit. No production deploy was triggered.
 **Current verified branch head before this infrastructure evidence update:** `808871045abf6ab0369b1d1ccdbce51468b3a755`; CI run [38270844665](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270844665) passed for that exact commit. See the infrastructure recheck below for evidence gathered after that run.
+**Infrastructure evidence documentation:** commit `1e80d56620304c9023dd4c613f6c632f709d1eba`; exact-commit CI [38271421414](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38271421414) passed. The current infrastructure follow-up below records a later public connectivity sample; no application tests were repeated because the source/runtime is unchanged.
 
 | Gate/check | Result | Evidence and limits |
 |---|---|---|
@@ -43,6 +44,10 @@ The checked-out branch was `feature/admin-v2`, clean at `808871045abf6ab0369b1d1
 | Application and database recovery | cPanel deploy syncs into the live application directory with deletion of untracked destination files; no release snapshot/symlink/rollback command is configured. The restore script is designed to restore PostgreSQL to a new `shopademia_restore_*` database and uploads to a new directory, but there are no artifacts or restore results. Runbook records migration rollback/forward-repair as unproven. | **NOT VERIFIED.** Safe application rollback requires a reviewed prior-release restore/switch procedure; database recovery requires a reviewed migration-compatible recovery plan and a successful isolated restore from a real paired backup. |
 
 No production or staging logs were accessible from this workspace. The result summaries above are from the bounded command outputs at the stated time; no synthetic server logs, checksums, backup timestamps, restore metrics, or staging URLs were created.
+
+#### Follow-up public connectivity sample (2026-10-12 21:43:27 +06)
+
+Read-only PowerShell DNS lookup again returned A `122.173.84.249` and nameservers `ns1.chephost.top` / `ns2.chephost.top`; no AAAA answer was returned. `curl.exe --noproxy '*' --head http://shopademia.store/healthz` returned HTTP 301 to `https://shopademia.store/healthz` in 0.147 seconds. Direct TCP checks: port 80 connected, port 443 timed out after 4 seconds. A separate `web_fetch` request to HTTPS failed at transport level. Since no TCP 443 connection completed, no TLS handshake or certificate inspection was possible. These observations do not establish endpoint ownership or distinguish provider listener, firewall, routing, proxy/CDN, or hosting configuration. An unsent support-request template is recorded in [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md); no hosting ticket was submitted.
 
 ### Follow-up repair: platform-admin logout
 
