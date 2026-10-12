@@ -10,7 +10,7 @@
 **Current verified branch head before this infrastructure evidence update:** `808871045abf6ab0369b1d1ccdbce51468b3a755`; CI run [38270844665](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270844665) passed for that exact commit. See the infrastructure recheck below for evidence gathered after that run.
 **Infrastructure evidence documentation:** commit `1e80d56620304c9023dd4c613f6c632f709d1eba`; exact-commit CI [38271421414](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38271421414) passed. The current infrastructure follow-up below records a later public connectivity sample; no application tests were repeated because the source/runtime is unchanged.
 **Staging proposal, support template, and PostgreSQL-authority clarification:** commit `21a11f616b23c465861a009ea12dba818dfac710`; exact-commit CI [38272992537](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38272992537) passed the test and dependency-audit jobs. The production deploy job was skipped. No staging or production service was accessed.
-**Latest documentation baseline before this update:** clean feature branch at `b248f2377153464d08c03d7791c609e5865c00f6`; exact-commit CI [38273127995](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38273127995) passed tests and dependency audit, with deploy skipped.
+**Latest verified runbook/recovery-procedure commit before this update:** `e78767f19aeb8e1378ed5aef89ba0841c977587d`; exact-commit CI [38273713574](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38273713574) passed tests and dependency audit, with deploy skipped.
 
 | Gate/check | Result | Evidence and limits |
 |---|---|---|
