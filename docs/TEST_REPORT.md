@@ -9,6 +9,7 @@
 **Verified follow-up:** `dccff169b207cc4d5b8c18e3e81dd769446df4fc` on `feature/admin-v2`, pushed to the GitHub feature branch. CI run [38270740198](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270740198) passed for this exact commit. No production deploy was triggered.
 **Current verified branch head before this infrastructure evidence update:** `808871045abf6ab0369b1d1ccdbce51468b3a755`; CI run [38270844665](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38270844665) passed for that exact commit. See the infrastructure recheck below for evidence gathered after that run.
 **Infrastructure evidence documentation:** commit `1e80d56620304c9023dd4c613f6c632f709d1eba`; exact-commit CI [38271421414](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38271421414) passed. The current infrastructure follow-up below records a later public connectivity sample; no application tests were repeated because the source/runtime is unchanged.
+**Staging proposal, support template, and PostgreSQL-authority clarification:** commit `21a11f616b23c465861a009ea12dba818dfac710`; exact-commit CI [38272992537](https://github.com/MyTestProjects007/TestingWeb/actions/runs/38272992537) passed the test and dependency-audit jobs. The production deploy job was skipped. No staging or production service was accessed.
 
 | Gate/check | Result | Evidence and limits |
 |---|---|---|
