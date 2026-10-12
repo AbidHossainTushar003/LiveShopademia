@@ -21,6 +21,77 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Run tests
-        run: npm test
+        run: npm test -- --test-concurrency=1
       - name: Audit dependency advisories
         run: npm audit --audit-level=low
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CPANEL_DEPLOY_ENABLED == 'true'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out release
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Deploy to cPanel
+        env:
+          CPANEL_HOST: ${{ vars.CPANEL_HOST }}
+          CPANEL_PORT: ${{ vars.CPANEL_PORT }}
+          CPANEL_USER: ${{ vars.CPANEL_USER }}
+          CPANEL_APP_ROOT: ${{ vars.CPANEL_APP_ROOT }}
+          CPANEL_SSH_KEY: ${{ secrets.CPANEL_SSH_KEY }}
+          CPANEL_KNOWN_HOSTS: ${{ secrets.CPANEL_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          for name in CPANEL_HOST CPANEL_PORT CPANEL_USER CPANEL_APP_ROOT CPANEL_SSH_KEY CPANEL_KNOWN_HOSTS; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required GitHub Actions variable or secret: $name"
+              exit 1
+            fi
+          done
+          if [[ ! "$CPANEL_PORT" =~ ^[0-9]+$ ]]; then
+            echo "::error::CPANEL_PORT must be a numeric SSH port."
+            exit 1
+          fi
+          if [ "$CPANEL_HOST" != "shopademia.store" ] \
+            || [ "$CPANEL_USER" != "shopadem" ] \
+            || [ "$CPANEL_APP_ROOT" != "/home/shopadem/shopademia-app" ]; then
+            echo "::error::The configured destination does not match the verified Shopademia cPanel app."
+            exit 1
+          fi
+
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$CPANEL_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/cpanel_deploy_key"
+          printf '%s\n' "$CPANEL_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/cpanel_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/cpanel_deploy_key" >/dev/null
+          ssh_args=(-i "$HOME/.ssh/cpanel_deploy_key" -p "$CPANEL_PORT" -o IdentitiesOnly=yes -o BatchMode=yes)
+          ssh "${ssh_args[@]}" "$CPANEL_USER@$CPANEL_HOST" true
+
+          rsync -az --delete --delay-updates \
+            --exclude='/.git/' \
+            --exclude='/.env' \
+            --exclude='/.env.*' \
+            --exclude='/node_modules/' \
+            --exclude='/uploads/' \
+            --exclude='/tmp/' \
+            --exclude='/logs/' \
+            --exclude='/.htaccess' \
+            -e "ssh -i $HOME/.ssh/cpanel_deploy_key -p $CPANEL_PORT -o IdentitiesOnly=yes -o BatchMode=yes" \
+            ./ "$CPANEL_USER@$CPANEL_HOST:$CPANEL_APP_ROOT/"
+
+          ssh "${ssh_args[@]}" "$CPANEL_USER@$CPANEL_HOST" \
+            'set -eu; . /home/shopadem/nodevenv/shopademia-app/20/bin/activate; cd /home/shopadem/shopademia-app; npm ci --omit=dev; mkdir -p tmp; touch tmp/restart.txt'
+
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 10 https://shopademia.store/healthz \
+              | grep -Fq '{"status":"ok"}'; then
+              echo "Production health check passed."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Production health check did not pass after restart."
+          exit 1

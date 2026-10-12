@@ -191,6 +191,19 @@ The web process uses `shopademia_app`, which has schema usage and DML/sequence a
 
 Login and checkout are limited to 8 and 30 requests per client IP per 15 minutes, respectively. Order lookup allows 5 requests and product uploads 10 per IP per 15 minutes; public catalog reads allow 120 per minute. These limits are in-memory and reset on restart; do not scale to multiple app replicas without adding a shared rate-limit store, and add edge-level abuse controls if traffic warrants them.
 
+### cPanel GitHub Actions deployment
+
+The CI workflow can deploy `main` to the existing cPanel Node.js app after tests and the dependency audit pass. Deployment is intentionally disabled until the production environment and database migrations are ready. Do not enable it until `MFA_ENCRYPTION_KEY` is configured and backed up, a migration database URL and appropriate database role are established, and the production schema migration has been run and verified. Back up the database and uploaded product images before changing the live app.
+
+To enable automatic deployment:
+
+1. In cPanel, import and authorize a dedicated Ed25519 SSH key for GitHub Actions under **Security → SSH Access → Manage SSH Keys**. Keep its private key out of the repository and logs.
+2. Add these repository **Actions variables**: `CPANEL_DEPLOY_ENABLED`=`true`, `CPANEL_HOST`=`shopademia.store`, `CPANEL_PORT`=`8081`, `CPANEL_USER`=`shopadem`, and `CPANEL_APP_ROOT`=`/home/shopadem/shopademia-app`.
+3. Add these repository **Actions secrets**: `CPANEL_SSH_KEY` with the private key, and `CPANEL_KNOWN_HOSTS` with the SSH host-key lines for `[shopademia.store]:8081`. Obtain them with `ssh-keyscan -p 8081 shopademia.store` and independently verify the fingerprints with the hosting provider.
+4. Push to `main`. The workflow waits for CI, syncs the release while preserving cPanel's `.htaccess`, environment files, uploaded product images, logs, and runtime directory, installs production dependencies, restarts the Node application, and checks `/healthz`.
+
+The deploy job remains skipped until the enable variable is set. It requires cPanel SSH access and verifies the configured destination and SSH host key. It does not create database backups or run schema migrations automatically; those remain explicit, reviewed production operations.
+
 ### Launch blockers for real commerce
 
 This deployment provides TLS and hardened service networking, but a fresh database still starts with bundled sample products. Before accepting real orders, replace those listings with actual business products and inventory, test database restore and order recovery, configure actual off-host backup storage and uptime alerts, and review local privacy/tax/consumer requirements. Payments remain manual: train staff to compare sender numbers and transactions in the bKash merchant records, and never treat the dashboard's manual status as provider verification.
