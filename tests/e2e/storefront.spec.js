@@ -121,17 +121,18 @@ test('product detail route and metadata render for an available catalog item', a
     const productResponse = await page.goto(`/product/${encodeURIComponent(product.id)}?shop=main`);
     expect(productResponse?.status()).toBe(200);
     await expect(page.getByRole('heading', { name: product.name, exact: true })).toBeVisible();
-    await expect(page).toHaveTitle(`${product.name} | Main Shop | Shopademia`);
+    await expect(page).toHaveTitle(`${product.seoTitle?.trim() || product.name} | Main Shop | Shopademia`);
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', new RegExp(`/product/${encodeURIComponent(product.id)}$`));
     const structuredData = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
     expect(structuredData['@graph'].some(({ '@type': type }) => type === 'Product')).toBe(true);
     expect(structuredData['@graph'].some(({ '@type': type }) => type === 'BreadcrumbList')).toBe(true);
     expect(structuredData['@graph'].some(({ '@type': type }) => type === 'WebSite')).toBe(true);
     expect(structuredData['@graph'].some(({ aggregateRating }) => aggregateRating)).toBe(false);
+    const configuredMetaDescription = product.metaDescription?.trim();
     const productDescription = product.description?.trim().replace(/\s+/g, ' ');
-    const expectedMetaDescription = productDescription
+    const expectedMetaDescription = configuredMetaDescription || (productDescription
         ? (productDescription.length > 160 ? `${productDescription.slice(0, 157).trimEnd()}…` : productDescription)
-        : `Explore ${product.name} from Main Shop on Shopademia.`;
+        : `Explore ${product.name} from Main Shop on Shopademia.`);
     await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', expectedMetaDescription);
 });
 

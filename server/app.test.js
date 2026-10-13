@@ -863,6 +863,56 @@ test('persists a correctly priced order and returns the same order for a retry',
     assert.equal(first.body.data.advanceAmount, 100);
 });
 
+test('checkout rolls back inventory reservation when order persistence fails', async (t) => {
+    const previousProducts = getManagedProducts();
+    t.after(() => setManagedProducts(previousProducts));
+    const product = {
+        id: 'admin-22222222-2222-4222-8222-222222222222',
+        name: 'Rollback test product',
+        description: 'Synthetic transaction rollback fixture.',
+        price: 100,
+        oldPrice: null,
+        category: 'gadgets',
+        image: '/uploads/22222222-2222-4222-8222-222222222222.webp',
+        stockQuantity: 2,
+        isAvailable: true,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    };
+    setManagedProducts([...previousProducts, product]);
+    const pool = fakePool();
+    await pool.query('INSERT INTO managed_products', [
+        product.id, product.name, product.description, product.name, product.name, product.description,
+        product.price, product.oldPrice, product.category, product.image, product.stockQuantity,
+        product.isAvailable, product.shopId, [product.image]
+    ]);
+    const query = pool.query.bind(pool);
+    const statements = [];
+    let interruptOrderInsert = true;
+    pool.query = async (sql, values) => {
+        statements.push(sql);
+        if (interruptOrderInsert && sql.includes('INSERT INTO orders')) {
+            interruptOrderInsert = false;
+            throw Object.assign(new Error('Synthetic order persistence interruption.'), { code: 'XX000' });
+        }
+        return query(sql, values);
+    };
+    const errorLog = t.mock.method(console, 'error', () => {});
+    const app = createApp({ pool, config });
+    const interruptedOrder = {
+        ...payload,
+        items: [{ productId: product.id, quantity: 1 }],
+        eventId: 'checkout-rollback-event'
+    };
+
+    await request(app).post('/api/v1/orders').send(interruptedOrder).expect(500);
+    assert.ok(statements.includes('ROLLBACK'));
+    assert.equal(findProduct(product.id).stockQuantity, 2);
+    assert.doesNotMatch(JSON.stringify(errorLog.mock.calls), /Synthetic order persistence interruption/);
+
+    await request(app).post('/api/v1/orders').send(interruptedOrder).expect(201);
+    assert.equal(findProduct(product.id).stockQuantity, 1);
+});
+
 test('customers can look up an order with the checkout phone and receive only customer-safe details', async () => {
     const app = createApp({ pool: fakePool(), config });
     const created = await request(app).post('/api/v1/orders').send(payload).expect(201);
@@ -1966,6 +2016,22 @@ test('admin logout revokes only the current server-side session', async () => {
         .expect(200);
 });
 
+test('admin authentication rejects a signed session after its JWT expiration', async () => {
+    const app = createApp({ pool: fakePool(), config });
+    const token = jwt.sign({
+        sub: config.adminEmail,
+        userId: '00000000-0000-4000-8000-000000000101',
+        role: 'admin',
+        jti: 'expired-session-test',
+        sessionVersion: 1,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    }, config.jwtSecret, { issuer: 'shopademia', expiresIn: -1 });
+
+    await request(app).get('/api/v1/admin/profile')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(401, { error: 'Your admin session expired. Sign in again.' });
+});
+
 test('admin browser sessions use HttpOnly same-site cookies and reject cross-origin cookie writes', async () => {
     const app = createApp({ pool: fakePool(), config: { ...config, siteUrl: 'https://shopademia.test' } });
     const login = await request(app).post('/api/v1/admin/login')
@@ -2366,4 +2432,23 @@ test('limits repeated admin login attempts', async () => {
 test('exposes a database-backed readiness endpoint', async () => {
     const app = createApp({ pool: fakePool(), config });
     await request(app).get('/healthz').expect(200, { status: 'ok' });
+});
+
+test('readiness endpoint fails closed and does not expose database error details', async (t) => {
+    const pool = fakePool();
+    const query = pool.query.bind(pool);
+    pool.query = async (sql, values) => {
+        if (sql === 'SELECT 1') {
+            throw Object.assign(new Error('Synthetic database failure with private connection detail.'), {
+                code: 'ECONNREFUSED'
+            });
+        }
+        return query(sql, values);
+    };
+    const errorLog = t.mock.method(console, 'error', () => {});
+    const app = createApp({ pool, config });
+
+    await request(app).get('/healthz')
+        .expect(503, { status: 'unavailable' });
+    assert.doesNotMatch(JSON.stringify(errorLog.mock.calls), /private connection detail/);
 });

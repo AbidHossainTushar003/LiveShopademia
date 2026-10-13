@@ -1,7 +1,23 @@
 # Shopademia test and verification report
 
 **Updated:** 2026-10-13
-**Environment:** Local Windows development workspace. The latest test app and isolated PostgreSQL cluster were stopped and removed after cleanup; no production service or database was accessed.
+**Environment:** Local Windows development workspace. The security-audit services were cleaned up; a separate synthetic browser preview is currently running on loopback `127.0.0.1:3002` with an isolated PostgreSQL 16 cluster on `127.0.0.1:55441`. No production or hosted staging database was accessed.
+
+## Staging-readiness remediation (2026-10-13)
+
+This section supersedes earlier statements in this report that Docker/Compose was unavailable and that cross-browser suites could only pass by manual per-engine invocation. It records the current remediation checks; it does not establish a staging deployment.
+
+- **Target isolation:** Docker is available locally (Docker Engine 29.8.2; Compose 5.6.0) and the only PostgreSQL container used for earlier API security work was verified as `postgres:16-alpine`, bound to `127.0.0.1:54329`. During this remediation that Docker Desktop engine became unavailable, so no Compose service was started. A new native PostgreSQL 16 cluster was instead initialized under this session's private evidence directory and bound only to `127.0.0.1:55441`; it contains one explicitly synthetic preview product and zero orders.
+- **Interactive browser preview:** Shopademia is running only on `http://127.0.0.1:3002` against database `shopademia_browser_preview` on `127.0.0.1:55441`. Opened the storefront and synthetic product detail page; confirmed configured SEO title, price/discount, description, and available stock. Added the synthetic item to the browser cart and observed the cart count change to one. No checkout/order submission occurred. The disposable fixture uses a bundled local image for display; it is not a hosted storefront.
+- **Combined browser coverage:** a single Playwright process against one app previously exhausted the fixed 120-requests/minute public-catalog limiter across browser engines (HTTP 429). The limiter remains unchanged. Using a newly initialized isolated DB and a fresh loopback-only app process for each engine, the complete 14-test storefront suite passed in Chromium **14/14**, Firefox **14/14**, and WebKit **14/14**; each app was stopped with graceful `server.close()` and its pool was closed before starting the next. Reports were retained outside the repository in session evidence. This is the documented safe equivalent of the cross-browser combined suite; the one-app all-project invocation remains rate-limited and is not claimed as passing.
+- **Additional regression coverage:** added tests prove expired signed admin JWT rejection, fail-closed `/healthz` behavior without exposing database error text, and transaction rollback of a synthetic inventory reservation when order persistence is interrupted. These are mock-pool API regressions; the independent PostgreSQL/API probe below exercised transaction recovery and concurrency against the isolated local database.
+- The API suite's synthetic platform-admin MFA test exercises required enrollment, malformed code rejection, valid TOTP enrollment, successful next-code login, and rejection of replaying the same code. This route test uses the isolated in-memory test pool; no live authenticator or hosted MFA account was used. Existing API checks also cover anonymous admin denial, shop-vs-platform role restrictions, password/session revocation, membership removal, and shop scoping; exhaustive permission combinations remain untested.
+- **Current checks:** `npm.cmd test` **123 passed, 0 failed, 0 skipped**; `npm.cmd run test:api` **77 passed, 0 failed, 0 skipped**; staging/Playwright config guards **20/20 passed**; `npm.cmd audit` reported **0 vulnerabilities**. Playwright `--list` discovered 42 cases across Chromium, Firefox, and WebKit. With a fresh isolated app process per browser engine, all 14 storefront cases passed in each engine (**42/42 total, no skips/failures**). `node --check` on changed JavaScript, Bash syntax, and `git diff --check` passed.
+- `docker compose -f docker-compose.staging.yml config --quiet` passed using synthetic-only environment values. `docker compose -f docker-compose.staging.yml build` completed for app, migrator, and PostgreSQL images; no containers/services were started. The checked-out `.env.staging` was confirmed absent, ignored by Git, and untracked; `npm.cmd run validate:staging` rejected its absence with exit 1 as designed.
+- The attempted synthetic PostgreSQL outage was bound to an unused loopback port only. `node server/index.js` exited with code 1, logged sanitized `ECONNREFUSED`, did not print the synthetic connection URL, and opened no app listener. The `/healthz` failure branch is covered by the new automated regression.
+- One browser test harness startup attempt failed before running tests because the harness did not pass its temporary dotenv path; no application or database was changed by that attempt. The harness was corrected, and the final per-engine browser runs listed above passed. A first graceful-stop helper also treated Windows' `SIGTERM` exit result as failure; the app itself closed correctly, and the final harness used an explicit stdin-triggered `server.close()`/`pool.end()` path.
+- The first local PostgreSQL provisioning attempt omitted the synthetic cluster superuser password and failed to connect; no database writes occurred in that attempt. Provisioning was repeated with the password set explicitly, then database identity and empty counts were verified before schema setup and fixture insertion.
+- **Remaining blocked:** Docker Desktop became unavailable after the successful config/build checks. Do not start the staging stack, run migrations under staging Compose, or deploy until an authorized and isolated staging target is provisioned. External hostname ownership, staging credentials/resources, provider TLS/network evidence, backup restore, alert delivery, rollback, database recovery, and named recovery operators remain unverified. The interactive browser test used only a local application and synthetic data, made no order submission, and did not access production or staging; existing static assets may be requested from their configured CDN origins.
 
 ## Repository-side staging preparation checks (current worktree)
 
@@ -222,7 +238,7 @@ At the time this earlier section was written, the complete-suite run was **NOT V
 - Initial browser-test iterations exposed test setup/locator mistakes; these were corrected. The final two tests passed.
 - First full Chromium run found a serious contrast violation (4.24:1) on empty/loading catalog text and exposed that product-detail coverage depended on pre-existing local products. Contrast classes were corrected and CSS rebuilt; the product check now skips with an explicit reason only when no item is available. The subsequent full Chromium suite and three-page axe checks passed.
 - An immediate repeat full Chromium run hit the existing 120/minute catalog API limit (HTTP 429), causing three dependent test failures. After allowing the rate window to reset, the full suite was rerun serially with `--workers=1`: **8 passed, 1 skipped, 0 failed**. No production rate limit was changed.
-- A later all-project Playwright run completed Chromium (8 passed, 1 skipped) but the Firefox binary exited immediately with Windows exit code `3236495362`; the remaining Firefox tests and WebKit project consequently could not launch. Cross-browser status remains **NOT TESTED** for Firefox/WebKit.
+- At that earlier point, a Playwright run completed Chromium (8 passed, 1 skipped) but the Firefox binary exited immediately with Windows exit code `3236495362`; Firefox/WebKit were not tested in that run. See the latest Admin/API audit below for current browser results.
 - Development platform-admin login now uses email and password only. The server still enforces MFA in production regardless of configuration; stored MFA enrollment has not been changed. A server/API boundary test and updated browser test cover this behavior.
 - Verified local `/healthz` and `/admin` return HTTP 200; the rendered local login page carries the development-only MFA-off setting. The actual supplied local account credentials also passed the Chromium form flow; profile returned 200, redirect reached the Platform Admin page, and logout revoked the session.
 - The shared browser tool repeatedly timed out on `/api/v1/admin/*`, while a clean local Chromium browser completed the real form login, authenticated profile redirect, and logout. The remaining timeout appears isolated to the shared browser session/tool context.
@@ -230,14 +246,81 @@ At the time this earlier section was written, the complete-suite run was **NOT V
 
 ## Not tested
 
-- Production MFA enrollment/sign-in, session expiry behavior, and full server permission authorization across all admin modules.
-- Firefox/WebKit sidebar coverage, Linux/CI run, accessibility audit of admin drawer with axe/screen reader, and tablet/desktop manual visual review.
-- Production/staging database integration, schema/data inventory, upgrade or rollback, isolated backup restore, RPO/RTO, and recovery drill.
-- Concurrent stock reservation, duplicate/racing order requests against PostgreSQL, payment verification/refund, courier/webhook behavior, shipment/return/exchange, or real financial actions.
-- Performance/load targets, security assessment of the complete current diff, target-host Node/PostgreSQL/`sharp` compatibility, production DNS/TLS, monitoring, and deployment rollback.
+- Live platform-admin MFA enrollment/recovery and replay testing; unit tests cover TOTP verification/replay, and live synthetic shop-admin sessions were tested. The configured eight-hour session lifetime was not observed by waiting eight hours.
+- Authorization review/execution for every platform-admin module and staff permission combination; targeted anonymous, shop-owner, cross-shop, product, and order gates were exercised.
+- Linux/CI, screen-reader/manual accessibility, and tablet/desktop visual reviews.
+- Hosted staging deployment, provider/network/TLS diagnosis, staging resource provisioning, production schema/data inventory, production migration, backup restore, RPO/RTO, monitoring/alert delivery, and rollback/recovery drills.
+- Forced database-failure/rollback injection beyond the concurrent stock-reservation conflict test; real payment verification/refund, notifications, courier/webhook behavior, shipment/return/exchange, or other financial actions.
+- Performance/load targets and target-host Node/PostgreSQL/`sharp` compatibility.
 
 ## Regression and release assessment
 
-The latest full Node suite passed (100/100), and the focused admin login/sidebar feature-navigation browser checks passed (5/5 combined). This is a limited regression result; it is not evidence that untested flows work.
+The latest full Node suite passed (120/120), the API suite passed (74/74), and dependency audit reported zero vulnerabilities. Chromium, Firefox, and WebKit passed when run individually against a fresh isolated app; the combined all-project invocation exceeded the shared public-catalog request limit and is reported below. This remains local evidence, not a release approval.
 
 **Production decision: NO-GO.** See [AUDIT_REPORT.md](../AUDIT_REPORT.md), [ADMIN-GAP-REPORT.md](./ADMIN-GAP-REPORT.md), and [FEATURE_MATRIX.md](./FEATURE_MATRIX.md) for blockers and per-area status. Do not infer payment, shipment, data migration, or production readiness from these test results.
+
+## Browser QA continuation (2026-10-13)
+
+### Target and fixture
+
+- Verified branch `feature/admin-v2`, HEAD `dcb52b007d737456bd50aeb8f39174f7550670ce`; no production or staging target was used.
+- The previous empty catalog was expected: `js/data/products.data.js` exports empty built-in product lists, and `initializeDatabase` creates schema/default shop/admin records but does not seed products. The isolated PostgreSQL `managed_products` table had 0 rows and `orders` had 0 rows. No project fixture-seeder exists. Normal product creation is through authenticated admin product management with an accepted uploaded image.
+- For this browser check only, inserted one clearly synthetic product directly into a newly created disposable PostgreSQL 16.15 container after verifying database `shopademia_local`, local app target, database role, default shop, and zero pre-existing product/order rows. The DB was published only on `127.0.0.1:54329`; the app listened only on `127.0.0.1:3000`. The fixture was removed after testing. No production/staging connection, data, or credentials were used.
+- Analytics consent was set to essential-only before successful checkout. The checkout endpoint stores an order request without collecting payment; no notification/payment integration was invoked. Synthetic order data and the fixture were removed with exact-key guarded deletes; final isolated DB counts were 0 orders and 0 managed products.
+
+### Results
+
+| Check | Result | Evidence and limits |
+|---|---|---|
+| `npm.cmd run test:e2e -- storefront.spec.js --workers=1` with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000` | **PASS — 7 passed, 0 failed, 0 skipped** | Chromium storefront spec against the isolated app and synthetic catalog item. Includes product detail/SEO, public catalog API, route/mobile checks, error handling, unauthenticated admin page, and axe checks on home/privacy/terms. HTML report generated locally at ignored `playwright-report/index.html`. |
+| First run of the same storefront spec | **6 passed, 1 failed** | Existing product-detail assertion incorrectly expected product name/description even when the API returns explicitly configured `seoTitle` and `metaDescription`. Corrected the E2E expectations to honor those fields; no application behavior was changed. Rerun above passed with a fixture using distinct custom SEO metadata. |
+| `node --check tests/e2e/storefront.spec.js`; `git diff --check` | **PASS** | The modified test parses and the diff has no whitespace errors. |
+| Browser product detail | **PASS** | Synthetic managed product detail rendered with configured custom SEO title/description, price/discount, and available stock. |
+| Browser cart quantity/totals/removal | **PASS** | Added two units: total ৳2,500; increased to three: ৳3,750; decreased to two: ৳2,500; removing the line emptied the cart and disabled checkout. |
+| Browser wishlist add/remove | **PASS** | Adding updated count 0→1 and local storage; removing from the wishlist view returned count to 0 and displayed the empty state. |
+| Checkout client validation | **PASS** | Empty submission marked all four required fields invalid and sent no order POST. |
+| Checkout API validation | **PASS** | Direct synthetic malformed checkout returned HTTP 400 (`Enter a valid customer name.`); no row was stored for its unique invalid event ID. |
+| Successful non-payment checkout and PostgreSQL persistence | **PASS, disposable local only** | One synthetic request returned HTTP 201. PostgreSQL contained exactly one matching synthetic order with 2 units, subtotal 2500, advance requested 100 (not paid), due 2500, status `new`; stock changed 12→10. Browser cart cleared. This is not a real customer order, payment, notification, staging test, or release check. |
+| Synthetic order lookup | **PASS, disposable local only** | Correct order number and synthetic phone returned HTTP 200 with matching item/quantity/subtotal/status. |
+| Prior browser checks from this continuation | **Retained, not repeated** | Category/deals/shops/about navigation, no-match search and Clear filters, empty wishlist/cart behavior, checkout-disabled empty cart, required-field order lookup blocking, and mobile menu/no-overflow had already passed as documented in the preceding user turn. |
+
+No confirmed storefront runtime defect was found. A test-oracle defect for custom SEO metadata was fixed in `tests/e2e/storefront.spec.js`. This report does not establish hosted staging behavior, successful backup/restore, monitoring alert delivery, rollback/recovery, or production readiness. **Production remains NO-GO.**
+
+## Admin/API security regression and release-evidence audit (2026-10-13)
+
+### Target and safety
+
+- Rechecked branch `feature/admin-v2`, HEAD `dcb52b007d737456bd50aeb8f39174f7550670ce`, worktree, and diff. The pre-existing changes to this report, [PROGRESS.md](./PROGRESS.md), and `tests/e2e/storefront.spec.js` were preserved; the untracked Docker installer was left untouched. No commit or push was made.
+- Did not use the app on port 3000 for writes. Its repository `.env` parses to `127.0.0.1:5433/shopademia`, which is not the known disposable database mapping; the active process's environment could not be verified, so it was not used for data changes. All database-backed writes below used a newly created, uniquely named database in the existing disposable PostgreSQL container, exposed only at `127.0.0.1:54329`, with synthetic credentials and accounts.
+- Verified the synthetic audit database name, owner, loopback-only DB port, and initial product/order counts before writes. A synthetic owner, two temporary products, and two synthetic orders were used. Before teardown the DB contained **0 products / 2 synthetic orders**; the exact audit database and its app/migrator roles were then dropped, and catalog queries confirmed no such database or roles remained.
+- No production/staging connection, customer data, external payment, push notification, or provider resource was used.
+
+### Test commands and outcomes
+
+| Check | Result | Evidence and limits |
+|---|---|---|
+| `npm.cmd test` | **PASS — 120 passed, 0 failed, 0 skipped** | Current full Node suite; no source changes were made during this audit. |
+| `npm.cmd run test:api` | **PASS — 74 passed, 0 failed, 0 skipped** | Server/API tests include authorization, CRUD, sessions, login throttling, MFA, order status, lookup, and validation cases using isolated test doubles. |
+| `npm.cmd audit` | **PASS — 0 vulnerabilities** | Dependency audit result at audit time. |
+| `npm.cmd run test:e2e -- --workers=1` with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001` | **PASS — 13 passed, 0 failed, 1 skipped** | Fresh isolated audit DB; product detail is conditionally skipped when the catalog is empty. |
+| `npm.cmd run test:e2e:all -- --workers=1` | **FAIL — 33 passed, 8 failed, 1 skipped** | Combined projects shared the app's 120-request/minute public catalog limiter; later catalog/config fetches received HTTP 429. The limiter was not changed. The failure is a combined-run/test-isolation constraint, not evidence of an authorization bypass. |
+| `npm.cmd run test:e2e:all -- --project=firefox --workers=1` | **PASS — 13 passed, 0 failed, 1 skipped** | Firefox run against a fresh app process and isolated DB. |
+| `npm.cmd run test:e2e:all -- --project=webkit --workers=1` | **PASS — 13 passed, 0 failed, 1 skipped** | WebKit run against a fresh app process and isolated DB. Chromium also passed individually as shown above. All Playwright reports/traces were written outside the repository. |
+| `node --check tests/e2e/storefront.spec.js`; `git diff --check` | **PASS** | Test syntax and current diff hygiene. |
+
+### Authentication, authorization, API, and browser evidence
+
+- Real synthetic shop-owner login succeeded in the local app. Same-origin login returned no bearer token and set an HttpOnly, `SameSite=Strict` cookie; profile/orders endpoints succeeded while authenticated. Logout revoked the server session, and the same cookie then received HTTP 401. A signed expired JWT, invalid cookie, anonymous protected requests, and a valid foreign-shop selector were denied (401). A cross-origin cookie-authenticated write was denied (403).
+- Missing/malformed and SQL-injection-style login inputs returned generic 401 responses; the per-IP login limiter allowed the configured attempts and then returned 429. Validation errors did not include passwords, hashes, database URLs, SQL text, or internal credentials. Unexpected database-error paths were not artificially forced; the common handler returns a generic 500 and logs only error type/code.
+- Authenticated product API create, update (including price, stock, and availability), and delete succeeded; malformed identifiers, oversized descriptions, unsupported numeric SQL-like values, and spoofed product values were rejected without changing the record. An inert synthetic HTML event-handler payload was persisted as product metadata and rendered on the detail page without executing; no page errors occurred.
+- Actual Chromium admin UI login/logout passed. The owner reviewed the synthetic order in the authenticated dashboard and changed status from `confirmed` to `processing`; the API then returned that persisted state. In a separate fresh disposable database, the 390×844 admin product screen created a synthetic product through the UI, edited its price/stock/availability, and deleted it; API reads confirmed each persisted state. A synthetic HTML event-handler payload in its name remained text, with no script execution, page errors, or horizontal overflow. The database was verified at 0 products / 0 orders with both synthetic sessions revoked, then the exact database and role were dropped.
+- An out-of-sequence `new` → `delivered` request returned HTTP 409 and left the order `new`; `new` → `confirmed` and browser `confirmed` → `processing` succeeded. SQL-like status input returned 400. Order lookup with another phone returned 404; the matching synthetic phone returned only the approved order projection, without address, phone, or bKash number.
+- Two simultaneous distinct synthetic orders competed for one unit of stock: exactly one returned 201 and one returned 409. The order row recorded the server catalog price (৳2,500), not the submitted price (৳1); the advance was the shop-configured 100, not the submitted amount. Before product cleanup, the database showed `inventory_reserved=true` and no negative inventory. No real payment was attempted.
+- A separate local synthetic app/migrator role setup was verified: the app role had no superuser, database-create, role-create, persistent schema-create, or `TRUNCATE` privilege, but had the required table DML and sequence privileges; the migrator owned the DB/schema objects and created/dropped an exact probe table. `node server/migrate.js` completed against only this isolated database using `MIGRATION_DATABASE_URL`. A production-mode local app then successfully authenticated, created/deleted a product, reserved inventory, updated an order and audit event, and revoked a session while using the DML-only role. This is local simulated evidence; it does not verify roles on a hosted staging database.
+- Browser requests to the known static asset origins `cdnjs.cloudflare.com` and `fonts.googleapis.com` were intercepted and aborted before network access during the targeted XSS/admin browser checks. No payment or notification integration was invoked. The standard Playwright suites were not globally configured to block these static asset origins.
+
+### Security review and release decision
+
+- The delegated static security review found **no confirmed exploitable vulnerability** in its reviewed scope. No application source defect was confirmed during the live synthetic checks; the observed HTTP 409 was the correct invalid-transition response, and two local test-harness locator/expectation mistakes were corrected without changing application behavior.
+- **Staging readiness: BLOCKED / NOT READY.** Local configuration and isolated-role behavior are not a hosted staging deployment. A separately owned host/hostname, authorized access, staging-only secrets/database/uploads, provider HTTPS/443/TLS evidence, and external monitoring/recovery gates remain unavailable or unverified.
+- **Production: NO-GO.** No production deployment, migration, DNS/configuration change, backup restore, alert delivery, rollback, or database recovery was performed. Continue to require verifiable isolated staging and recovery evidence before any release.
