@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import { createServer } from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -10,6 +11,13 @@ import { setManagedProducts } from './catalog.js';
 import { initializeDatabase, loadManagedProducts } from './db.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+
+class HostConfigurationError extends Error {
+    constructor() {
+        super('HOST must be an IP address.');
+        this.name = 'HostConfigurationError';
+    }
+}
 
 function required(name, minimumLength = 1) {
     const value = process.env[name]?.trim();
@@ -22,6 +30,7 @@ async function start() {
         nodeEnv: process.env.NODE_ENV || 'development',
         adminMfaRequired: (process.env.NODE_ENV || 'development') === 'production',
         port: Number(process.env.PORT || 3000),
+        host: process.env.HOST?.trim() || undefined,
         trustProxyHops: Number(process.env.TRUST_PROXY_HOPS || 0),
         siteUrl: process.env.PUBLIC_SITE_URL?.trim() || null,
         databaseUrl: required('DATABASE_URL'),
@@ -60,6 +69,7 @@ async function start() {
         throw new Error('PUBLIC_SITE_URL must be set in production for canonical URLs and the sitemap.');
     }
     if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) throw new Error('PORT must be a valid TCP port.');
+    if (config.host && !isIP(config.host)) throw new HostConfigurationError();
     if (!Number.isInteger(config.trustProxyHops) || config.trustProxyHops < 0 || config.trustProxyHops > 10) {
         throw new Error('TRUST_PROXY_HOPS must be an integer from 0 to 10.');
     }
@@ -102,7 +112,12 @@ async function start() {
 
     const app = createApp({ pool, config: { ...config, uploadsDir } });
     const server = createServer(app);
-    server.listen(config.port, () => console.info(`Shopademia listening on http://localhost:${config.port}`));
+    const displayHost = config.host
+        ? (config.host.includes(':') ? `[${config.host}]` : config.host)
+        : 'localhost';
+    const onListening = () => console.info(`Shopademia listening on http://${displayHost}:${config.port}`);
+    if (config.host) server.listen(config.port, config.host, onListening);
+    else server.listen(config.port, onListening);
 
     const shutdown = () => server.close(async () => {
         await pool.end();
@@ -115,7 +130,8 @@ async function start() {
 start().catch((error) => {
     console.error('Shopademia server failed to start:', {
         name: error.name || 'Error',
-        code: typeof error.code === 'string' ? error.code : undefined
+        code: typeof error.code === 'string' ? error.code : undefined,
+        ...(error instanceof HostConfigurationError ? { message: error.message } : {})
     });
     process.exitCode = 1;
 });

@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test';
 
 const storefrontPath = '/?shop=main';
 const trackers = /googletagmanager\.com|connect\.facebook\.net/;
+const expectedSiteOrigin = new URL(process.env.PLAYWRIGHT_BASE_URL).origin;
 
 test('homepage loads catalog and essential-only consent remains changeable', async ({ page }) => {
     const pageErrors = [];
@@ -16,7 +17,7 @@ test('homepage loads catalog and essential-only consent remains changeable', asy
     const response = await page.goto(storefrontPath);
     expect(response?.status()).toBe(200);
     await expect(page).toHaveTitle('Shop products and deals | Main Shop | Shopademia');
-    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'http://localhost:3000/');
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `${expectedSiteOrigin}/`);
     await expect(page.getByRole('heading', { name: 'Shop Products' })).toBeVisible();
     await expect(page.locator('#productResultsStatus')).toContainText('Showing');
     await expect(page.locator('#featuredProductGrid .fa-star')).toHaveCount(0);

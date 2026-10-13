@@ -12,6 +12,8 @@
     "test:api": "node --test server/*.test.js",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:all": "playwright test",
+    "validate:staging": "node scripts/validate-staging-config.js",
+    "staging:compose": "bash scripts/staging-compose.sh",
     "build:css": "tailwindcss -i css/tailwind.input.css -o css/tailwind.generated.css --minify"
   },
   "dependencies": {

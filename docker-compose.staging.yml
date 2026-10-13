@@ -1,0 +1,100 @@
+name: shopademia-staging
+
+services:
+  database:
+    build:
+      context: ./database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.staging}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.staging}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env.staging}
+      POSTGRES_MIGRATION_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD:?Set POSTGRES_MIGRATION_PASSWORD in .env.staging}
+    volumes:
+      - shopademia-staging-postgres:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    build:
+      context: .
+    restart: "no"
+    command: ["node", "server/migrate.js"]
+    environment:
+      NODE_ENV: production
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL in .env.staging}
+      DATABASE_SSL: "false"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env.staging}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.staging}
+      DELIVERY_ADVANCE_CHARGE: ${DELIVERY_ADVANCE_CHARGE:-100}
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - database
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      TRUST_PROXY_HOPS: 1
+      PUBLIC_SITE_URL: https://${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.staging}
+      DATABASE_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.staging}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?Set MFA_ENCRYPTION_KEY in .env.staging}
+      DELIVERY_ADVANCE_CHARGE: ${DELIVERY_ADVANCE_CHARGE:-100}
+    volumes:
+      - shopademia-staging-uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - proxy
+      - database
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - shopademia-staging-caddy-data:/data
+      - shopademia-staging-caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - proxy
+
+networks:
+  proxy:
+  database:
+    internal: true
+
+volumes:
+  shopademia-staging-postgres:
+  shopademia-staging-uploads:
+  shopademia-staging-caddy-data:
+  shopademia-staging-caddy-config:

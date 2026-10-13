@@ -1,18 +1,25 @@
 import { defineConfig } from '@playwright/test';
+import { validatePlaywrightTarget } from './scripts/playwright-target.js';
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL;
-if (!baseURL) {
-    throw new Error('Set PLAYWRIGHT_BASE_URL to a local or authorized staging URL before running browser tests.');
-}
+const targetErrors = validatePlaywrightTarget();
+if (targetErrors.length) throw new Error(targetErrors.join('\n'));
 
 export default defineConfig({
     testDir: './tests/e2e',
     fullyParallel: false,
+    workers: 1,
     forbidOnly: Boolean(process.env.CI),
     retries: process.env.CI ? 1 : 0,
-    reporter: 'list',
+    outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || 'test-results',
+    reporter: [
+        ['list'],
+        ['html', {
+            outputFolder: process.env.PLAYWRIGHT_REPORT_DIR || 'playwright-report',
+            open: 'never'
+        }]
+    ],
     use: {
-        baseURL,
+        baseURL: process.env.PLAYWRIGHT_BASE_URL,
         trace: 'retain-on-failure',
         screenshot: 'only-on-failure',
         video: 'retain-on-failure'
