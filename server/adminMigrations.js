@@ -89,5 +89,9 @@ export const ADMIN_MIGRATIONS = [
                 ('super_admin', 'secrets.write', TRUE)
             ON CONFLICT (role_key, permission_key) DO NOTHING;
         `
+    },
+    {
+        version: '002_reusable_product_image_links',
+        sql: `ALTER TABLE managed_products DROP CONSTRAINT IF EXISTS managed_products_image_key;`
     }
 ];

@@ -33,6 +33,8 @@ async function bootstrap() {
     const shopSlug = shopProfileMatch?.[1] || new URLSearchParams(window.location.search).get('shop') || 'main';
     if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(shopSlug)) throw new Error('This shop URL is invalid.');
     const route = resolveRoute(pathname, shopProfileMatch);
+    const marketplaceCatalogRoute = ['home', 'category', 'deals', 'top-selling'].includes(route.type);
+    const catalogShopSlug = marketplaceCatalogRoute ? null : shopSlug;
     const runtimeConfig = { ...appConfig, delivery: { ...appConfig.delivery } };
     const response = await fetchWithTimeout(`${appConfig.apiBaseUrl}/shops/${encodeURIComponent(shopSlug)}/config`);
     if (!response.ok) throw new Error(`Store configuration failed (${response.status}).`);
@@ -44,7 +46,7 @@ async function bootstrap() {
     runtimeConfig.shopSlug = result.data.slug;
     runtimeConfig.shopName = result.data.name;
     runtimeConfig.delivery.advanceCharge = result.delivery.advanceCharge;
-    const productRepo = new ApiProductRepository(appConfig.apiBaseUrl, shopSlug);
+    const productRepo = new ApiProductRepository(appConfig.apiBaseUrl, catalogShopSlug);
     const orderRepo = new ApiOrderRepository(appConfig.apiBaseUrl, runtimeConfig.shopId);
     const cartService = new CartService();
     const wishlistService = new WishlistService();
@@ -76,7 +78,7 @@ async function bootstrap() {
     const toastVM = new ToastViewModel();
     const cartVM = new CartViewModel(cartService, toastVM, analytics);
     const wishlistVM = new WishlistViewModel(wishlistService, toastVM);
-    const homeVM = new HomeViewModel(productRepo, new ApiCategoryRepository(appConfig.apiBaseUrl, shopSlug));
+    const homeVM = new HomeViewModel(productRepo, new ApiCategoryRepository(appConfig.apiBaseUrl, catalogShopSlug));
     const checkoutVM = new CheckoutViewModel({ cartService, orderRepository: orderRepo, analytics, toast: toastVM, config: runtimeConfig });
 
     new ToastView(toastVM);
@@ -85,7 +87,7 @@ async function bootstrap() {
     new CheckoutView(checkoutVM);
     const customerProfileView = new CustomerProfileView({ apiBaseUrl: appConfig.apiBaseUrl });
     new CategoryGridView(document.getElementById('categoryGrid'), homeVM, shopSlug);
-    new ProductGridView(document.getElementById('featuredProductGrid'), { homeVM, cartVM, wishlistVM, shopSlug });
+    new ProductGridView(document.getElementById('featuredProductGrid'), { homeVM, cartVM, checkoutVM, wishlistVM, shopSlug });
     new NewArrivalsView(document.getElementById('newArrivalsGrid'), homeVM, cartVM, wishlistVM, shopSlug);
     new HeroView({ homeVM, cartVM, shopSlug, slides: result.data.heroSlides || [] });
     const bannerImage = document.getElementById('shopBannerImage');
@@ -108,6 +110,8 @@ async function bootstrap() {
         route,
         homeVM,
         cartVM,
+        checkoutVM,
+        wishlistVM,
         customerProfileView
     });
     await routePage.render();
@@ -121,6 +125,7 @@ function resolveRoute(pathname, shopProfileMatch) {
     if (shopProfileMatch) return { type: 'shop' };
     if (pathname === '/') return { type: 'home' };
     if (pathname === '/shops') return { type: 'shops' };
+    if (pathname === '/top-selling') return { type: 'top-selling' };
     if (pathname === '/deals') return { type: 'deals' };
     if (pathname === '/about') return { type: 'about' };
     if (pathname === '/find-order') return { type: 'find-order' };
@@ -136,21 +141,22 @@ function resolveRoute(pathname, shopProfileMatch) {
 function configureNavigation(shopSlug, categoryId) {
     const shop = encodeURIComponent(shopSlug);
     const routes = {
-        '#home': `/?shop=${shop}`,
-        '/': `/?shop=${shop}`,
-        '/?shop=main#shop': `/?shop=${shop}#shop`,
-        '/deals': `/deals?shop=${shop}`,
-        '/shops': '/shops',
-        '/about': `/about?shop=${shop}`,
-        '/find-order': `/find-order?shop=${shop}`
+        home: `/?shop=${shop}`,
+        categories: categoryId ? `/category/${encodeURIComponent(categoryId)}?shop=${shop}` : null,
+        'top-selling': '/top-selling',
+        deals: `/deals?shop=${shop}`,
+        stores: '/shops',
+        about: `/about?shop=${shop}`,
+        'find-order': `/find-order?shop=${shop}`
     };
-    document.querySelectorAll('a[href="/category/gadgets"]').forEach((link) => {
-        if (categoryId) link.href = `/category/${encodeURIComponent(categoryId)}?shop=${shop}`;
-        else link.hidden = true;
-    });
-    document.querySelectorAll('a[href]').forEach((link) => {
-        const target = link.getAttribute('href');
-        if (target in routes) link.href = routes[target];
+    document.querySelectorAll('[data-nav-route]').forEach((link) => {
+        const route = routes[link.dataset.navRoute];
+        if (route) {
+            link.href = route;
+            link.hidden = false;
+        } else {
+            link.hidden = true;
+        }
     });
 }
 

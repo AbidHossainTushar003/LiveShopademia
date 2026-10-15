@@ -1,0 +1,11 @@
+<resources>
+    <color name="trust_blue">#173B67</color>
+    <color name="trust_blue_dark">#102A4A</color>
+    <color name="commerce_orange">#E66A2C</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_muted">#F2F5F8</color>
+    <color name="ink">#1D2938</color>
+    <color name="muted_ink">#5B6878</color>
+    <color name="error">#B42318</color>
+    <color name="success">#18794E</color>
+</resources>

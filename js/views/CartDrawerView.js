@@ -1,4 +1,4 @@
-import { escapeHtml } from '../utils/format.js';
+import { escapeHtml, isSafeProductImage } from '../utils/format.js';
 import { MAX_CART_QUANTITY } from '../services/CartService.js';
 
 export class CartDrawerView {
@@ -6,6 +6,11 @@ export class CartDrawerView {
         const modal = document.getElementById('cartModal');
         const list = document.getElementById('cartItemsContainer');
         const total = document.getElementById('cartTotalPrice');
+        list.addEventListener('error', (event) => {
+            if (!event.target.matches('img[data-cart-image]')) return;
+            event.target.classList.add('hidden');
+            event.target.nextElementSibling?.classList.remove('hidden');
+        }, true);
         let returnFocus = null;
         cartVM.isOpen.subscribe((open) => {
             modal.classList.toggle('hidden', !open);
@@ -21,7 +26,10 @@ export class CartDrawerView {
             total.textContent = s.totalText;
             list.innerHTML = s.lines.length ? s.lines.map((l) => `
                 <div data-id="${l.id}" class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                    <div class="w-12 h-12 rounded-lg bg-${l.tint}-100/50 flex items-center justify-center text-${l.tint}-600 shrink-0"><i class="fa-solid ${l.icon} text-lg"></i></div>
+                    <div class="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 shrink-0 overflow-hidden">
+                        ${isSafeProductImage(l.image) ? `<img data-cart-image src="${escapeHtml(l.image)}" alt="${escapeHtml(l.imageAlt || l.name)}" class="w-full h-full object-contain">` : ''}
+                        <i aria-hidden="true" class="fa-solid ${/^[a-z0-9-]+$/.test(l.icon) ? l.icon : 'fa-box'} text-lg ${isSafeProductImage(l.image) ? 'hidden' : ''}"></i>
+                    </div>
                     <div class="flex-1">
                         <h5 class="text-xs font-bold text-slate-800">${escapeHtml(l.name)}</h5>
                         <p class="text-xs text-blue-600 font-extrabold mt-0.5">${l.subtotalText}</p>

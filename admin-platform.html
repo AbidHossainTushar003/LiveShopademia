@@ -47,7 +47,7 @@
                     <h1>Shop management</h1>
                     <p id="platformDescription" class="muted">Manage shop access, brand assets, transactions, offers, and business activity.</p>
                 </div>
-                <label class="shop-picker-label" for="shopPicker">Active shop
+                <label class="shop-picker-label" for="shopPicker"><span id="shopPickerLabelText">Active shop</span>
                     <select id="shopPicker" aria-label="Select active shop"></select>
                 </label>
             </div>
@@ -138,17 +138,13 @@
                 </article>
                 <article id="heroSlidesPanel" class="profile-panel hero-slides-panel platform-feature-panel" data-platform-only>
                     <p class="eyebrow">STOREFRONT HERO</p>
-                    <h2>Hero slider</h2>
-                    <p class="muted">Add up to 5 slides. Each slide has its own image, headline, description, and Buy Now link.</p>
+                    <h2>Featured image carousel</h2>
+                    <p class="muted">Only a super admin can manage these storefront images. Upload up to 5 images; the homepage displays one at a time and advances automatically every 5 seconds. Slide text is fixed by the storefront.</p>
                     <form id="heroSlideForm" class="form hero-slide-form">
-                        <label for="heroSlideHeadline">Headline</label>
-                        <input id="heroSlideHeadline" name="headline" minlength="2" maxlength="120" required>
-                        <label for="heroSlideDescription">Description</label>
-                        <textarea id="heroSlideDescription" name="bodyText" minlength="2" maxlength="500" rows="3" required></textarea>
-                        <label for="heroSlideButton">Button text</label>
-                        <input id="heroSlideButton" name="buttonText" minlength="2" maxlength="40" value="Buy Now" required>
-                        <label for="heroSlideUrl">Buy Now URL</label>
-                        <input id="heroSlideUrl" name="targetUrl" type="text" maxlength="2048" placeholder="/#shop or https://example.com/product" required>
+                        <input name="headline" type="hidden" value="Featured marketplace image">
+                        <input name="bodyText" type="hidden" value="Explore products from independent shops.">
+                        <input name="buttonText" type="hidden" value="Shop Now">
+                        <input name="targetUrl" type="hidden" value="/#shop">
                         <label for="heroSlideImage">Desktop slide image</label>
                         <input id="heroSlideImage" name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
                         <label for="heroSlideMobileImage">Mobile slide image (optional)</label>
@@ -214,6 +210,11 @@
                     <label for="reportDays">Reporting period</label>
                     <select id="reportDays"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
                     <div id="reportSummary" class="platform-list" aria-live="polite"></div>
+                    <section class="platform-report-section" aria-labelledby="platformTopProductsTitle">
+                        <h3 id="platformTopProductsTitle">Top products across all shops</h3>
+                        <p class="muted">Ranked by units in non-cancelled orders across the selected reporting period.</p>
+                        <div id="platformTopProducts" class="platform-list" aria-live="polite"></div>
+                    </section>
                 </article>
                     </div>
                 </section>
@@ -223,6 +224,13 @@
                     <p class="eyebrow">ADMIN FOUNDATIONS</p>
                     <h2>Settings</h2>
                     <p class="muted">Secret values are encrypted at rest and never returned by read APIs. Configure <code>ADMIN_SETTINGS_ENCRYPTION_KEY</code> before saving secrets.</p>
+                    <form id="announcementSettingForm" class="form">
+                        <label for="announcementSettingValue">Storefront announcement</label>
+                        <input id="announcementSettingValue" name="announcement" maxlength="160" required>
+                        <p class="muted">This message scrolls across the public storefront header. Only a platform super admin can change it.</p>
+                        <p id="announcementSettingError" class="error hidden" role="alert"></p>
+                        <button id="saveAnnouncementSetting" class="button button-primary" type="submit">Save announcement</button>
+                    </form>
                     <form id="adminSettingForm" class="form">
                         <label for="adminSettingGroup">Group</label>
                         <input id="adminSettingGroup" name="group" pattern="[a-z][a-z0-9_-]{1,47}" maxlength="48" required>

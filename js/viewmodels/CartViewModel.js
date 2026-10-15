@@ -34,9 +34,10 @@ export class CartViewModel {
             } else {
                 this.toast.show('You can add up to 99 of each product.');
             }
-            return;
+            return false;
         }
         this.analytics?.track('add_to_cart', { items: [{ id: product.id, name: product.name, price: product.price, quantity: 1 }], value: product.price, currency: 'BDT' }); this.toast.show(`${product.name} added to cart!`);
+        return true;
     }
     setQuantity(productId, quantity) {
         this.cart.setQuantity(productId, quantity);

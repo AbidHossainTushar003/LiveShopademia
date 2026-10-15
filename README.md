@@ -34,6 +34,19 @@ Requirements: Node.js 20 or newer and Docker Desktop for the included local Post
 
 5. Open <http://localhost:3000> for the storefront and <http://localhost:3000/admin> for the admin dashboard. Keep the server running while using the site. Do not open `index.html` directly or use VS Code Live Server: the storefront and admin dashboard require the API served by this app.
 
+### Isolated read-only browser preview on this host
+
+The recovered local preview is a separate PostgreSQL 16 cluster and must not use the repository `.env` or the normal `npm.cmd start` development path, which initializes the database. After PostgreSQL is running on the verified loopback-only `127.0.0.1:55441`, launch the preview in PowerShell with its separately ACL-protected configuration:
+
+```powershell
+$env:DOTENV_CONFIG_PATH = "$env:LOCALAPPDATA\Shopademia\preview-recovery\shopademia.env"
+$env:DOTENV_CONFIG_OVERRIDE = 'true'
+$env:SHOPADEMIA_READ_ONLY_PREVIEW = '1'
+node server/index.js
+```
+
+This mode verifies the database identity and schema using read-only queries, sets PostgreSQL connections read-only, skips initialization and migrations, and binds the app only to `127.0.0.1:3002`. It serves only the allowlisted storefront pages, public catalog/configuration reads, and approved static assets. All non-GET/HEAD methods are rejected before route handlers; only explicitly allowlisted GET/HEAD routes continue. Admin pages and every admin API route, notification endpoints (including push-key reads), the order-lookup page and submissions, checkout, and unknown or malformed paths are unavailable. Disallowed GET/HEAD paths fail closed with a generic 404; disallowed methods return 405 with `Allow: GET, HEAD`. Rejected routes do not execute their business handlers or issue database queries. Malformed, traversal-shaped, and unavailable static paths return a generic 404 without exposing filesystem details; supported assets remain confined to their public directories. A visible notice identifies the preview. This is for local browsing only, not a writable test environment or public deployment. Keep the protected config private and do not copy its secrets into `.env`, source, shell history, or command output.
+
 The storefront includes `/privacy` and `/terms`, a consent choice for optional analytics, a social sharing image, and a generated `/sitemap.xml` and `/robots.txt`. Cart and wishlist remain in local browser storage; optional analytics trackers are not loaded unless a visitor allows analytics. Analytics integrations remain disabled until public tracker IDs are configured in `js/config/tracking.config.js`. The published policy text is an operational template and should be reviewed against the operator’s actual practices and local legal requirements.
 
 For production, set `DOMAIN` to the public hostname; Docker passes `https://${DOMAIN}` to the app as `PUBLIC_SITE_URL` for canonical metadata and sitemap links. Caddy terminates TLS, redirects HTTP to HTTPS, and compresses responses. Keep application secrets in the server environment only. Browser-side image uploads are resized/compressed to WebP when the browser can produce a smaller file; the server still validates image type/signature and enforces upload limits.
@@ -42,15 +55,17 @@ The server creates the order tables, admin credential table, and indexes at star
 
 ### Browser tests
 
-Start the app locally, then set `PLAYWRIGHT_BASE_URL` to that local URL before running `npm run test:e2e`. The default command runs Chromium; `npm run test:e2e:all` runs every configured engine and requires the corresponding Playwright browser dependencies on the host. Do not point the tests at a production service.
+For the local read-only preview, set `PLAYWRIGHT_BASE_URL` to its loopback URL and run `npm run test:e2e`; this runs only public storefront browsing checks in Chromium. `npm run test:e2e:all` includes admin UI scenarios and all configured browser engines. Admin specs fail during discovery unless `PLAYWRIGHT_ALLOW_PRIVILEGED_E2E=1` is explicitly set and the target guard validates a non-loopback HTTPS staging hostname, exact `PLAYWRIGHT_STAGING_HOST`, staging environment, and external per-run artifact paths. Use it only against an independently approved disposable staging target with synthetic accounts; it requires the matching Playwright browsers. The target guard rejects the production hostname. Do not run privileged or full suites against the read-only preview or any production service.
 
 ## Catalog and API
 
-The storefront uses this application's same-origin API; it does not fetch catalog or checkout data from a third-party demo API. The product endpoints (`GET /api/v1/products`, `/api/v1/products?featured=true`, `/api/v1/products?sort=newest`, `/api/v1/products/hero-offer`, and `/api/v1/categories`) serve products published through the admin API. New installations start with no bundled sample listings. Product additions, edits, stock, availability, and uploaded images are managed through authenticated `/api/v1/admin/products` endpoints and persisted in PostgreSQL. Checkout uses the server-owned catalog prices; the browser cannot set order prices.
+The storefront uses this application's same-origin API; it does not fetch catalog or checkout data from a third-party demo API. The product endpoints (`GET /api/v1/products`, `/api/v1/products?featured=true`, `/api/v1/products?sort=newest`, `/api/v1/products/hero-offer`, and `/api/v1/categories`) serve products published through the admin API. New installations start with no bundled sample listings. For local development only, an operator can explicitly run `node scripts/seed-demo-catalog.js --apply` to add 18 clearly labeled demo shops with 32 complete example products each. The seed refuses production, remote, SSL, and read-only-preview database targets; demo listings use public Unsplash image links and have no administrator accounts. Do not run it against real seller data. Product additions, edits, stock, availability, and images are managed through authenticated `/api/v1/admin/products` endpoints and persisted in PostgreSQL. Product details are required; sellers can combine up to 10 uploaded JPEG, PNG, or WebP images with public HTTPS image links. Checkout uses the server-owned catalog prices; the browser cannot set order prices.
+
+The observed endpoint inventory, native bearer-session usage, request/response shapes, authorization requirements, Android base URLs, and remaining implementation gaps are documented in [docs/ANDROID_ADMIN_API.md](./docs/ANDROID_ADMIN_API.md).
 
 ### Shop product API for external websites
 
-Every active shop has a public, read-only JSON endpoint containing only products uploaded by that shop (not the bundled starter/demo catalog):
+Every active shop has a public, read-only JSON endpoint containing only products published for that shop, never products from other shops:
 
 ```text
 GET https://YOUR_DOMAIN/api/v1/public/shops/SHOP_SLUG/products

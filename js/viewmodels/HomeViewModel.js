@@ -94,7 +94,7 @@ export class HomeViewModel {
         const isFiltering = this.#showAllProducts || Boolean(this.#query) || this.activeCategory.value !== 'all' || this.wishlistOnly.value || this.dealsOnly.value;
         const products = isFiltering ? this.#allProducts : this.#allFeatured;
         this.featured.set(products.filter((p) => {
-            const matchesQuery = !this.#query || `${p.name} ${p.category} ${p.description || ''}`.toLowerCase().includes(this.#query);
+            const matchesQuery = !this.#query || p.name.toLowerCase().includes(this.#query);
             const matchesCategory = this.activeCategory.value === 'all' || p.category === this.activeCategory.value;
             return matchesQuery && matchesCategory && (!this.dealsOnly.value || p.hasDiscount);
         }));

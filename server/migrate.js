@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { Pool } from 'pg';
+import { validateAdminPassword } from './adminPassword.js';
 import { initializeDatabase } from './db.js';
 
 function required(name, minimumLength = 1) {
@@ -15,9 +16,7 @@ async function migrate() {
     if (environment === 'production') {
         const adminPassword = required('ADMIN_PASSWORD', 12);
         const adminEmail = required('ADMIN_EMAIL');
-        if (/replace-with|change-this/i.test(adminPassword)) {
-            throw new Error('Replace the example admin password before running migrations.');
-        }
+        validateAdminPassword(adminPassword);
         const advanceCharge = Number(process.env.DELIVERY_ADVANCE_CHARGE || 100);
         if (!Number.isSafeInteger(advanceCharge) || advanceCharge < 0) {
             throw new Error('DELIVERY_ADVANCE_CHARGE must be a non-negative integer.');

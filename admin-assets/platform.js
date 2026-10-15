@@ -18,9 +18,10 @@ function showMessage(text, isError = false) {
 
 async function api(path, options = {}) {
     const headers = new Headers(options.headers);
-    if (activeShop && !path.endsWith('/admin/shops')) headers.set('X-Shop-Id', activeShop.id);
-    if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-    const response = await fetch(`/api/v1${path}`, { ...options, headers, credentials: 'same-origin' });
+    const { shopScoped = true, ...requestOptions } = options;
+    if (shopScoped && activeShop && !path.endsWith('/admin/shops')) headers.set('X-Shop-Id', activeShop.id);
+    if (requestOptions.body && !(requestOptions.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+    const response = await fetch(`/api/v1${path}`, { ...requestOptions, headers, credentials: 'same-origin' });
     const body = await response.json().catch(() => ({}));
     if (response.status === 401) {
         window.location.assign('/admin');
@@ -60,6 +61,9 @@ async function loadShops() {
     const dashboardLink = document.getElementById('dashboardLink');
     dashboardLink.href = isPlatformAdmin ? '/' : '/admin';
     dashboardLink.textContent = isPlatformAdmin ? 'Storefront' : 'Back to orders';
+    document.getElementById('shopPickerLabelText').textContent = isPlatformAdmin
+        ? 'Management context'
+        : 'Your shop';
     const { data } = await api('/admin/shops');
     if (!data.length) throw new Error(isPlatformAdmin
         ? 'No shops are configured yet.'
@@ -157,6 +161,7 @@ async function loadShopDetails() {
             loadTransactions(),
             loadOffers(),
             loadReports(),
+            loadPlatformTopProducts(),
             loadActivity(),
             loadAdminSettings(),
             loadPermissionMatrix(),
@@ -178,11 +183,11 @@ async function loadHeroSlides() {
     submit.disabled = data.length >= 5 && !form.dataset.slideId;
     if (!data.length) appendText(container, 'No hero slides yet.');
     data.forEach((slide, index) => {
-        const { card, content } = appendCard(container, slide.headline, slide.bodyText);
+        const { card, content } = appendCard(container, `Image ${index + 1}`, 'Shown one at a time in the storefront hero.');
         card.classList.add('hero-slide-card');
         const img = document.createElement('img');
         img.src = slide.image;
-        img.alt = `${slide.headline} hero slide`;
+        img.alt = `Featured marketplace image ${index + 1}`;
         img.className = 'hero-slide-thumbnail';
         content.append(img);
         if (slide.mobileImage) {
@@ -193,7 +198,6 @@ async function loadHeroSlides() {
             content.append(mobileImg);
             appendText(content, 'Mobile image', 'muted');
         }
-        appendText(content, `Button: ${slide.buttonText} · URL: ${slide.targetUrl}`, 'muted');
         if (!canManage) return;
 
         const controls = document.createElement('div');
@@ -244,7 +248,7 @@ async function loadHeroSlides() {
         remove.className = 'button button-danger';
         remove.textContent = 'Remove';
         remove.addEventListener('click', async () => {
-            if (!confirm(`Remove the hero slide “${slide.headline}”?`)) return;
+            if (!confirm(`Remove featured image ${index + 1}?`)) return;
             try {
                 await api(`/admin/shop/hero-slides/${encodeURIComponent(slide.id)}`, { method: 'DELETE' });
                 showMessage('Hero slide removed.');
@@ -428,21 +432,29 @@ async function loadReports() {
         `Non-cancelled order value: ${formatAmount(data.orders.grossSales)}`,
         `Delivered order value: ${formatAmount(data.orders.deliveredSales)} · Average non-cancelled order: ${formatAmount(data.orders.averageOrderValue)}. Order values are not proof of collected payments.`
     );
-    if (data.topProducts.length) {
-        const top = document.createElement('article');
-        const wrapper = document.createElement('div');
-        appendText(wrapper, 'Top products by units sold');
-        data.topProducts.forEach((product, index) => appendText(
-            wrapper,
-            `${index + 1}. ${product.name} · ${product.quantity} units · ${formatAmount(product.revenue)}`
-        ));
-        top.append(wrapper);
-        container.append(top);
-    }
     if (data.transactions.length) {
         const statuses = data.transactions.map((item) => `${item.type} ${item.status}: ${item.count} (${formatAmount(item.amount)})`).join(' · ');
         appendText(container, `Transactions — ${statuses}`);
     }
+}
+
+async function loadPlatformTopProducts() {
+    const container = document.getElementById('platformTopProducts');
+    container.replaceChildren();
+    const days = document.getElementById('reportDays').value;
+    const { data } = await api(
+        `/admin/platform/top-products?days=${encodeURIComponent(days)}`,
+        { shopScoped: false }
+    );
+    if (!data.topProducts.length) {
+        appendText(container, `No non-cancelled product orders in the last ${data.days} days.`);
+        return;
+    }
+    data.topProducts.forEach((product, index) => appendCard(
+        container,
+        `${index + 1}. ${product.name}`,
+        `${product.shopName} · ${product.quantity} units · ${formatAmount(product.revenue)}`
+    ));
 }
 
 async function loadActivity() {
@@ -461,6 +473,10 @@ async function loadAdminSettings() {
     const container = document.getElementById('adminSettingsList');
     container.replaceChildren();
     const { data } = await api('/admin/settings');
+    const announcement = data.find((setting) => setting.group === 'storefront' && setting.key === 'announcement');
+    document.getElementById('announcementSettingValue').value = typeof announcement?.value === 'string'
+        ? announcement.value
+        : 'Discover products from independent shops';
     if (!data.length) return appendText(container, 'No administrative settings have been saved.');
     data.forEach((setting) => appendCard(
         container,
@@ -468,6 +484,29 @@ async function loadAdminSettings() {
         `${String(setting.value)} · updated ${new Date(setting.updatedAt).toLocaleString()}`
     ));
 }
+
+document.getElementById('announcementSettingForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = document.getElementById('saveAnnouncementSetting');
+    const error = document.getElementById('announcementSettingError');
+    submit.disabled = true;
+    error.textContent = '';
+    error.classList.add('hidden');
+    try {
+        await api('/admin/settings/storefront/announcement', {
+            method: 'PUT',
+            body: JSON.stringify({ value: form.elements.announcement.value, isSecret: false })
+        });
+        showMessage('Storefront announcement saved. It will appear on the next storefront load.');
+        await Promise.all([loadAdminSettings(), loadAdminAudit()]);
+    } catch (requestError) {
+        error.textContent = requestError.message;
+        error.classList.remove('hidden');
+    } finally {
+        submit.disabled = false;
+    }
+});
 
 async function loadPermissionMatrix() {
     const container = document.getElementById('permissionMatrix');
@@ -771,7 +810,10 @@ document.getElementById('offerForm').addEventListener('submit', async (event) =>
     }
 });
 
-document.getElementById('reportDays').addEventListener('change', () => loadReports().catch((error) => showMessage(error.message, true)));
+document.getElementById('reportDays').addEventListener('change', () => Promise.all([
+    loadReports(),
+    loadPlatformTopProducts()
+]).catch((error) => showMessage(error.message, true)));
 
 loadShops()
     .then(loadShopDetails)

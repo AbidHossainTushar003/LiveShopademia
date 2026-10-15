@@ -1,4 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { validatePrivilegedPlaywrightTarget } from '../../scripts/playwright-target.js';
+
+const privilegedTargetErrors = validatePrivilegedPlaywrightTarget();
+if (privilegedTargetErrors.length) {
+    throw new Error(`Privileged admin E2E is disabled for this target: ${privilegedTargetErrors.join(' ')}`);
+}
 
 async function disablePageController(page, name) {
     await page.route(`**/admin-assets/${name}.js`, (route) => route.fulfill({
@@ -150,6 +156,7 @@ test('shop staff can use platform workspace without requesting team-management d
 test('platform admins can sign out and return to the login form', async ({ page }) => {
     let signedOut = false;
     let logoutMethod = '';
+    let topProductsShopHeader = 'not-requested';
     await page.route('**/api/v1/admin/**', async (route) => {
         const url = new URL(route.request().url());
         if (url.pathname === '/api/v1/admin/profile') {
@@ -172,11 +179,15 @@ test('platform admins can sign out and return to the login form', async ({ page 
                     data: {
                         days: 30,
                         orders: { orderCount: 0, cancelledCount: 0, grossSales: 0, deliveredSales: 0, averageOrderValue: 0 },
-                        topProducts: [],
                         transactions: []
                     }
                 }
             });
+            return;
+        }
+        if (url.pathname === '/api/v1/admin/platform/top-products') {
+            topProductsShopHeader = route.request().headers()['x-shop-id'] ?? null;
+            await route.fulfill({ json: { data: { days: 30, topProducts: [] } } });
             return;
         }
         if (url.pathname === '/api/v1/admin/logout') {
@@ -191,6 +202,8 @@ test('platform admins can sign out and return to the login form', async ({ page 
     await page.goto('/admin/platform');
     const signOut = page.getByRole('button', { name: 'Sign out' });
     await expect(signOut).toBeVisible();
+    await expect(page.locator('#shopPickerLabelText')).toHaveText('Management context');
+    await expect.poll(() => topProductsShopHeader).toBeNull();
     await signOut.click();
     await expect(page).toHaveURL(/\/admin$/);
     await expect(page.locator('#loginPanel')).toBeVisible();

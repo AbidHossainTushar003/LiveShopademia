@@ -7,7 +7,7 @@ const reservedDomains = ['example.com', 'example.net', 'example.org'];
 const reservedSuffixes = ['.example', '.test', '.invalid', '.localhost'];
 
 function isLoopback(hostname) {
-    const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    const host = normalizeHostname(hostname);
     return host === 'localhost' || host.endsWith('.localhost') || isIP(host) === 4 && host.startsWith('127.') || host === '::1';
 }
 
@@ -115,6 +115,24 @@ export function validatePlaywrightTarget(env = process.env, repositoryRoot = pro
                 }
             }
         }
+    }
+
+    return errors;
+}
+
+export function validatePrivilegedPlaywrightTarget(env = process.env, repositoryRoot = process.cwd()) {
+    const errors = validatePlaywrightTarget(env, repositoryRoot);
+    if (env.PLAYWRIGHT_ALLOW_PRIVILEGED_E2E !== '1') {
+        errors.push('Privileged browser tests require PLAYWRIGHT_ALLOW_PRIVILEGED_E2E=1.');
+    }
+
+    try {
+        const target = new URL(env.PLAYWRIGHT_BASE_URL || '');
+        if (isLoopback(target.hostname)) {
+            errors.push('Privileged browser tests cannot target a local or loopback server.');
+        }
+    } catch {
+        // validatePlaywrightTarget reports an invalid or missing base URL.
     }
 
     return errors;

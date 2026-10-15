@@ -1,5 +1,7 @@
 import { escapeHtml, formatPrice, isSafeProductImage } from '../utils/format.js';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout.js';
+import { Product } from '../models/Product.js';
+import { renderProductCard } from './productCard.js';
 
 function requestJson(url) {
     return fetchWithTimeout(url).then(async (response) => {
@@ -10,9 +12,14 @@ function requestJson(url) {
 }
 
 export class RoutePageView {
-    constructor({ root, apiBaseUrl, shop, route, homeVM, cartVM, customerProfileView }) {
-        Object.assign(this, { root, apiBaseUrl, shop, route, homeVM, cartVM, customerProfileView });
+    constructor({ root, apiBaseUrl, shop, route, homeVM, cartVM, checkoutVM, wishlistVM, customerProfileView }) {
+        Object.assign(this, { root, apiBaseUrl, shop, route, homeVM, cartVM, checkoutVM, wishlistVM, customerProfileView });
         this.homeSections = [...document.querySelectorAll('[data-home-section]')];
+        root.addEventListener('error', (event) => {
+            if (!event.target.matches('img[data-product-image]')) return;
+            event.target.classList.add('hidden');
+            event.target.nextElementSibling?.classList.remove('hidden');
+        }, true);
         root.addEventListener('click', (event) => {
             const thumbnail = event.target.closest('[data-product-gallery-image]');
             if (thumbnail) {
@@ -23,11 +30,40 @@ export class RoutePageView {
                 });
                 return;
             }
+            const wishlistButton = event.target.closest('[data-route-wishlist]');
+            if (wishlistButton) {
+                const product = this.homeVM.findProduct(wishlistButton.dataset.routeWishlist);
+                if (product) {
+                    this.wishlistVM.toggle(product);
+                    this.updateWishlistButton(product, wishlistButton);
+                }
+                return;
+            }
             const button = event.target.closest('[data-route-add]');
-            if (!button) return;
-            const product = this.homeVM.findProduct(button.dataset.routeAdd);
-            if (product) this.cartVM.add(product);
+            const buyNowButton = event.target.closest('[data-route-buy-now]');
+            const purchaseButton = button || buyNowButton;
+            if (!purchaseButton) return;
+            const product = this.homeVM.findProduct(purchaseButton.dataset.routeAdd || purchaseButton.dataset.routeBuyNow);
+            if (!product) return;
+            if (buyNowButton) {
+                if (this.cartVM.add(product)) this.checkoutVM.open();
+            } else {
+                this.cartVM.add(product);
+            }
         });
+    }
+
+    updateWishlistButton(product, button = this.root.querySelector('[data-route-wishlist]')) {
+        if (!button) return;
+        const wished = this.wishlistVM.isWished(product.id);
+        button.setAttribute('aria-pressed', String(wished));
+        const label = button.querySelector('span');
+        button.setAttribute('aria-label', label
+            ? (wished ? 'Remove from wishlist' : 'Save to wishlist')
+            : (wished ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`));
+        const icon = button.querySelector('i');
+        if (icon) icon.className = `fa-${wished ? 'solid' : 'regular'} fa-heart`;
+        if (label) label.textContent = wished ? 'Saved' : 'Save';
     }
 
     async render() {
@@ -52,6 +88,9 @@ export class RoutePageView {
                     break;
                 case 'shops':
                     await this.renderShops();
+                    break;
+                case 'top-selling':
+                    await this.renderTopSelling();
                     break;
                 case 'shop':
                     await this.renderShop();
@@ -84,39 +123,27 @@ export class RoutePageView {
 
     productsGrid(products) {
         if (!products.length) return '<p class="route-empty">There are no products to show right now.</p>';
-        return `<div class="route-product-grid">${products.map((product) => {
-            const image = isSafeProductImage(product.image)
-                ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy">`
-                : `<span class="route-product-placeholder" aria-hidden="true"><i class="fa-solid fa-box"></i></span>`;
-            const category = this.homeVM.categories.value.find(({ id }) => id === product.category);
-            const categoryLink = category
-                ? `<a class="route-category-link" href="/category/${encodeURIComponent(category.id)}?shop=${encodeURIComponent(this.shop.slug)}">${escapeHtml(category.name)}</a>`
-                : '<span class="route-category-link">Unassigned</span>';
-            const productLink = `/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(this.shop.slug)}`;
-            return `<article class="route-product-card">
-                <a class="route-product-image" href="${productLink}">${image}</a>
-                <div class="route-product-copy">
-                    ${categoryLink}
-                    <h2><a href="${productLink}">${escapeHtml(product.name)}</a></h2>
-                    <p>${escapeHtml(product.description || 'Discover more about this item.')}</p>
-                    <div class="route-price-row"><strong>${formatPrice(product.price)}</strong>${product.hasDiscount ? `<del>${formatPrice(product.oldPrice)}</del><span class="route-discount">-${product.discountPercent}%</span>` : ''}</div>
-                    <button class="route-button" type="button" data-route-add="${escapeHtml(product.id)}" ${product.isAvailableForPurchase === false ? 'disabled' : ''}>${product.isAvailableForPurchase === false ? 'Unavailable' : 'Add to cart'}</button>
-                </div>
-            </article>`;
-        }).join('')}</div>`;
+        const wished = this.wishlistVM.ids.value;
+        return `<div class="route-product-grid">${products.map((product) =>
+            renderProductCard({ product, shopSlug: this.shop.slug, isWished: wished.has(String(product.id)), mode: 'route' })
+        ).join('')}</div>`;
     }
 
     renderProduct() {
         const product = this.homeVM.findProduct(this.route.id);
         if (!product) return this.renderNotFound('Product not found');
+        const available = product.isAvailable !== false && product.stockQuantity !== 0
+            && product.isAvailableForPurchase !== false;
+        const availabilityLabel = product.isAvailable === false ? 'Unavailable' : 'Out of stock';
         const fallbackIcon = /^[a-z0-9-]+$/.test(product.icon) ? product.icon : 'fa-box-open';
+        const wished = this.wishlistVM.isWished(product.id);
         const images = [...new Set((product.images?.length ? product.images : [product.image])
             .filter((imageUrl) => isSafeProductImage(imageUrl)))];
         const image = images.length
             ? `<img data-product-gallery-main src="${escapeHtml(images[0])}" alt="${escapeHtml(product.imageAlt || product.name)}">`
             : `<i class="fa-solid ${fallbackIcon}" aria-hidden="true"></i>`;
         const gallery = images.length > 1
-            ? `<div class="route-image-thumbnails" aria-label="Product images">${images.map((imageUrl, index) =>
+            ? `<div class="route-image-thumbnails" role="group" aria-label="Product images">${images.map((imageUrl, index) =>
                 `<button type="button" data-product-gallery-image="${escapeHtml(imageUrl)}" aria-label="Show product image ${index + 1}" aria-pressed="${index === 0}"><img src="${escapeHtml(imageUrl)}" alt="" loading="lazy"></button>`
             ).join('')}</div>`
             : '';
@@ -139,9 +166,19 @@ export class RoutePageView {
                 <h1>${escapeHtml(product.name)}</h1>
                 <div class="route-price-row"><strong>${formatPrice(product.price)}</strong>${product.hasDiscount ? `<del>${formatPrice(product.oldPrice)}</del><span class="route-discount">Save ${product.discountPercent}%</span>` : ''}</div>
                 <p>${escapeHtml(product.description || 'Product information is not available yet.')}</p>
-                <p class="route-stock ${product.isAvailableForPurchase === false ? 'is-unavailable' : ''}"><span aria-hidden="true"></span>${product.isAvailableForPurchase === false ? 'Currently unavailable' : Number.isSafeInteger(product.stockQuantity) ? `${product.stockQuantity} in stock` : 'Available to order'}</p>
-                <button class="route-button route-add-button" type="button" data-route-add="${escapeHtml(product.id)}" ${product.isAvailableForPurchase === false ? 'disabled' : ''}><i class="fa-solid fa-bag-shopping" aria-hidden="true"></i>${product.isAvailableForPurchase === false ? 'Unavailable' : 'Add to cart'}</button>
-                <div class="route-payment-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>Order requests are reviewed by the shop. Payment instructions are shared separately; this site does not collect payment.</span></div></div>
+                <p class="route-stock ${available ? '' : 'is-unavailable'}"><span aria-hidden="true"></span>${available ? Number.isSafeInteger(product.stockQuantity) ? `${product.stockQuantity} in stock` : 'Available to order' : availabilityLabel}</p>
+                <div class="route-purchase-actions">
+                    <button class="route-button route-add-button" type="button" data-route-add="${escapeHtml(product.id)}" ${available ? '' : 'disabled'}><i class="fa-solid fa-bag-shopping" aria-hidden="true"></i>${available ? 'Add to cart' : availabilityLabel}</button>
+                    <button class="market-product-buy route-buy-button" type="button" data-route-buy-now="${escapeHtml(product.id)}" ${available ? '' : 'disabled'}>${available ? 'Buy now' : availabilityLabel}</button>
+                    <button class="route-wishlist-button" type="button" data-route-wishlist="${escapeHtml(product.id)}" aria-label="${wished ? 'Remove from wishlist' : 'Save to wishlist'}" aria-pressed="${wished}"><i class="fa-${wished ? 'solid' : 'regular'} fa-heart" aria-hidden="true"></i><span>${wished ? 'Saved' : 'Save'}</span></button>
+                </div>
+                <section class="route-order-steps" aria-labelledby="route-order-steps-title">
+                    <h2 id="route-order-steps-title">How ordering works</h2>
+                    <ol><li><span>1</span><div><strong>Add to your cart</strong><p>Keep the items you want together.</p></div></li>
+                    <li><span>2</span><div><strong>Send an order request</strong><p>The shop reviews your request before confirming.</p></div></li>
+                    <li><span>3</span><div><strong>Coordinate with the shop</strong><p>Payment instructions are shared separately.</p></div></li></ol>
+                    <p class="route-payment-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>Shopademia does not collect payment on this page.</span></p>
+                </section></div>
             </article>`;
         document.title = `${product.name} | ${this.shop.name}`;
     }
@@ -154,15 +191,43 @@ export class RoutePageView {
         document.title = `${category.name} | ${this.shop.name}`;
     }
 
+    shopCard(shop) {
+        const image = shop.logoImage || shop.bannerImage;
+        const art = isSafeProductImage(image)
+            ? `<img class="${shop.logoImage && !shop.bannerImage ? 'shop-logo-art' : ''}" src="${escapeHtml(image)}" alt="" loading="lazy">`
+            : '<span class="route-shop-placeholder" aria-hidden="true"><i class="fa-solid fa-store"></i></span>';
+        return `<article class="route-shop-card marketplace-shop-card">
+            <a class="route-shop-art" href="/shops/${encodeURIComponent(shop.slug)}" tabindex="-1" aria-hidden="true">${art}</a>
+            <div>
+                <p class="route-eyebrow">INDEPENDENT SHOP</p>
+                <h3><a href="/shops/${encodeURIComponent(shop.slug)}">${escapeHtml(shop.name)}</a></h3>
+                ${shop.description ? `<p>${escapeHtml(shop.description)}</p>` : '<p>Explore this shop’s products and latest offers.</p>'}
+                ${shop.location ? `<p class="route-shop-location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${escapeHtml(shop.location)}</p>` : ''}
+                <a class="route-text-link" href="/shops/${encodeURIComponent(shop.slug)}">Explore shop <span aria-hidden="true">→</span></a>
+            </div>
+        </article>`;
+    }
+
     async renderShops() {
         const { data } = await requestJson(`${this.apiBaseUrl}/shops`);
         if (!Array.isArray(data)) throw new Error('The shop directory returned invalid data.');
-        const cards = data.map((shop) => {
-            const image = shop.logoImage || shop.bannerImage;
-            const art = isSafeProductImage(image) ? `<img class="${shop.logoImage && !shop.bannerImage ? 'shop-logo-art' : ''}" src="${escapeHtml(image)}" alt="" loading="lazy">` : '<span class="route-shop-placeholder"><i class="fa-solid fa-store" aria-hidden="true"></i></span>';
-            return `<article class="route-shop-card"><a class="route-shop-art" href="/shops/${encodeURIComponent(shop.slug)}">${art}</a><div><p class="route-eyebrow">SHOP</p><h2><a href="/shops/${encodeURIComponent(shop.slug)}">${escapeHtml(shop.name)}</a></h2>${shop.description ? `<p>${escapeHtml(shop.description)}</p>` : ''}${shop.location ? `<p class="route-shop-location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${escapeHtml(shop.location)}</p>` : ''}<a class="route-text-link" href="/shops/${encodeURIComponent(shop.slug)}">Visit shop <span aria-hidden="true">→</span></a></div></article>`;
-        }).join('');
-        this.root.innerHTML = `<header class="route-heading"><p class="route-eyebrow">SHOPADEMIA DIRECTORY</p><h1>Explore our shops</h1><p>Browse each shop’s own storefront, products, and current deals.</p></header>${data.length ? `<div class="route-shop-grid">${cards}</div>` : '<p class="route-empty">There are no active shops to show right now.</p>'}`;
+        const cards = data.map((shop) => this.shopCard(shop)).join('');
+        this.root.innerHTML = `<header class="shops-directory-hero">
+                <div class="shops-directory-copy">
+                    <p class="route-eyebrow">THE SHOPADEMIA DIRECTORY</p>
+                    <h1>Find your next favorite shop.</h1>
+                    <p>Meet independent sellers, explore their storefronts, and discover collections selected by each shop.</p>
+                    <div class="shops-directory-summary">
+                        <span class="shops-directory-count"><i class="fa-solid fa-store" aria-hidden="true"></i><strong>${data.length}</strong> ${data.length === 1 ? 'shop' : 'shops'} to explore</span>
+                        <span class="shops-directory-promise"><i class="fa-solid fa-shield-heart" aria-hidden="true"></i> Shop directly with each seller</span>
+                    </div>
+                </div>
+                <div class="shops-directory-art" aria-hidden="true"><span class="shops-directory-art-orbit"></span><i class="fa-solid fa-store"></i><span class="shops-directory-art-tag">Independent finds</span></div>
+            </header>
+            <section class="shops-directory-results" aria-labelledby="shopsDirectoryTitle">
+                <div class="shops-directory-results-heading"><div><p class="route-eyebrow">BROWSE THE MARKETPLACE</p><h2 id="shopsDirectoryTitle">All shops <span>${data.length}</span></h2></div><p>Choose a shop to see its products, categories, and current offers.</p></div>
+                ${data.length ? `<div class="route-shop-grid marketplace-shop-grid${data.length === 1 ? ' is-single-shop' : ''}">${cards}</div>` : '<p class="route-empty">There are no active shops to show right now.</p>'}
+            </section>`;
         document.title = 'Our shops | Shopademia';
     }
 
@@ -171,8 +236,11 @@ export class RoutePageView {
             requestJson(`${this.apiBaseUrl}/shops/${encodeURIComponent(this.shop.slug)}`),
             requestJson(`${this.apiBaseUrl}/shops/${encodeURIComponent(this.shop.slug)}/offers`)
         ]);
-        const banner = isSafeProductImage(shop.bannerImage || shop.logoImage)
-            ? `<img class="${shop.bannerImage ? '' : 'shop-logo-banner'}" src="${escapeHtml(shop.bannerImage || shop.logoImage)}" alt="${escapeHtml(shop.name)} ${shop.bannerImage ? 'banner' : 'logo'}">`
+        const cover = isSafeProductImage(shop.bannerImage)
+            ? `<img src="${escapeHtml(shop.bannerImage)}" alt="">`
+            : '<span class="shop-profile-cover-art" aria-hidden="true"><i class="fa-solid fa-store"></i></span>';
+        const avatar = isSafeProductImage(shop.logoImage)
+            ? `<img src="${escapeHtml(shop.logoImage)}" alt="">`
             : '<i class="fa-solid fa-store" aria-hidden="true"></i>';
         const categories = this.homeVM.categories.value.map((category) =>
             `<a class="route-chip" href="/category/${encodeURIComponent(category.id)}?shop=${encodeURIComponent(shop.slug)}">${escapeHtml(category.name)}</a>`
@@ -183,30 +251,67 @@ export class RoutePageView {
             shop.contactPhone ? `<a href="tel:${encodeURIComponent(shop.contactPhone)}"><i class="fa-solid fa-phone" aria-hidden="true"></i> ${escapeHtml(shop.contactPhone)}</a>` : '',
             shop.contactWhatsApp ? `<a href="https://wa.me/${shop.contactWhatsApp.replace(/\D/g, '')}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i> WhatsApp</a>` : ''
         ].filter(Boolean).join('');
-        const topSellers = Array.isArray(shop.topProducts) ? shop.topProducts : [];
-        const productsById = new Map(this.homeVM.getAllProducts().map((product) => [String(product.id), product]));
-        const topSellerItems = topSellers.map(({ productId, name, quantity }) => {
-            const product = productsById.get(String(productId));
-            const productName = product?.name || name || 'Product';
-            const label = product
-                ? `<a href="/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(shop.slug)}">${escapeHtml(productName)}</a>`
-                : `<span>${escapeHtml(productName)}</span>`;
-            return `<li>${label}<span>${escapeHtml(String(quantity))} ordered</span></li>`;
-        }).join('');
-        this.root.innerHTML = `<section class="route-shop-hero"><div class="route-shop-banner">${banner}</div><div><p class="route-eyebrow">SHOP PROFILE</p><h1>${escapeHtml(shop.name)}</h1><p>${escapeHtml(shop.description || `Welcome to the ${shop.name} storefront. Explore this shop’s products and current offers.`)}</p>${shop.location ? `<p class="route-shop-location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${escapeHtml(shop.location)}</p>` : ''}${contacts ? `<nav class="route-shop-contacts" aria-label="Shop contact details">${contacts}</nav>` : ''}<a class="route-button route-button-link" href="/?shop=${encodeURIComponent(shop.slug)}#shop">Browse this shop</a></div></section>
-            <section class="route-subsection"><header class="route-heading route-heading-small"><h2>Shop categories</h2></header><div class="route-chip-row">${categories}</div></section>
-            <section class="route-subsection"><header class="route-heading route-heading-small"><h2>Top selling products</h2></header>${topSellerItems ? `<ol class="route-top-sellers">${topSellerItems}</ol>` : '<p class="route-empty">Top sellers will appear here as orders are placed.</p>'}</section>
-            ${offerCards ? `<section class="route-subsection"><header class="route-heading route-heading-small"><h2>Deals and announcements</h2></header><div class="route-offer-grid">${offerCards}</div></section>` : ''}
-            <section class="route-subsection"><header class="route-heading route-heading-small"><h2>Products from ${escapeHtml(shop.name)}</h2></header>${this.productsGrid(this.homeVM.getAllProducts())}</section>`;
+        const products = this.homeVM.getAllProducts();
+        const tabs = [
+            `<a href="#shop-profile-products">Products <span>${products.length}</span></a>`,
+            `<a href="#shop-profile-categories">Categories <span>${this.homeVM.categories.value.length}</span></a>`,
+            ...(offers.length ? [`<a href="#shop-profile-offers">Offers <span>${offers.length}</span></a>`] : [])
+        ].join('');
+        const contactAction = shop.contactWhatsApp
+            ? `<a class="shop-profile-contact-button" href="https://wa.me/${shop.contactWhatsApp.replace(/\D/g, '')}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i> Contact shop</a>`
+            : shop.contactEmail
+                ? `<a class="shop-profile-contact-button" href="mailto:${escapeHtml(shop.contactEmail)}"><i class="fa-solid fa-envelope" aria-hidden="true"></i> Contact shop</a>`
+                : '';
+        this.root.innerHTML = `<article class="shop-profile">
+                <div class="shop-profile-cover">${cover}<span class="shop-profile-cover-label"><i class="fa-solid fa-store" aria-hidden="true"></i> Shopademia storefront</span></div>
+                <header class="shop-profile-header">
+                    <div class="shop-profile-avatar" aria-hidden="true">${avatar}</div>
+                    <div class="shop-profile-identity">
+                        <p class="route-eyebrow">INDEPENDENT SHOP</p>
+                        <h1>${escapeHtml(shop.name)}</h1>
+                        <p class="shop-profile-description">${escapeHtml(shop.description || `Welcome to ${shop.name}. Browse this shop’s products and current offers.`)}</p>
+                        ${shop.location ? `<p class="route-shop-location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${escapeHtml(shop.location)}</p>` : ''}
+                    </div>
+                    <div class="shop-profile-actions"><a class="route-button" href="#shop-profile-products"><i class="fa-solid fa-bag-shopping" aria-hidden="true"></i> Browse products</a>${contactAction}</div>
+                    ${contacts ? `<nav class="route-shop-contacts shop-profile-contacts" aria-label="Shop contact details">${contacts}</nav>` : ''}
+                </header>
+                <div class="shop-profile-stats" aria-label="Shop information">
+                    <span><strong>${products.length}</strong> ${products.length === 1 ? 'product' : 'products'}</span>
+                    <span><strong>${this.homeVM.categories.value.length}</strong> ${this.homeVM.categories.value.length === 1 ? 'category' : 'categories'}</span>
+                    <span><strong>${offers.length}</strong> ${offers.length === 1 ? 'current offer' : 'current offers'}</span>
+                    ${shop.location ? `<span><i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${escapeHtml(shop.location)}</span>` : ''}
+                </div>
+                <nav class="shop-profile-tabs" aria-label="Shop profile sections">${tabs}</nav>
+            </article>
+            <section id="shop-profile-categories" class="route-subsection shop-profile-section"><header class="route-heading route-heading-small"><p class="route-eyebrow">EXPLORE THE SHOP</p><h2>Categories</h2></header><div class="route-chip-row">${categories || '<p class="route-empty">Categories will appear here when available.</p>'}</div></section>
+            ${offerCards ? `<section id="shop-profile-offers" class="route-subsection shop-profile-section"><header class="route-heading route-heading-small"><p class="route-eyebrow">WHAT’S NEW</p><h2>Offers and announcements</h2></header><div class="route-offer-grid">${offerCards}</div></section>` : ''}
+            <section id="shop-profile-products" class="route-subsection shop-profile-section"><header class="route-heading route-heading-small"><p class="route-eyebrow">SHOP THE COLLECTION</p><h2>Products from ${escapeHtml(shop.name)}</h2></header>${this.productsGrid(products)}</section>`;
         document.title = `${shop.name} | Shopademia`;
     }
 
     async renderDeals() {
-        const { data: offers } = await requestJson(`${this.apiBaseUrl}/shops/${encodeURIComponent(this.shop.slug)}/offers`);
+        const [{ data: offers }, { data: discountedProducts }] = await Promise.all([
+            requestJson(`${this.apiBaseUrl}/shops/${encodeURIComponent(this.shop.slug)}/offers`),
+            requestJson(`${this.apiBaseUrl}/discounted-products`)
+        ]);
         const offerCards = offers.map((offer) => `<article class="route-offer-card"><p class="route-eyebrow">SHOP OFFER</p><h2>${escapeHtml(offer.title)}</h2><p>${escapeHtml(offer.message)}</p></article>`).join('');
-        const discounts = this.homeVM.getAllProducts().filter((product) => product.hasDiscount);
-        this.root.innerHTML = `<header class="route-heading"><p class="route-eyebrow">${escapeHtml(this.shop.name)}</p><h1>Deals and offers</h1><p>Current price reductions and announcements from this shop.</p></header>${offerCards ? `<div class="route-offer-grid">${offerCards}</div>` : ''}<section class="route-subsection"><header class="route-heading route-heading-small"><h2>Discounted products</h2></header>${this.productsGrid(discounts)}</section>`;
-        document.title = `Deals | ${this.shop.name}`;
+        const products = discountedProducts.map((item) => Object.assign(new Product(item), {
+            shopSlug: item.shopSlug,
+            shopName: item.shopName
+        }));
+        this.root.innerHTML = `<header class="route-heading"><p class="route-eyebrow">MARKETPLACE SAVINGS</p><h1>Deals and offers</h1><p>Browse every currently discounted product from active shops across Shopademia.</p></header>${offerCards ? `<div class="route-offer-grid">${offerCards}</div>` : ''}<section class="route-subsection"><header class="route-heading route-heading-small"><h2>Discounted products</h2></header>${this.productsGrid(products)}</section>`;
+        document.title = 'Deals and offers | Shopademia';
+    }
+
+    async renderTopSelling() {
+        const { data } = await requestJson(`${this.apiBaseUrl}/top-selling`);
+        if (!Array.isArray(data)) throw new Error('The weekly top products response is invalid.');
+        const products = data.map((item) => Object.assign(new Product(item), {
+            shopSlug: item.shopSlug,
+            shopName: item.shopName
+        }));
+        this.root.innerHTML = `<header class="route-heading"><p class="route-eyebrow">TRENDING THIS WEEK</p><h1>Top selling this week</h1><p>Popular products ranked by non-cancelled order requests placed since the start of this week.</p></header><section class="route-subsection"><header class="route-heading route-heading-small"><h2>Top products across our shops</h2></header>${this.productsGrid(products)}</section>`;
+        document.title = 'Top selling this week | Shopademia';
     }
 
     renderAbout() {
@@ -254,8 +359,9 @@ export class RoutePageView {
             product: `Explore ${document.querySelector('#routePage h1')?.textContent || 'this product'} from ${this.shop.name} on Shopademia.`,
             category: `Browse ${document.querySelector('#routePage h1')?.textContent || 'products'} products from ${this.shop.name} on Shopademia.`,
             shops: 'Explore independent shops, storefronts, products, and current deals on Shopademia.',
+            'top-selling': 'Browse popular products from independent shops, ranked by this week’s non-cancelled order requests.',
             shop: `Visit ${document.querySelector('#routePage h1')?.textContent || this.shop.name} on Shopademia to browse its shop profile, products, and current offers.`,
-            deals: `Browse current offers and discounted products from ${this.shop.name}.`,
+            deals: 'Browse discounted products from active independent shops across the Shopademia marketplace.',
             about: 'Learn how Shopademia connects customers with independent shops and order requests.',
             'find-order': 'Look up your Shopademia order request using your order number and checkout phone number.',
             privacy: 'Learn what information Shopademia processes and how browser storage and optional analytics work.',
@@ -275,8 +381,9 @@ export class RoutePageView {
             product: `${product?.seoTitle || product?.name || pageHeading || 'Product'} | ${this.shop.name} | Shopademia`,
             category: `${pageHeading || 'Products'} | ${this.shop.name} | Shopademia`,
             shops: 'Explore our shops | Shopademia',
+            'top-selling': 'Top selling this week | Shopademia',
             shop: `${pageHeading || this.shop.name} | Shopademia`,
-            deals: `Deals and offers | ${this.shop.name} | Shopademia`,
+            deals: 'Deals and offers | Shopademia',
             about: `About ${this.shop.name} | Shopademia`,
             'find-order': `Find your order | ${this.shop.name} | Shopademia`,
             privacy: 'Privacy policy | Shopademia',

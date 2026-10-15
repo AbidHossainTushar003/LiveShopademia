@@ -1,4 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { validatePrivilegedPlaywrightTarget } from '../../scripts/playwright-target.js';
+
+const privilegedTargetErrors = validatePrivilegedPlaywrightTarget();
+if (privilegedTargetErrors.length) {
+    throw new Error(`Privileged admin E2E is disabled for this target: ${privilegedTargetErrors.join(' ')}`);
+}
 
 test('development admin login uses email and password without an authenticator prompt', async ({ page }) => {
     const requests = [];

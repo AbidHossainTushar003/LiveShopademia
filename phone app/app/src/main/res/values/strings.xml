@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Shopademia Admin</string>
+    <string name="app_tagline">Shop operations, clearly in control</string>
+    <string name="sign_in">Sign in</string>
+    <string name="email">Administrator email</string>
+    <string name="password">Password</string>
+    <string name="authenticator_code">Authenticator code (platform admins)</string>
+    <string name="totp_secret">Authenticator setup key</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="products">Products</string>
+    <string name="orders">Orders</string>
+    <string name="logout">Log out</string>
+    <string name="back">Back</string>
+    <string name="refresh">Refresh</string>
+    <string name="previous_page">Previous</string>
+    <string name="next_page">Next</string>
+    <string name="empty_products">No products found.</string>
+    <string name="empty_orders">No orders found.</string>
+    <string name="retry">Try again</string>
+</resources>

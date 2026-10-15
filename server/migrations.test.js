@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { applyMigrations } from './migrations.js';
+import { ADMIN_MIGRATIONS } from './adminMigrations.js';
 
 function migrationPool(existing = []) {
     const queries = [];
@@ -65,4 +66,10 @@ test('invalid or unordered migrations are rejected before opening a database con
         /unique, ordered version identifiers/
     );
     assert.equal(connected, false);
+});
+
+test('external product image links can be reused by multiple catalog items', () => {
+    const migration = ADMIN_MIGRATIONS.find(({ version }) => version === '002_reusable_product_image_links');
+    assert.ok(migration);
+    assert.match(migration.sql, /DROP CONSTRAINT IF EXISTS managed_products_image_key/);
 });

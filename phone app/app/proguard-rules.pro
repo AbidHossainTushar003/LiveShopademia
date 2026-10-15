@@ -1,0 +1,3 @@
+-keepattributes Signature
+-keep class com.shopademia.admin.data.api.** { *; }
+-keep class com.shopademia.admin.data.model.** { *; }

@@ -1,5 +1,8 @@
+import { fetchWithTimeout } from '../utils/fetchWithTimeout.js';
+
 export class HeaderView {
     constructor({ cartVM, wishlistVM, homeVM }) {
+        this.loadAnnouncement();
         const cartBadge = document.getElementById('cartBadge');
         const wishBadge = document.getElementById('wishlistBadge');
         cartVM.summary.subscribe((s) => { cartBadge.textContent = s.count; });
@@ -15,14 +18,18 @@ export class HeaderView {
         mobileSearch.addEventListener('input', () => syncSearch(mobileSearch, desktopSearch));
         const revealSearchResults = (event) => {
             if (event.key !== 'Enter') return;
-            document.getElementById('shop').scrollIntoView({ behavior: 'smooth' });
             if (event.currentTarget === mobileSearch) {
                 closeMobileSearch();
                 document.getElementById('productResultsStatus').focus({ preventScroll: true });
             }
+            document.getElementById('shop').scrollIntoView({ behavior: 'smooth' });
         };
         desktopSearch.addEventListener('keydown', revealSearchResults);
         mobileSearch.addEventListener('keydown', revealSearchResults);
+        document.getElementById('searchSubmitBtn').addEventListener('click', () => {
+            document.getElementById('productResultsStatus').focus({ preventScroll: true });
+            document.getElementById('shop').scrollIntoView({ behavior: 'smooth' });
+        });
         const mobileSearchPanel = document.getElementById('mobileSearchPanel');
         const mobileSearchToggle = document.getElementById('mobileSearchToggle');
         const closeMobileSearch = () => {
@@ -55,9 +62,24 @@ export class HeaderView {
             if (open) closeMobileSearch();
         });
         const syncActiveNavigation = () => {
-            const activeHash = window.location.hash || '#home';
+            const { pathname } = window.location;
+            const activeRoute = pathname === '/'
+                ? 'home'
+                : pathname === '/shops'
+                    ? 'stores'
+                    : pathname === '/top-selling'
+                        ? 'top-selling'
+                        : pathname === '/deals'
+                            ? 'deals'
+                            : pathname === '/about'
+                                ? 'about'
+                                : pathname === '/find-order'
+                                    ? 'find-order'
+                                    : /^\/category\/[a-z0-9-]+$/.test(pathname)
+                                        ? 'categories'
+                                        : null;
             document.querySelectorAll('[data-primary-nav]').forEach((link) => {
-                const active = link.getAttribute('href') === activeHash;
+                const active = link.dataset.navRoute === activeRoute;
                 link.classList.toggle('text-blue-600', active);
                 link.classList.toggle('font-bold', active);
                 if (active) link.setAttribute('aria-current', 'page');
@@ -96,5 +118,20 @@ export class HeaderView {
             homeVM.toggleWishlistFilter();
             document.getElementById('shop').scrollIntoView({ behavior: 'smooth' });
         });
+    }
+
+    async loadAnnouncement() {
+        try {
+            const response = await fetchWithTimeout('/api/v1/storefront-announcement');
+            if (!response.ok) throw new Error(`Announcement request failed (${response.status}).`);
+            const { data } = await response.json();
+            if (typeof data?.text !== 'string' || !data.text.trim()) {
+                throw new Error('The storefront announcement response is invalid.');
+            }
+            document.getElementById('marketplaceAnnouncementText').textContent = data.text;
+            document.querySelector('[data-announcement-copy]').textContent = data.text;
+        } catch (error) {
+            console.warn('The storefront announcement could not be loaded; the default message is shown.', error);
+        }
     }
 }

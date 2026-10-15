@@ -38,24 +38,29 @@
     </div>
 
     <!-- Header -->
-    <header class="sticky top-4 z-50 px-4 md:px-8 max-w-7xl mx-auto">
-        <nav aria-label="Primary" class="glass-nav rounded-full px-4 py-3 md:px-6 md:py-3.5 flex items-center justify-between gap-2 md:gap-4 shadow-glass transition-all duration-300">
+    <header class="marketplace-header sticky top-0 z-50">
+        <div class="marketplace-utility">
+            <div class="marketplace-header-inner">
+                <div class="marketplace-announcement" role="region" aria-label="Store announcement">
+                    <div class="marketplace-announcement-track">
+                        <span class="marketplace-announcement-copy"><i class="fa-solid fa-store" aria-hidden="true"></i><span id="marketplaceAnnouncementText">Discover products from independent shops</span></span>
+                        <span class="marketplace-announcement-copy" aria-hidden="true"><i class="fa-solid fa-store" aria-hidden="true"></i><span data-announcement-copy>Discover products from independent shops</span></span>
+                    </div>
+                </div>
+                <span class="marketplace-utility-note">Prices shown in BDT</span>
+            </div>
+        </div>
+        <div class="marketplace-header-inner">
+        <nav aria-label="Primary" class="marketplace-primary-nav">
             <a href="#home" class="flex items-center gap-2.5 shrink-0 group">
                 <img src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="" class="w-10 h-10 rounded-2xl shadow-md shadow-blue-500/30 group-hover:scale-105 transition-transform duration-300">
-                <span class="hidden min-[400px]:inline text-base md:text-2xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-950 to-blue-800 bg-clip-text text-transparent tracking-tight">Shopademia</span>
+                <span class="marketplace-brand-name text-base md:text-2xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-950 to-blue-800 bg-clip-text text-transparent tracking-tight">Shopademia</span>
             </a>
-            <div class="hidden lg:flex items-center gap-8 font-semibold text-sm text-slate-600">
-                <a data-primary-nav href="/" class="hover:text-blue-600 transition-colors">Home</a>
-                <a data-primary-nav href="/?shop=main#shop" class="hover:text-blue-600 transition-colors">Shop</a>
-                <a data-primary-nav href="/category/gadgets" class="hover:text-blue-600 transition-colors">Categories</a>
-                <a data-primary-nav href="/deals" class="hover:text-blue-600 transition-colors">Deals</a>
-                <a data-primary-nav href="/shops" class="hover:text-blue-600 transition-colors">Stores</a>
-                <a data-primary-nav href="/about" class="hover:text-blue-600 transition-colors">About</a>
-            </div>
-            <div class="relative flex-1 max-w-xs md:max-w-md hidden sm:block">
+            <div class="marketplace-search hidden sm:flex">
                 <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
                 <input type="search" id="searchInput" aria-label="Search products" placeholder="Search for products..."
                     class="w-full bg-slate-100/70 border border-slate-200/80 rounded-full pl-10 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:bg-white transition-all">
+                <button id="searchSubmitBtn" type="button" aria-label="Show search results"><span>Search</span><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
             </div>
             <div class="flex items-center gap-2 sm:gap-3 shrink-0">
                 <button id="mobileNavigationToggle" type="button" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobileNavigationPanel" class="lg:hidden w-9 h-9 rounded-full hover:bg-slate-100/80 flex items-center justify-center text-slate-700 transition-colors">
@@ -73,25 +78,34 @@
                 </button>
                 <button id="cartDrawerBtn" aria-label="Open cart" class="relative w-9 h-9 rounded-full bg-blue-50/80 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors">
                     <i class="fa-solid fa-cart-shopping text-base"></i>
-                    <span id="cartBadge" class="absolute -top-1 -right-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm">0</span>
+                    <span id="cartBadge" class="absolute -top-1 -right-1 bg-gradient-to-r from-blue-600 to-cyan-600 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm">0</span>
                 </button>
             </div>
         </nav>
+        <nav class="marketplace-category-nav hidden lg:flex" aria-label="Marketplace navigation">
+            <a data-primary-nav data-nav-route="home" href="/" class="marketplace-nav-link"><i class="fa-solid fa-house" aria-hidden="true"></i> Home</a>
+            <a data-primary-nav data-nav-route="top-selling" href="/top-selling" class="marketplace-nav-link"><i class="fa-solid fa-fire" aria-hidden="true"></i> Top this week</a>
+            <a data-primary-nav data-nav-route="categories" href="/category/gadgets" class="marketplace-nav-link"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> Categories</a>
+            <a data-primary-nav data-nav-route="deals" href="/deals" class="marketplace-nav-link"><i class="fa-solid fa-tag" aria-hidden="true"></i> Deals</a>
+            <a data-primary-nav data-nav-route="stores" href="/shops" class="marketplace-nav-link"><i class="fa-solid fa-store" aria-hidden="true"></i> Stores</a>
+            <a data-primary-nav data-nav-route="about" href="/about" class="marketplace-nav-link">About Shopademia</a>
+        </nav>
         <nav id="mobileNavigationPanel" aria-label="Mobile navigation" class="hidden lg:hidden mt-2 rounded-2xl bg-white p-3 shadow-glass">
             <div class="grid grid-cols-2 gap-1 font-semibold text-sm">
-                <a data-primary-nav href="/" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Home</a>
-                <a data-primary-nav href="/?shop=main#shop" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Shop</a>
-                <a data-primary-nav href="/category/gadgets" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Categories</a>
-                <a data-primary-nav href="/deals" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Deals</a>
-                <a data-primary-nav href="/shops" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Stores</a>
-                <a data-primary-nav href="/about" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">About</a>
-                <a data-primary-nav href="/find-order" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Find my order</a>
+                <a data-primary-nav data-nav-route="home" href="/" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Home</a>
+                <a data-primary-nav data-nav-route="top-selling" href="/top-selling" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Top this week</a>
+                <a data-primary-nav data-nav-route="categories" href="/category/gadgets" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Categories</a>
+                <a data-primary-nav data-nav-route="deals" href="/deals" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Deals</a>
+                <a data-primary-nav data-nav-route="stores" href="/shops" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Stores</a>
+                <a data-primary-nav data-nav-route="about" href="/about" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">About</a>
+                <a data-primary-nav data-nav-route="find-order" href="/find-order" class="rounded-xl px-3 py-2.5 text-slate-700 hover:bg-slate-50">Find my order</a>
             </div>
         </nav>
         <div id="mobileSearchPanel" class="hidden sm:hidden mt-2 rounded-2xl bg-white p-3 shadow-glass">
             <label for="mobileSearchInput" class="sr-only">Search products</label>
             <input type="search" id="mobileSearchInput" aria-label="Search products" placeholder="Search for products..."
                 class="w-full bg-slate-100/70 border border-slate-200/80 rounded-full px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:bg-white transition-all">
+        </div>
         </div>
     </header>
 
@@ -115,33 +129,32 @@
     <!-- Hero -->
     <main id="routePage" class="route-page hidden max-w-7xl mx-auto px-4 md:px-8 py-8" tabindex="-1"></main>
 
-    <section id="home" data-home-section class="max-w-7xl mx-auto px-4 md:px-8 pt-6 pb-12">
-        <div class="glass-panel rounded-3xl md:rounded-[2.5rem] p-6 md:p-10 lg:p-12 relative overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-10">
+    <section id="home" data-home-section class="marketplace-home max-w-7xl mx-auto px-4 md:px-8 pt-6 pb-8">
+        <div class="glass-panel marketplace-hero-panel rounded-3xl md:rounded-[2rem] p-6 md:p-10 lg:p-12 relative overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-10">
             <div class="lg:w-1/2 space-y-6 text-center lg:text-left z-10">
                 <div class="hero-eyebrow inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-100/80 text-blue-700 text-xs font-bold tracking-wider uppercase">
                     <span class="w-2 h-2 rounded-full bg-blue-600 animate-ping"></span>
-                    YOUR ONE-STOP ONLINE STORE
+                    THE SHOPADEMIA MARKETPLACE
                 </div>
                 <h1 id="heroTitle" class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.15]">
-                    Discover What <br class="hidden sm:inline" />
-                    <span class="bg-gradient-to-r from-blue-600 via-cyan-500 to-amber-500 bg-clip-text text-transparent">Fits Your Life.</span>
+                    Find something <br class="hidden sm:inline" />
+                    <span class="bg-gradient-to-r from-blue-600 via-cyan-500 to-amber-500 bg-clip-text text-transparent">for every day.</span>
                 </h1>
                 <p id="heroDescription" class="text-slate-600 text-base sm:text-lg max-w-lg mx-auto lg:mx-0 font-medium">
-                    Browse a sample catalog of gadgets, baby-care products and everyday items. Prices are estimates, and each order request is reviewed before payment.
+                    Explore products from independent shops, see prices in BDT, and send an order request for review before payment.
                 </p>
                 <div class="hero-actions pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
                     <a id="heroButton" href="#shop" class="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold text-base shadow-lg shadow-blue-500/30 flex items-center justify-center gap-3 transition-all hover:scale-105">
                         <span id="heroButtonText">Shop Now</span><i class="fa-solid fa-arrow-right text-sm"></i>
                     </a>
+                    <a href="/shops" class="marketplace-secondary-cta"><i class="fa-solid fa-store" aria-hidden="true"></i> Explore shops</a>
                 </div>
-                <figure class="hero-mobile-image" aria-hidden="true">
-                    <img id="heroSlideMobileImage" alt="">
-                </figure>
             </div>
 
             <div class="lg:w-1/2 relative w-full flex justify-center items-center">
-                <div class="relative w-full max-w-md aspect-square rounded-3xl bg-gradient-to-b from-white/80 via-blue-50/40 to-cyan-50/60 p-6 flex flex-col items-center justify-center border border-white/80 shadow-inner">
+                <div class="marketplace-hero-art relative w-full max-w-md aspect-square rounded-3xl bg-gradient-to-b from-white/80 via-blue-50/40 to-cyan-50/60 p-6 flex flex-col items-center justify-center border border-white/80 shadow-inner">
                     <div class="absolute inset-10 bg-gradient-to-tr from-cyan-400/30 to-blue-500/30 rounded-full blur-2xl -z-10"></div>
+                    <div class="marketplace-art-label"><i class="fa-solid fa-sparkles" aria-hidden="true"></i> Featured images</div>
                     <div class="relative w-full h-full flex items-center justify-center">
                         <img id="heroSlideImage" alt="" class="hidden max-h-full max-w-full rounded-2xl object-contain">
                         <img id="heroProductImage" alt="" fetchpriority="high" class="hidden max-h-[72%] max-w-[72%] object-contain drop-shadow-xl">
@@ -157,6 +170,12 @@
                 </div>
             </div>
         </div>
+    </section>
+
+    <section class="marketplace-highlights max-w-7xl mx-auto px-4 md:px-8 pb-4" aria-label="Shopademia highlights">
+        <div class="marketplace-highlight"><span><i class="fa-solid fa-store" aria-hidden="true"></i></span><div><strong>Independent shops</strong><small>Discover a range of storefronts</small></div></div>
+        <div class="marketplace-highlight"><span><i class="fa-solid fa-tag" aria-hidden="true"></i></span><div><strong>Prices in BDT</strong><small>Browse local currency pricing</small></div></div>
+        <div class="marketplace-highlight"><span><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></span><div><strong>Reviewed requests</strong><small>Shops review requests before payment</small></div></div>
     </section>
 
     <!-- Categories -->

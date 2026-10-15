@@ -2,13 +2,14 @@ export class Product {
     constructor({
         id, name, description = '', price, oldPrice = null, rating = 0, reviews = '0',
         icon = 'fa-box', tint = 'blue', category = 'more', image = '', images = [],
-        stockQuantity = null, isAvailable = true, imageAlt = '', seoTitle = '', metaDescription = ''
+        stockQuantity = null, isAvailable = true, imageAlt = '', seoTitle = '', metaDescription = '',
+        shopSlug = '', shopName = ''
     }) {
         Object.assign(this, {
             id, name, description, price, oldPrice, rating, reviews, icon, tint, category, image,
             images: Array.isArray(images) && images.length ? images : (image ? [image] : []),
             stockQuantity, isAvailable, imageAlt: imageAlt || name,
-            seoTitle: seoTitle || name, metaDescription
+            seoTitle: seoTitle || name, metaDescription, shopSlug, shopName
         });
     }
     get hasDiscount() { return this.oldPrice != null && this.oldPrice > this.price; }

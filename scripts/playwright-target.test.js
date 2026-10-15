@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { validatePlaywrightTarget } from './playwright-target.js';
+import { validatePlaywrightTarget, validatePrivilegedPlaywrightTarget } from './playwright-target.js';
 
 const root = path.resolve('repository');
 const artifactsRoot = path.resolve(root, '..', 'playwright-artifacts');
@@ -26,6 +26,30 @@ function stagingTarget(overrides = {}) {
 test('Playwright allows local loopback targets without remote artifact settings', () => {
     assert.deepEqual(validatePlaywrightTarget(localTarget, root), []);
     assert.ok(validatePlaywrightTarget({}, root).some((error) => error.includes('Set PLAYWRIGHT_BASE_URL')));
+});
+
+test('privileged Playwright suites require explicit approval and a non-loopback staging target', () => {
+    const valid = stagingTarget({ PLAYWRIGHT_ALLOW_PRIVILEGED_E2E: '1' });
+    assert.deepEqual(validatePrivilegedPlaywrightTarget(valid, root), []);
+    assert.ok(validatePrivilegedPlaywrightTarget(stagingTarget(), root)
+        .some((error) => error.includes('PLAYWRIGHT_ALLOW_PRIVILEGED_E2E=1')));
+    assert.ok(validatePrivilegedPlaywrightTarget({
+        ...valid,
+        PLAYWRIGHT_BASE_URL: 'http://127.0.0.1:3002',
+        PLAYWRIGHT_TARGET_ENV: undefined,
+        PLAYWRIGHT_STAGING_HOST: undefined
+    }, root).some((error) => error.includes('cannot target a local or loopback server')));
+    for (const hostname of ['localhost', 'localhost.', 'preview.localhost', '127.0.0.2', '[::1]']) {
+        assert.ok(validatePrivilegedPlaywrightTarget({
+            ...valid,
+            PLAYWRIGHT_BASE_URL: `https://${hostname}`,
+            PLAYWRIGHT_STAGING_HOST: hostname
+        }, root).some((error) => error.includes('cannot target a local or loopback server')), hostname);
+    }
+    assert.ok(validatePrivilegedPlaywrightTarget({
+        ...valid,
+        PLAYWRIGHT_BASE_URL: 'https://other.shopademia.dev'
+    }, root).some((error) => error.includes('exact PLAYWRIGHT_STAGING_HOST match')));
 });
 
 test('Playwright blocks known production hostnames', () => {

@@ -1,5 +1,6 @@
 import { fetchWithTimeout } from '../js/utils/fetchWithTimeout.js';
 import { optimizedFormData } from '../js/utils/optimizeUploadImage.js';
+import { isSafeProductImage } from '../js/utils/format.js';
 import { mountAdminSidebar } from './adminSidebar.js';
 
 const shopKey = 'shopademia.adminShopId';
@@ -169,14 +170,17 @@ function cancelProductEdit() {
     form.reset();
     delete form.dataset.productId;
     const imageInput = document.getElementById('productImage');
-    imageInput.required = true;
-    imageInput.closest('div').querySelector('.muted').textContent = 'Choose up to 10 images, 5 MB each. Images are resized automatically.';
+    imageInput.required = false;
+    imageInput.closest('div').querySelector('.muted').textContent = 'Choose up to 10 JPEG, PNG, or WebP images, 5 MB each. Images are resized automatically.';
+    document.getElementById('productImageUrls').closest('div').querySelector('.muted').textContent =
+        'You can mix uploaded images and links, up to 10 images total. Links must use HTTPS.';
     document.getElementById('createProductButton').textContent = 'Upload and publish product';
     document.getElementById('cancelProductEditButton').classList.add('hidden');
     document.getElementById('productEditNotice').classList.add('hidden');
     document.getElementById('productFormError').textContent = '';
     document.getElementById('productFormError').classList.add('hidden');
     clearProductImagePreview();
+    updateProductImagePreview();
 }
 
 function beginProductEdit(product) {
@@ -189,19 +193,24 @@ function beginProductEdit(product) {
     document.getElementById('productAvailability').value = String(product.isAvailable);
     document.getElementById('productCategory').value = product.category;
     document.getElementById('productDescription').value = product.description;
-    document.getElementById('productImageAlt').value = product.imageAlt || '';
-    document.getElementById('productSeoTitle').value = product.seoTitle || '';
-    document.getElementById('productMetaDescription').value = product.metaDescription || '';
+    document.getElementById('productImageAlt').value = product.imageAlt || `Product photograph of ${product.name}`;
+    document.getElementById('productSeoTitle').value = (product.seoTitle || product.name).slice(0, 70);
+    document.getElementById('productMetaDescription').value = product.metaDescription
+        || (product.description || `${product.name} product details from ${activeShop.name}.`).slice(0, 160);
     const imageInput = document.getElementById('productImage');
     imageInput.value = '';
     imageInput.required = false;
-    imageInput.closest('div').querySelector('.muted').textContent = 'Choose up to 10 replacement images, 5 MB each. Leave empty to keep current images.';
+    imageInput.closest('div').querySelector('.muted').textContent = 'Choose replacement images, up to 10 total with any links below. Leave both image fields empty to keep the current gallery.';
+    document.getElementById('productImageUrls').value = '';
+    document.getElementById('productImageUrls').closest('div').querySelector('.muted').textContent =
+        'Entering image links replaces the current gallery. Use one public HTTPS image URL per line.';
     document.getElementById('createProductButton').textContent = 'Save product changes';
     document.getElementById('cancelProductEditButton').classList.remove('hidden');
     document.getElementById('productEditNotice').classList.remove('hidden');
     document.getElementById('productFormError').textContent = '';
     document.getElementById('productFormError').classList.add('hidden');
     clearProductImagePreview();
+    updateProductImagePreview();
     form.scrollIntoView({ behavior: 'smooth', block: 'start' });
     document.getElementById('productName').focus({ preventScroll: true });
 }
@@ -210,7 +219,7 @@ function renderManagedProduct(product) {
     const card = document.createElement('article');
     card.className = 'product-admin-card';
     const image = document.createElement('img');
-    if (/^\/uploads\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/i.test(product.image)) image.src = product.image;
+    if (isSafeProductImage(product.image)) image.src = product.image;
     image.alt = product.imageAlt || product.name;
     image.loading = 'lazy';
     image.addEventListener('error', () => image.classList.add('hidden'), { once: true });
@@ -694,6 +703,53 @@ document.getElementById('logoutButton').addEventListener('click', async (event) 
         button.disabled = false;
     }
 });
+
+function updateProductImagePreview() {
+    const form = document.getElementById('productForm');
+    const imageInput = document.getElementById('productImage');
+    const imageUrlsInput = document.getElementById('productImageUrls');
+    const files = [...imageInput.files];
+    const imageUrls = imageUrlsInput.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const combinedCount = files.length + imageUrls.length;
+    imageInput.setCustomValidity(combinedCount > 10
+        ? 'Use no more than 10 uploaded images and image links combined.'
+        : !form.dataset.productId && combinedCount === 0
+            ? 'Upload at least one image or enter an HTTPS image link.'
+            : '');
+    const invalidUrl = imageUrls.some((value) => !isSafeProductImage(value) || !/^https:\/\//i.test(value));
+    imageUrlsInput.setCustomValidity(invalidUrl
+        ? 'Enter a valid public HTTPS image URL on each line.'
+        : '');
+
+    clearProductImagePreview();
+    const preview = document.getElementById('productImagePreview');
+    const alt = document.getElementById('productImageAlt').value.trim() || 'Product image preview';
+    for (const [index, file] of files.entries()) {
+        const url = URL.createObjectURL(file);
+        productImagePreviewUrls.push(url);
+        const item = document.createElement('div');
+        const image = document.createElement('img');
+        image.src = url;
+        image.alt = alt;
+        item.append(image, createText('span', '', file.name || `Uploaded image ${index + 1}`));
+        preview.append(item);
+    }
+    for (const [index, url] of imageUrls.entries()) {
+        const item = document.createElement('div');
+        const image = document.createElement('img');
+        image.src = url;
+        image.alt = alt;
+        image.loading = 'lazy';
+        image.addEventListener('error', () => {
+            image.classList.add('hidden');
+            item.append(createText('span', 'error', 'This image link could not be loaded.'));
+        }, { once: true });
+        item.append(image, createText('span', '', `Image link ${index + 1}`));
+        preview.append(item);
+    }
+    preview.classList.toggle('hidden', !files.length && !imageUrls.length);
+}
+
 document.getElementById('refreshButton').addEventListener('click', loadOrders);
 document.getElementById('refreshProductsButton').addEventListener('click', refreshCatalogAdmin);
 document.getElementById('cancelProductEditButton').addEventListener('click', cancelProductEdit);
@@ -702,32 +758,15 @@ document.querySelectorAll('[data-admin-view]').forEach((button) => {
     button.addEventListener('click', () => setAdminView(button.dataset.adminView));
 });
 document.getElementById('productImage').addEventListener('change', (event) => {
-    clearProductImagePreview();
-    const files = [...event.currentTarget.files];
-    const preview = document.getElementById('productImagePreview');
-    if (files.length > 10) {
-        event.currentTarget.setCustomValidity('Choose no more than 10 product images.');
-        event.currentTarget.reportValidity();
-        event.currentTarget.value = '';
-        return;
-    }
-    event.currentTarget.setCustomValidity('');
-    for (const [index, file] of files.entries()) {
-        const url = URL.createObjectURL(file);
-        productImagePreviewUrls.push(url);
-        const item = document.createElement('div');
-        const image = document.createElement('img');
-        image.src = url;
-        image.alt = `Selected product image ${index + 1}`;
-        item.append(image, createText('span', '', file.name));
-        preview.append(item);
-    }
-    if (!files.length) return;
-    preview.classList.remove('hidden');
+    updateProductImagePreview();
+    if (event.currentTarget.files.length > 10) event.currentTarget.reportValidity();
 });
+document.getElementById('productImageUrls').addEventListener('input', updateProductImagePreview);
 document.getElementById('productForm').addEventListener('submit', async (event) => {
     event.preventDefault();
+    updateProductImagePreview();
     const form = event.currentTarget;
+    if (!form.reportValidity()) return;
     const button = document.getElementById('createProductButton');
     const error = document.getElementById('productFormError');
     error.textContent = '';

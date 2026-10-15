@@ -80,15 +80,27 @@ test('clearing filters restores the default split catalog while view all stays e
     assert.equal(home.isFiltering.value, true);
 });
 
-test('search matches product descriptions', async () => {
+test('search matches product names only', async () => {
     const home = new HomeViewModel({
-        async getFeatured() { return [new Product(featuredProducts[1])]; },
+        async getFeatured() {
+            return [
+                new Product(featuredProducts[1]),
+                new Product({ id: 3, name: 'Travel light', description: 'Rechargeable desk accessory', price: 100, category: 'more' })
+            ];
+        },
         async getNewArrivals() { return []; },
         async getHeroOffer() { return null; }
     }, testCategoryRepository);
     await home.load();
+
     home.search('rechargeable');
+    assert.deepEqual(home.featured.value, []);
+
+    home.search('desk');
     assert.deepEqual(home.featured.value.map((product) => product.name), ['Desk accessory']);
+
+    home.search('MORE');
+    assert.deepEqual(home.featured.value, []);
 });
 
 test('all catalog products are available to direct product routes', async () => {

@@ -63,6 +63,15 @@ test('the checked-in staging template is rejected by the same dotenv-backed vali
     assert.ok(errors.every((error) => !error.includes('replace-with-')));
 });
 
+test('the local environment example contains no unassigned database connection URL', async () => {
+    const examplePath = fileURLToPath(new URL('../.env.example', import.meta.url));
+    const lines = (await readFile(examplePath, 'utf8')).split(/\r?\n/);
+    assert.equal(
+        lines.some((line) => /^\s*postgres(?:ql)?:\/\//i.test(line)),
+        false
+    );
+});
+
 test('staging config rejects production domain and non-staging database names', () => {
     const config = validConfig();
     config.STAGING_DOMAIN = 'shopademia.store';

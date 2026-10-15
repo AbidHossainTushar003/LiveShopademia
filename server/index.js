@@ -2,13 +2,19 @@ import 'dotenv/config';
 import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import { createServer } from 'node:http';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
+import { validateAdminPassword } from './adminPassword.js';
 import { createApp } from './app.js';
 import { setManagedProducts } from './catalog.js';
 import { initializeDatabase, loadManagedProducts } from './db.js';
+import {
+    resolveReadOnlyPreviewMode,
+    validateReadOnlyPreviewConfig,
+    verifyReadOnlyPreviewDatabase
+} from './readOnlyPreview.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -26,6 +32,7 @@ function required(name, minimumLength = 1) {
 }
 
 async function start() {
+    const readOnlyPreview = resolveReadOnlyPreviewMode(process.env.SHOPADEMIA_READ_ONLY_PREVIEW);
     const config = {
         nodeEnv: process.env.NODE_ENV || 'development',
         adminMfaRequired: (process.env.NODE_ENV || 'development') === 'production',
@@ -73,6 +80,7 @@ async function start() {
     if (!Number.isInteger(config.trustProxyHops) || config.trustProxyHops < 0 || config.trustProxyHops > 10) {
         throw new Error('TRUST_PROXY_HOPS must be an integer from 0 to 10.');
     }
+    if (readOnlyPreview) validateReadOnlyPreviewConfig(config);
     if (!Number.isSafeInteger(config.advanceCharge) || config.advanceCharge < 0) throw new Error('DELIVERY_ADVANCE_CHARGE must be a non-negative integer.');
     if (Boolean(config.vapidPublicKey) !== Boolean(config.vapidPrivateKey)
         || (config.vapidPublicKey && !config.vapidSubject)) {
@@ -82,7 +90,11 @@ async function start() {
         throw new Error('Replace the example JWT secret in .env before starting the server.');
     }
     const uploadsDir = join(root, 'uploads');
-    await mkdir(uploadsDir, { recursive: true });
+    if (readOnlyPreview) {
+        if (!(await stat(uploadsDir)).isDirectory()) throw new Error('Read-only preview mode requires the existing uploads directory.');
+    } else {
+        await mkdir(uploadsDir, { recursive: true });
+    }
 
     const poolConfig = {
         connectionString: config.databaseUrl,
@@ -90,6 +102,7 @@ async function start() {
         connectionTimeoutMillis: 5000,
         statement_timeout: 15000,
         idleTimeoutMillis: 30000,
+        ...(readOnlyPreview ? { options: '-c default_transaction_read_only=on' } : {}),
         ...(config.databaseSsl ? { ssl: { rejectUnauthorized: true } } : {})
     };
     const pool = new Pool(poolConfig);
@@ -97,9 +110,12 @@ async function start() {
         name: error.name || 'Error',
         code: typeof error.code === 'string' ? error.code : undefined
     }));
-    if (config.nodeEnv !== 'production') {
+    if (readOnlyPreview) {
+        await verifyReadOnlyPreviewDatabase(pool);
+    } else if (config.nodeEnv !== 'production') {
         const adminEmail = required('ADMIN_EMAIL');
         const adminPassword = required('ADMIN_PASSWORD', 12);
+        validateAdminPassword(adminPassword);
         await initializeDatabase(pool, {
             email: adminEmail,
             password: adminPassword,
@@ -110,7 +126,7 @@ async function start() {
     setManagedProducts(managedProducts);
     console.info(`Loaded ${managedProducts.length} admin-managed products.`);
 
-    const app = createApp({ pool, config: { ...config, uploadsDir } });
+    const app = createApp({ pool, config: { ...config, uploadsDir, readOnlyPreview } });
     const server = createServer(app);
     const displayHost = config.host
         ? (config.host.includes(':') ? `[${config.host}]` : config.host)

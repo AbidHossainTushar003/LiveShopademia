@@ -118,7 +118,7 @@
                     <button id="refreshProductsButton" class="button button-secondary" type="button">Refresh products</button>
                 </div>
                 <form id="productForm" class="product-form" enctype="multipart/form-data">
-                    <p id="productEditNotice" class="notice hidden" role="status">Editing a product. Leave the image empty to keep its current image.</p>
+                    <p id="productEditNotice" class="notice hidden" role="status">Editing a product. Leave both image fields empty to keep the current gallery.</p>
                     <div class="product-form-fields">
                         <div>
                             <label for="productName">Product name</label>
@@ -151,28 +151,33 @@
                             </select>
                         </div>
                         <div class="product-description-field">
-                            <label for="productDescription">Description (optional)</label>
-                            <textarea id="productDescription" name="description" maxlength="2000" rows="4"></textarea>
+                            <label for="productDescription">Description</label>
+                            <textarea id="productDescription" name="description" maxlength="2000" rows="4" required></textarea>
                         </div>
                         <div>
                             <label for="productImageAlt">Product image alt text</label>
-                            <input id="productImageAlt" name="imageAlt" type="text" maxlength="250" autocomplete="off">
-                            <p class="muted">Describe what is visibly shown in the product image. Defaults to the product name.</p>
+                            <input id="productImageAlt" name="imageAlt" type="text" maxlength="250" autocomplete="off" required>
+                            <p class="muted">Describe what is visibly shown in the product image.</p>
                         </div>
                         <div>
                             <label for="productSeoTitle">SEO title</label>
-                            <input id="productSeoTitle" name="seoTitle" type="text" maxlength="70" autocomplete="off">
-                            <p class="muted">Used for the product page title and browser search preview. Defaults to the product name.</p>
+                            <input id="productSeoTitle" name="seoTitle" type="text" maxlength="70" autocomplete="off" required>
+                            <p class="muted">Used for the product page title and browser search preview.</p>
                         </div>
                         <div class="product-description-field">
                             <label for="productMetaDescription">Meta description</label>
-                            <textarea id="productMetaDescription" name="metaDescription" maxlength="160" rows="3"></textarea>
-                            <p class="muted">A concise, factual search snippet. Defaults to the product description.</p>
+                            <textarea id="productMetaDescription" name="metaDescription" maxlength="160" rows="3" required></textarea>
+                            <p class="muted">A concise, factual search snippet for search engines.</p>
                         </div>
                         <div>
-                            <label for="productImage">Product images</label>
-                            <input id="productImage" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple required>
-                            <p class="muted">Choose up to 10 images, 5 MB each. Images are resized automatically.</p>
+                            <label for="productImage">Upload product images</label>
+                            <input id="productImage" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+                            <p class="muted">Choose up to 10 JPEG, PNG, or WebP images, 5 MB each. Images are resized automatically.</p>
+                        </div>
+                        <div class="product-description-field">
+                            <label for="productImageUrls">Or add image links</label>
+                            <textarea id="productImageUrls" name="imageUrls" maxlength="20480" rows="3" placeholder="https://example.com/product-photo.jpg&#10;Add one public HTTPS image URL per line"></textarea>
+                            <p class="muted">You can mix uploaded images and links, up to 10 images total. Links must use HTTPS.</p>
                         </div>
                     </div>
                     <div id="productImagePreview" class="product-image-preview hidden" aria-live="polite"></div>

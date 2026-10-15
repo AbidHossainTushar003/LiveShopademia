@@ -41,19 +41,18 @@ export class HeroView {
 
     #setupSlider(slides) {
         document.querySelector('#home .glass-panel').classList.add('hero-slide-mode');
-        const title = document.getElementById('heroTitle');
-        const description = document.getElementById('heroDescription');
-        const button = document.getElementById('heroButton');
-        const buttonText = document.getElementById('heroButtonText');
         const image = document.getElementById('heroSlideImage');
-        const mobileImage = document.getElementById('heroSlideMobileImage');
         const controls = document.getElementById('heroSliderControls');
         const indicators = document.getElementById('heroSlideIndicators');
         const previous = document.getElementById('heroSlidePrevious');
         const next = document.getElementById('heroSlideNext');
+        const mobileViewport = window.matchMedia('(max-width: 48rem)');
+        const art = document.querySelector('#home .marketplace-hero-art');
         document.getElementById('heroProductImage').classList.add('hidden');
         document.getElementById('heroProductFallback').classList.add('hidden');
         document.getElementById('heroOfferCard').classList.add('hidden');
+        art.setAttribute('role', 'region');
+        art.setAttribute('aria-label', 'Featured image carousel');
         image.classList.remove('hidden');
         controls.classList.toggle('hidden', slides.length < 2);
         indicators.replaceChildren();
@@ -68,37 +67,27 @@ export class HeroView {
             return indicator;
         });
 
-        const safeTarget = (value) => {
-            if (typeof value !== 'string') return '#shop';
-            if (value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\')) return value;
-            try {
-                const target = new URL(value);
-                return ['http:', 'https:'].includes(target.protocol) ? target.href : '#shop';
-            } catch {
-                return '#shop';
-            }
-        };
         const showSlide = (index) => {
             currentIndex = (index + slides.length) % slides.length;
             const slide = slides[currentIndex];
-            title.textContent = slide.headline;
-            description.textContent = slide.bodyText;
-            buttonText.textContent = slide.buttonText;
-            button.href = safeTarget(slide.targetUrl);
-            if (isSafeProductImage(slide.image)) {
-                image.src = slide.image;
-            } else {
-                image.removeAttribute('src');
-            }
-            const mobileSlideImage = isSafeProductImage(slide.mobileImage) ? slide.mobileImage : slide.image;
-            if (isSafeProductImage(mobileSlideImage)) mobileImage.src = mobileSlideImage;
-            else mobileImage.removeAttribute('src');
-            image.alt = slide.headline;
-            mobileImage.alt = '';
+            const mobileImage = mobileViewport.matches && isSafeProductImage(slide.mobileImage)
+                ? slide.mobileImage
+                : slide.image;
+            if (isSafeProductImage(mobileImage)) image.src = mobileImage;
+            else image.removeAttribute('src');
+            image.alt = slide.headline || `Featured marketplace image ${currentIndex + 1}`;
+            image.classList.remove('hero-slide-enter');
+            void image.offsetWidth;
+            image.classList.add('hero-slide-enter');
             indicatorButtons.forEach((indicator, i) => {
                 indicator.setAttribute('aria-current', String(i === currentIndex));
             });
         };
+        mobileViewport.addEventListener('change', () => showSlide(currentIndex));
+        image.addEventListener('error', () => {
+            image.removeAttribute('src');
+            image.alt = 'Featured image unavailable';
+        });
         previous.addEventListener('click', () => showSlide(currentIndex - 1));
         next.addEventListener('click', () => showSlide(currentIndex + 1));
         showSlide(0);

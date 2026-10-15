@@ -34,12 +34,14 @@ test('audit snapshots include setting identity without values', () => {
 });
 
 test('audit request metadata is bounded and strips control characters', () => {
+    const requestId = 'd5a5bf9a-f0d7-4e4d-9ce6-40e5d7ccf1bd';
     const metadata = auditRequestMetadata({
         ip: '127.0.0.1',
+        id: requestId,
         get: () => `browser\u0000agent${'x'.repeat(600)}`
     });
     assert.equal(metadata.ip, '127.0.0.1');
     assert.equal(metadata.userAgent.length, 512);
     assert.equal(metadata.userAgent.includes('\u0000'), false);
-    assert.match(metadata.requestId, /^[0-9a-f-]{36}$/);
+    assert.equal(metadata.requestId, requestId);
 });

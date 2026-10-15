@@ -1,6 +1,6 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Script } from 'node:vm';
@@ -12,6 +12,7 @@ import { createApp } from './app.js';
 import { hashAdminPassword } from './adminPassword.js';
 import { createTotpCode, encryptTotpSecret } from './adminTotp.js';
 import { findProduct, getManagedProducts, setManagedProducts } from './catalog.js';
+import { isSafeProductImage } from '../js/utils/format.js';
 
 const config = {
     adminEmail: 'admin@example.com',
@@ -36,6 +37,19 @@ beforeEach(() => setManagedProducts(mainShopTestProducts));
 test('service worker source parses successfully', async () => {
     const source = await readFile(new URL('../service-worker.js', import.meta.url), 'utf8');
     assert.doesNotThrow(() => new Script(source));
+});
+
+test('product images allow public HTTPS URLs and same-origin uploads only', () => {
+    assert.equal(isSafeProductImage('/uploads/11111111-1111-4111-8111-111111111111.webp'), true);
+    assert.equal(isSafeProductImage('https://images.example.com/photo.jpg'), true);
+    for (const image of [
+        'http://images.example.com/photo.jpg',
+        'https://user:password@images.example.com/photo.jpg',
+        'https://127.0.0.1/photo.jpg',
+        'https://images.localhost/photo.jpg',
+        'data:image/png;base64,AAAA',
+        'javascript:alert(1)'
+    ]) assert.equal(isSafeProductImage(image), false, image);
 });
 
 function fakePool() {
@@ -92,6 +106,9 @@ function fakePool() {
                 sessionVersion: Number(user.sessionVersion ?? 1)
             });
             platformAdmins.add(user.id);
+        },
+        addManagedProduct(product) {
+            managedProducts.set(product.id, product);
         },
         addShopMembership(shopId, userId, role) {
             shopMemberships.set(`${shopId}:${userId}`, { shopId, userId, role });
@@ -207,10 +224,34 @@ function fakePool() {
                 managedProducts.delete(id);
                 return { rows: [{ id, image: current.image, images: current.images ?? [current.image] }] };
             }
-            if (sql.includes('FROM managed_products')) {
+            if (sql.includes('SELECT COUNT(*)::int AS total FROM managed_products WHERE shop_id')) {
                 return {
-                    rows: [...managedProducts.values()]
-                        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+                    rows: [{
+                        total: [...managedProducts.values()].filter((product) => product.shopId === values[0]).length
+                    }]
+                };
+            }
+            if (sql.includes('COUNT(*) FILTER (WHERE is_available)')) {
+                const shopProducts = [...managedProducts.values()].filter((product) => product.shopId === values[0]);
+                return { rows: [{
+                    total: shopProducts.length,
+                    available: shopProducts.filter((product) => product.isAvailable).length,
+                    outOfStock: shopProducts.filter((product) => Number(product.stockQuantity) === 0).length,
+                    stockUnits: String(shopProducts.reduce((total, product) => total + Number(product.stockQuantity), 0))
+                }] };
+            }
+            if (sql.includes('FROM managed_products')) {
+                if (sql.includes('WHERE id = $1 AND shop_id = $2')) {
+                    const product = managedProducts.get(values[0]);
+                    return { rows: product?.shopId === values[1] ? [product] : [] };
+                }
+                const rows = [...managedProducts.values()]
+                    .filter((product) => product.shopId === values[0])
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                return {
+                    rows: sql.includes('LIMIT $2 OFFSET $3')
+                        ? rows.slice(values[2], values[2] + values[1])
+                        : rows
                 };
             }
             if (sql.includes('INSERT INTO managed_products')) {
@@ -488,11 +529,29 @@ function fakePool() {
                     id: row.id, status: row.status, items: row.items, inventoryReserved: row.inventoryReserved
                 }] : [] };
             }
+            if (sql.includes('jsonb_object_agg(status, count)')) {
+                const shopOrders = [...orders.values()].filter((order) => order.shopId === values[0]);
+                const byStatus = Object.fromEntries(
+                    [...new Set(shopOrders.map((order) => order.status))]
+                        .map((status) => [status, shopOrders.filter((order) => order.status === status).length])
+                );
+                return { rows: [{ total: shopOrders.length, byStatus }] };
+            }
+            if (sql.includes('FROM orders WHERE id = $1 AND shop_id = $2')) {
+                const row = [...orders.values()].find((order) =>
+                    order.id === values[0] && order.shopId === values[1]
+                );
+                return { rows: row ? [{ ...row }] : [] };
+            }
             if (sql.includes('COUNT(*)')) {
                 const all = [...orders.values()];
                 return { rows: [{ total: sql.includes('WHERE status') ? all.filter((order) => order.status === values[1]).length : all.length }] };
             }
             if (sql.includes('SELECT id, order_number')) {
+                if (sql.includes('WHERE id = $1 AND shop_id = $2')) {
+                    const row = [...orders.values()].find((order) => order.id === values[0] && order.shopId === values[1]);
+                    return { rows: row ? [{ ...row }] : [] };
+                }
                 let all = [...orders.values()];
                 if (sql.includes('WHERE status')) all = all.filter((order) => order.status === values[1]);
                 const offset = values.length === 4 ? values[3] : values[2];
@@ -557,6 +616,10 @@ function fakePool() {
                 const setting = adminSettings.get(`${values[0]}.${values[1]}`);
                 return { rows: setting ? [{ isSecret: setting.isSecret }] : [] };
             }
+            if (sql.includes("WHERE setting_group = 'storefront' AND setting_key = 'announcement'")) {
+                const setting = adminSettings.get('storefront.announcement');
+                return { rows: setting ? [{ value: setting.value, isSecret: setting.isSecret }] : [] };
+            }
             if (sql.includes('INSERT INTO admin_settings')) {
                 const [group, key, value, isSecret, updatedBy] = values;
                 const setting = { group, key, value: JSON.parse(value), isSecret, updatedBy, updatedAt: new Date().toISOString() };
@@ -603,8 +666,8 @@ function fakePool() {
                     granted: true
                 }] };
             }
-            if (sql.includes("SELECT id FROM shops WHERE status = 'active'")) {
-                return { rows: [{ id: mainShopId }] };
+            if (sql.includes("SELECT id, slug, name FROM shops WHERE status = 'active'")) {
+                return { rows: [{ id: mainShopId, slug: 'main', name: 'Main Shop' }] };
             }
             if (sql.includes('SELECT id, slug, name, status FROM shops WHERE slug = $1')) {
                 return {
@@ -663,6 +726,7 @@ test('shareable storefront routes serve the app shell', async () => {
         '/category/gadgets',
         '/shops',
         '/shops/main',
+        '/top-selling',
         '/deals',
         '/about',
         '/find-order',
@@ -732,6 +796,7 @@ test('publishes robots, a shop-aware sitemap, shared brand assets, and an HTML 4
     const sitemap = await request(app).get('/sitemap.xml').expect(200);
     assert.match(sitemap.headers['content-type'], /application\/xml/);
     assert.match(sitemap.text, /https:\/\/shopademia\.example\/privacy/);
+    assert.match(sitemap.text, /https:\/\/shopademia\.example\/top-selling</);
     assert.match(sitemap.text, /https:\/\/shopademia\.example\/product\/1</);
     assert.doesNotMatch(sitemap.text, /https:\/\/shopademia\.example\/\?shop=main/);
     const productPage = await request(app).get('/product/1?shop=main').expect(200);
@@ -774,6 +839,124 @@ test('public shop directory returns active shop profiles', async () => {
     const response = await request(app).get('/api/v1/shops').expect(200);
 
     assert.deepEqual(response.body.data, [{ slug: 'main', name: 'Main Shop', heroImage: null, bannerImage: null }]);
+});
+
+test('public discounted products include active shops with their storefront links', async () => {
+    const pool = fakePool();
+    const query = pool.query.bind(pool);
+    const mainShopId = '00000000-0000-4000-8000-000000000001';
+    const otherShopId = '00000000-0000-4000-8000-000000000011';
+    setManagedProducts([
+        {
+            id: 'main-discount', shopId: mainShopId, name: 'Main discounted item',
+            description: 'Main shop discount', price: 75, oldPrice: 100, category: 'gadgets',
+            stockQuantity: 5, isAvailable: true
+        },
+        {
+            id: 'other-discount', shopId: otherShopId, name: 'Other discounted item',
+            description: 'Other shop discount', price: 50, oldPrice: 80, category: 'gadgets',
+            stockQuantity: 4, isAvailable: true
+        },
+        {
+            id: 'not-discounted', shopId: otherShopId, name: 'Regular-price item',
+            description: 'No discount', price: 30, oldPrice: null, category: 'gadgets',
+            stockQuantity: 4, isAvailable: true
+        }
+    ]);
+    pool.query = async (sql, values) => {
+        if (sql.includes('SELECT id, slug, name FROM shops')
+            && sql.includes("WHERE status = 'active' ORDER BY name, slug")) {
+            return { rows: [
+                { id: mainShopId, slug: 'main', name: 'Main Shop' },
+                { id: otherShopId, slug: 'other-shop', name: 'Other Shop' }
+            ] };
+        }
+        return query(sql, values);
+    };
+    const app = createApp({ pool, config });
+
+    const response = await request(app).get('/api/v1/discounted-products')
+        .expect('Cache-Control', 'public, max-age=60')
+        .expect(200);
+
+    assert.deepEqual(response.body.data.filter(({ id }) => ['main-discount', 'other-discount'].includes(id))
+        .map(({ id, shopSlug, shopName }) => ({ id, shopSlug, shopName })), [
+        { id: 'main-discount', shopSlug: 'main', shopName: 'Main Shop' },
+        { id: 'other-discount', shopSlug: 'other-shop', shopName: 'Other Shop' }
+    ]);
+    assert.equal(response.body.data.some(({ id }) => id === 'not-discounted'), false);
+});
+
+test('public catalog includes marketplace products with the correct seller links', async () => {
+    const pool = fakePool();
+    const query = pool.query.bind(pool);
+    const mainShopId = '00000000-0000-4000-8000-000000000001';
+    const otherShopId = '00000000-0000-4000-8000-000000000011';
+    setManagedProducts([
+        {
+            id: 'main-catalog-item', shopId: mainShopId, name: 'Main catalog item',
+            description: 'Main shop product', price: 75, oldPrice: null, category: 'gadgets',
+            stockQuantity: 5, isAvailable: true
+        },
+        {
+            id: 'other-catalog-item', shopId: otherShopId, name: 'Other catalog item',
+            description: 'Other shop product', price: 50, oldPrice: null, category: 'gadgets',
+            stockQuantity: 4, isAvailable: true
+        }
+    ]);
+    pool.query = async (sql, values) => {
+        if (sql.includes('SELECT id, slug, name FROM shops')
+            && sql.includes("WHERE status = 'active'")) {
+            return { rows: [
+                { id: mainShopId, slug: 'main', name: 'Main Shop' },
+                { id: otherShopId, slug: 'other-shop', name: 'Other Shop' }
+            ] };
+        }
+        return query(sql, values);
+    };
+    const app = createApp({ pool, config });
+
+    const response = await request(app).get('/api/v1/products').expect(200);
+    assert.deepEqual(response.body.data
+        .filter(({ id }) => ['main-catalog-item', 'other-catalog-item'].includes(id))
+        .map(({ id, shopSlug, shopName }) => ({ id, shopSlug, shopName })), [
+        { id: 'main-catalog-item', shopSlug: 'main', shopName: 'Main Shop' },
+        { id: 'other-catalog-item', shopSlug: 'other-shop', shopName: 'Other Shop' }
+    ]);
+});
+
+test('public weekly top products rank active shop order items without exposing sales totals', async () => {
+    const pool = fakePool();
+    const query = pool.query.bind(pool);
+    const shopId = '00000000-0000-4000-8000-000000000001';
+    const productId = 'weekly-best';
+    setManagedProducts([{
+        id: productId, shopId, name: 'Weekly best', description: 'Popular item',
+        price: 25, oldPrice: null, category: 'gadgets', stockQuantity: 6, isAvailable: true
+    }]);
+    let rankingQuery = '';
+    pool.query = async (sql, values) => {
+        if (sql.includes('FROM orders o') && sql.includes('date_trunc(\'week\', NOW())')) {
+            rankingQuery = sql;
+            return { rows: [{
+                shopId, shopSlug: 'main', shopName: 'Main Shop', productId, units: 3
+            }] };
+        }
+        return query(sql, values);
+    };
+    const app = createApp({ pool, config });
+
+    const response = await request(app).get('/api/v1/top-selling')
+        .expect('Cache-Control', 'public, max-age=60')
+        .expect(200);
+
+    assert.match(rankingQuery, /o\.status <> 'cancelled'/);
+    assert.match(rankingQuery, /date_trunc\('week', NOW\(\)\)/);
+    assert.deepEqual(response.body.data.map(({ id, shopSlug, shopName }) => ({ id, shopSlug, shopName })), [
+        { id: productId, shopSlug: 'main', shopName: 'Main Shop' }
+    ]);
+    assert.equal(JSON.stringify(response.body).includes('units'), false);
+    assert.equal(JSON.stringify(response.body).includes('revenue'), false);
 });
 
 test('cross-origin shop API exposes only that shop uploaded products with safe pagination', async (t) => {
@@ -982,7 +1165,8 @@ test('admin product management supports authenticated create, update, replacemen
         setManagedProducts([]);
         await rm(uploadDirectory, { recursive: true, force: true });
     });
-    const app = createApp({ pool: fakePool(), config: { ...config, uploadsDir: uploadDirectory } });
+    const pool = fakePool();
+    const app = createApp({ pool, config: { ...config, uploadsDir: uploadDirectory } });
     const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64');
 
     await request(app).post('/api/v1/admin/products')
@@ -1006,6 +1190,7 @@ test('admin product management supports authenticated create, update, replacemen
         .field('stockQuantity', '5')
         .field('isAvailable', 'true')
         .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/earbuds-detail.jpg')
         .attach('image', image, { filename: 'product.png', contentType: 'image/png' })
         .expect(201);
 
@@ -1019,14 +1204,39 @@ test('admin product management supports authenticated create, update, replacemen
     assert.equal(product.seoTitle, 'Wireless Earbuds | Admin Shop');
     assert.equal(product.metaDescription, 'Compact wireless earbuds with a portable charging case.');
     assert.match(product.image, /^\/uploads\/[0-9a-f-]{36}\.png$/);
+    assert.equal(product.images.length, 2);
+    assert.equal(product.images[1], 'https://images.example.com/earbuds-detail.jpg');
+    const productPage = await request(app).get(`/product/${product.id}?shop=main`).expect(200);
+    assert.match(productPage.text, /src="\/uploads\/[0-9a-f-]{36}\.png"/);
     assert.equal(findProduct(product.id).price, 1250);
     await assertSanitizedImage(join(uploadDirectory, product.image.split('/').at(-1)), image);
 
+    const detail = await request(app).get(`/api/v1/admin/products/${product.id}`)
+        .set('Authorization', authorization)
+        .expect(200);
+    assert.equal(detail.body.data.name, 'Admin Product');
+    const otherShopProductId = 'admin-00000000-0000-4000-8000-000000000999';
+    pool.addManagedProduct({
+        ...product,
+        id: otherShopProductId,
+        shopId: '00000000-0000-4000-8000-000000000002'
+    });
+    await request(app).get(`/api/v1/admin/products/${otherShopProductId}`)
+        .set('Authorization', authorization)
+        .expect(404, { error: 'Product not found.' });
+    await request(app).get('/api/v1/admin/products/admin-product-from-another-shop')
+        .set('Authorization', authorization)
+        .expect(404, { error: 'Product not found.' });
+
     const storefront = await request(app).get('/api/v1/products').expect(200);
     const publicProduct = storefront.body.data.find(({ id }) => id === product.id);
+    assert.equal(publicProduct.shopSlug, 'main');
+    assert.equal(publicProduct.shopName, 'Main Shop');
     assert.equal(publicProduct.imageAlt, product.imageAlt);
     assert.equal(publicProduct.seoTitle, product.seoTitle);
     assert.equal(publicProduct.metaDescription, product.metaDescription);
+    assert.equal(publicProduct.images[1], 'https://images.example.com/earbuds-detail.jpg');
+
     const checkout = await request(app).post('/api/v1/orders').send({
         ...payload,
         items: [{ productId: product.id, quantity: 2 }],
@@ -1039,10 +1249,16 @@ test('admin product management supports authenticated create, update, replacemen
         .set('Authorization', authorization)
         .expect(200);
     assert.equal(listed.body.data.length, 1);
-    assert.equal(listed.body.data[0].id, product.id);
-    assert.equal(listed.body.data[0].imageAlt, product.imageAlt);
-    assert.equal(listed.body.data[0].seoTitle, product.seoTitle);
-    assert.equal(listed.body.data[0].metaDescription, product.metaDescription);
+    const listedProduct = listed.body.data.find(({ id }) => id === product.id);
+    assert.ok(listedProduct);
+    assert.equal(listedProduct.imageAlt, product.imageAlt);
+    assert.equal(listedProduct.seoTitle, product.seoTitle);
+    assert.equal(listedProduct.metaDescription, product.metaDescription);
+    const page = await request(app).get('/api/v1/admin/products?limit=1&offset=0')
+        .set('Authorization', authorization)
+        .expect(200);
+    assert.equal(page.body.pagination.total, 1);
+    assert.equal(page.body.pagination.hasMore, false);
 
     const storedImage = await request(app).get(product.image).expect(200);
     assert.equal(storedImage.headers['content-type'], 'image/png');
@@ -1208,6 +1424,10 @@ test('shop admins can rename categories and choose whether category products are
     const createProduct = (name, category = 'home-decor') => request(app).post('/api/v1/admin/products')
         .set('Authorization', authorization)
         .field('name', name)
+        .field('description', `${name} product description.`)
+        .field('imageAlt', `${name} product photo.`)
+        .field('seoTitle', `${name} | Shopademia`)
+        .field('metaDescription', `Browse ${name.toLowerCase()} at this shop.`)
         .field('price', '100')
         .field('stockQuantity', '2')
         .field('isAvailable', 'true')
@@ -1236,6 +1456,118 @@ test('shop admins can rename categories and choose whether category products are
     await assert.rejects(readFile(join(uploadDirectory, removed.body.data.image.split('/').at(-1))));
 });
 
+test('shop admins can publish and replace HTTPS product image links with complete details', async (t) => {
+    const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-linked-image-test-'));
+    t.after(async () => {
+        setManagedProducts([]);
+        await rm(uploadDirectory, { recursive: true, force: true });
+    });
+    const app = createApp({ pool: fakePool(), config: { ...config, uploadsDir: uploadDirectory } });
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const authorization = `Bearer ${login.body.token}`;
+    const fields = (name, imageUrls) => request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', name)
+        .field('description', `${name} has complete product details for the marketplace.`)
+        .field('imageAlt', `Photograph of ${name.toLowerCase()}.`)
+        .field('seoTitle', `${name} | Demo shop`)
+        .field('metaDescription', `See ${name.toLowerCase()} in this demo shop.`)
+        .field('price', '800')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', imageUrls);
+
+    const incomplete = await request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', 'Incomplete linked product')
+        .field('price', '800')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/incomplete.jpg')
+        .expect(400);
+    assert.equal(incomplete.body.error, 'Enter a product description.');
+    const missingAlt = await request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', 'Missing alt text')
+        .field('description', 'A product description with the other details omitted.')
+        .field('price', '800')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/missing-alt.jpg')
+        .expect(400);
+    assert.equal(missingAlt.body.error, 'Enter descriptive alt text for the product image.');
+    const missingSeoTitle = await request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', 'Missing SEO title')
+        .field('description', 'A product description with the other details omitted.')
+        .field('imageAlt', 'A product image for the missing SEO title test.')
+        .field('price', '800')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/missing-seo.jpg')
+        .expect(400);
+    assert.equal(missingSeoTitle.body.error, 'Enter an SEO title for the product.');
+    const missingMetaDescription = await request(app).post('/api/v1/admin/products')
+        .set('Authorization', authorization)
+        .field('name', 'Missing meta description')
+        .field('description', 'A product description with the other details omitted.')
+        .field('imageAlt', 'A product image for the missing meta description test.')
+        .field('seoTitle', 'Missing meta description | Demo shop')
+        .field('price', '800')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/missing-meta.jpg')
+        .expect(400);
+    assert.equal(missingMetaDescription.body.error, 'Enter a meta description for the product.');
+
+    const imageUrl = 'https://images.example.com/linked-product.jpg';
+    const created = await fields('Linked Image Product', `${imageUrl}\nhttps://images.example.com/linked-detail.jpg`)
+        .expect(201);
+    assert.equal(created.body.data.image, imageUrl);
+    assert.deepEqual(created.body.data.images, [
+        imageUrl,
+        'https://images.example.com/linked-detail.jpg'
+    ]);
+    const productPage = await request(app).get(`/product/${created.body.data.id}?shop=main`).expect(200);
+    assert.match(productPage.text, /src="https:\/\/images\.example\.com\/linked-product\.jpg"/);
+    const storefront = await request(app).get('/api/v1/products').expect(200);
+    assert.equal(storefront.body.data.find(({ id }) => id === created.body.data.id).image, imageUrl);
+
+    const sameImageOnAnotherProduct = await fields('Second Linked Image Product', imageUrl).expect(201);
+    assert.equal(sameImageOnAnotherProduct.body.data.image, imageUrl);
+
+    const updated = await request(app).put(`/api/v1/admin/products/${created.body.data.id}`)
+        .set('Authorization', authorization)
+        .field('name', 'Linked Image Product Updated')
+        .field('description', 'Updated complete product information for the demo shop.')
+        .field('imageAlt', 'Updated product photograph.')
+        .field('seoTitle', 'Linked Image Product Updated | Demo shop')
+        .field('metaDescription', 'Updated product with another HTTPS image link.')
+        .field('price', '850')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/updated-product.jpg')
+        .expect(200);
+    assert.equal(updated.body.data.image, 'https://images.example.com/updated-product.jpg');
+    assert.deepEqual(updated.body.data.images, ['https://images.example.com/updated-product.jpg']);
+
+    for (const imageUrls of [
+        'http://images.example.com/photo.jpg',
+        'https://127.0.0.1/photo.jpg',
+        Array.from({ length: 11 }, (_, index) => `https://images.example.com/${index}.jpg`).join('\n')
+    ]) {
+        await fields('Invalid Linked Product', imageUrls).expect(400);
+    }
+});
+
 test('shop admins can update the public shop profile with validated contact details', async () => {
     const shopId = '00000000-0000-4000-8000-000000000001';
     let profile = {
@@ -1257,7 +1589,7 @@ test('shop admins can update the public shop profile with validated contact deta
             return { rows: [{ ...profile }] };
         }
         if (sql.includes('FROM shops s WHERE slug = $1 AND status =')) {
-            return { rows: [{ ...profile, topProducts: [] }] };
+            return { rows: [{ ...profile }] };
         }
         return query(sql, values);
     };
@@ -1313,6 +1645,62 @@ test('shop admins can update the public shop profile with validated contact deta
         .expect(400);
     const publicProfile = await request(app).get('/api/v1/shops/main').expect(200);
     assert.equal(publicProfile.body.data.name, 'Main Shop Updated');
+    assert.equal(Object.hasOwn(publicProfile.body.data, 'topProducts'), false);
+});
+
+test('platform top-product report aggregates shops without requiring an owned or selected shop', async () => {
+    const pool = fakePool();
+    const platformAdminId = '00000000-0000-4000-8000-000000000101';
+    const tokenId = 'platform-wide-report-session';
+    pool.addPlatformAdmin({
+        id: platformAdminId,
+        email: config.adminEmail,
+        passwordHash: initialAdminPasswordHash,
+        sessionVersion: 1
+    });
+    pool.addActiveSession(tokenId, platformAdminId, null);
+    let reportQueryValues;
+    const query = pool.query.bind(pool);
+    pool.query = async (sql, values = []) => {
+        if (sql.includes('FROM orders o') && sql.includes('JOIN shops s ON s.id = o.shop_id')) {
+            reportQueryValues = values;
+            return { rows: [{
+                shopId: '00000000-0000-4000-8000-000000000011',
+                shopName: 'Independent Shop',
+                productId: 'product-one',
+                name: 'Popular product',
+                quantity: 8,
+                revenue: '12000'
+            }] };
+        }
+        return query(sql, values);
+    };
+    const app = createApp({ pool, config });
+    const authorization = `Bearer ${jwt.sign({
+        sub: config.adminEmail,
+        role: 'admin',
+        userId: platformAdminId,
+        isPlatformAdmin: true,
+        sessionVersion: 1
+    }, config.jwtSecret, {
+        algorithm: 'HS256',
+        issuer: 'shopademia',
+        jwtid: tokenId
+    })}`;
+
+    const response = await request(app).get('/api/v1/admin/platform/top-products?days=30')
+        .set('Authorization', authorization)
+        .expect(200);
+
+    assert.deepEqual(reportQueryValues, [30]);
+    assert.deepEqual(response.body.data.topProducts, [{
+        shopId: '00000000-0000-4000-8000-000000000011',
+        shopName: 'Independent Shop',
+        productId: 'product-one',
+        name: 'Popular product',
+        quantity: 8,
+        revenue: '12000'
+    }]);
 });
 
 test('admin product uploads sanitize WebP images without locking the uploaded file', async (t) => {
@@ -1333,6 +1721,10 @@ test('admin product uploads sanitize WebP images without locking the uploaded fi
     const created = await request(app).post('/api/v1/admin/products')
         .set('Authorization', authorization)
         .field('name', 'WebP Product')
+        .field('description', 'A WebP product upload test.')
+        .field('imageAlt', 'Blue WebP product test image.')
+        .field('seoTitle', 'WebP Product | Shopademia')
+        .field('metaDescription', 'A product image upload using WebP format.')
         .field('price', '100')
         .field('stockQuantity', '1')
         .field('isAvailable', 'true')
@@ -1352,6 +1744,10 @@ test('admin product uploads sanitize WebP images without locking the uploaded fi
     const tooManyImages = request(app).post('/api/v1/admin/products')
         .set('Authorization', authorization)
         .field('name', 'Too Many Images')
+        .field('description', 'A product with too many uploaded images.')
+        .field('imageAlt', 'A product image upload limit test.')
+        .field('seoTitle', 'Too Many Images | Shopademia')
+        .field('metaDescription', 'Checks the product image count restriction.')
         .field('price', '100')
         .field('stockQuantity', '1')
         .field('isAvailable', 'true')
@@ -1374,9 +1770,13 @@ test('admin rejects unsupported and spoofed product image uploads without publis
         .send({ email: config.adminEmail, password: config.adminPassword })
         .expect(200);
     const authorization = `Bearer ${login.body.token}`;
-    const productFields = (testRequest) => testRequest
+    const productFields = (testRequest, { seoTitle = 'Invalid Image | Shopademia' } = {}) => testRequest
         .set('Authorization', authorization)
         .field('name', 'Invalid Image')
+        .field('description', 'A product listing used to verify safe image uploads.')
+        .field('imageAlt', 'An image validation test product.')
+        .field('seoTitle', seoTitle)
+        .field('metaDescription', 'Checks product image type and signature handling.')
         .field('price', '100')
         .field('stockQuantity', '1')
         .field('isAvailable', 'true')
@@ -1406,8 +1806,7 @@ test('admin rejects unsupported and spoofed product image uploads without publis
         })
         .expect(400, { error: 'The previous price must be a whole BDT amount greater than the current price.' });
 
-    await productFields(request(app).post('/api/v1/admin/products'))
-        .field('seoTitle', 'x'.repeat(71))
+    await productFields(request(app).post('/api/v1/admin/products'), { seoTitle: 'x'.repeat(71) })
         .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64'), {
             filename: 'product.png',
             contentType: 'image/png'
@@ -1486,7 +1885,26 @@ test('admin branding uploads save the image and record the shop activity', async
 test('platform admins can create, edit, reorder, and remove up to five hero slides', async (t) => {
     const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-hero-slides-test-'));
     t.after(async () => {
-        await rm(uploadDirectory, { recursive: true, force: true });
+        await rm(uploadDirectory, { recursive: true, force: true         });
+
+        test('shop admins cannot manage super-admin storefront hero images', async () => {
+            const app = createApp({ pool: fakePool(), config });
+            const login = await request(app).post('/api/v1/admin/login')
+                .send({ email: config.adminEmail, password: config.adminPassword })
+                .expect(200);
+            const authorization = `Bearer ${login.body.token}`;
+            const shopId = '00000000-0000-4000-8000-000000000001';
+
+            await request(app).get('/api/v1/admin/shop/hero-slides')
+                .set('Authorization', authorization)
+                .set('x-shop-id', shopId)
+                .expect(403, { error: 'Platform administrator permission is required.' });
+            await request(app).post('/api/v1/admin/shop/hero-slides')
+                .set('Authorization', authorization)
+                .set('x-shop-id', shopId)
+                .send({})
+                .expect(403, { error: 'Platform administrator permission is required.' });
+        });
     });
     const shopId = '00000000-0000-4000-8000-000000000001';
     const slides = [];
@@ -1818,6 +2236,28 @@ test('platform administrators must enroll in TOTP and cannot reuse an authentica
             .set('Authorization', authorization)
             .expect(200);
         assert.equal(permissions.body.data[0].roleKey, 'super_admin');
+
+        await request(app).put('/api/v1/admin/settings/storefront/announcement')
+            .set('Authorization', authorization)
+            .send({ value: '  Welcome to Shopademia — explore new finds!  ', isSecret: false })
+            .expect(200, {
+                data: {
+                    group: 'storefront',
+                    key: 'announcement',
+                    isSecret: false,
+                    value: 'Welcome to Shopademia — explore new finds!'
+                }
+            });
+        await request(app).get('/api/v1/storefront-announcement')
+            .expect(200, { data: { text: 'Welcome to Shopademia — explore new finds!' } });
+        await request(app).put('/api/v1/admin/settings/storefront/announcement')
+            .set('Authorization', authorization)
+            .send({ value: '  ', isSecret: false })
+            .expect(400);
+        await request(app).put('/api/v1/admin/settings/storefront/announcement')
+            .set('Authorization', authorization)
+            .send({ value: 'Not public', isSecret: true })
+            .expect(400);
     });
 
     test('shop users cannot access platform settings or permission registry', async () => {
@@ -1832,6 +2272,12 @@ test('platform administrators must enroll in TOTP and cannot reuse an authentica
         await request(app).get('/api/v1/admin/permissions')
             .set('Authorization', authorization)
             .expect(403);
+        await request(app).put('/api/v1/admin/settings/storefront/announcement')
+            .set('Authorization', authorization)
+            .send({ value: 'A shop admin must not update this.', isSecret: false })
+            .expect(403);
+        await request(app).get('/api/v1/storefront-announcement')
+            .expect(200, { data: { text: 'Discover products from independent shops' } });
     });
     const app = createApp({ pool, config });
     const setup = await request(app).post('/api/v1/admin/login')
@@ -1956,6 +2402,78 @@ test('admin can sign in, review orders, and update order status', async () => {
             assert.equal(body.data[0].newValue, 'delivered');
             assert.equal(body.data[0].actorEmail, config.adminEmail);
         });
+});
+
+test('native admin clients use bearer sessions and shop-scoped dashboard resources', async () => {
+    const pool = fakePool();
+    const app = createApp({ pool, config });
+    const anonymous = await request(app).get('/api/v1/admin/dashboard')
+        .set('X-Request-Id', 'untrusted-client-id')
+        .expect(401);
+    assert.match(anonymous.headers['x-request-id'], /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.notEqual(anonymous.headers['x-request-id'], 'untrusted-client-id');
+
+    await request(app).post('/api/v1/orders').send(payload).expect(201);
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    assert.equal(typeof login.body.token, 'string');
+    const authorization = `Bearer ${login.body.token}`;
+
+    const dashboard = await request(app).get('/api/v1/admin/dashboard')
+        .set('Authorization', authorization)
+        .expect(200);
+    assert.equal(dashboard.body.data.orders.total, 1);
+    assert.deepEqual(dashboard.body.data.orders.byStatus, { new: 1 });
+    assert.equal(dashboard.body.data.products.total, 0);
+    assert.ok(dashboard.body.data.generatedAt);
+
+    const order = await request(app).get('/api/v1/admin/orders/1')
+        .set('Authorization', authorization)
+        .expect(200);
+    assert.equal(order.body.data.customerName, 'Abid Hossain');
+    assert.equal(order.body.data.status, 'new');
+    await request(app).get('/api/v1/admin/orders/999')
+        .set('Authorization', authorization)
+        .expect(404, { error: 'Order not found.' });
+
+    const products = await request(app).get('/api/v1/admin/products?limit=10&offset=0')
+        .set('Authorization', authorization)
+        .expect(200);
+    assert.deepEqual(products.body.pagination, { limit: 10, offset: 0, total: 0, hasMore: false });
+    await request(app).get('/api/v1/admin/products?limit=101')
+        .set('Authorization', authorization)
+        .expect(400);
+    await request(app).get('/api/v1/admin/orders?page=1x')
+        .set('Authorization', authorization)
+        .expect(400, { error: 'Order page must be an integer from 1 to 100000.' });
+
+    await request(app).post('/api/v1/admin/logout')
+        .set('Authorization', authorization)
+        .expect(204);
+    await request(app).get('/api/v1/admin/dashboard')
+        .set('Authorization', authorization)
+        .expect(401);
+
+    const staffId = '00000000-0000-4000-8000-000000000102';
+    const staffEmail = 'staff@example.com';
+    pool.addAdminUser({
+        id: staffId,
+        email: staffEmail,
+        passwordHash: await hashAdminPassword('staff-test-password-123'),
+        sessionVersion: 1
+    });
+    pool.addShopMembership('00000000-0000-4000-8000-000000000001', staffId, 'staff');
+    const staffLogin = await request(app).post('/api/v1/admin/login')
+        .send({ email: staffEmail, password: 'staff-test-password-123' })
+        .expect(200);
+    await request(app).get('/api/v1/admin/dashboard')
+        .set('Authorization', `Bearer ${staffLogin.body.token}`)
+        .expect(200);
+    await request(app).post('/api/v1/admin/products')
+        .set('Authorization', `Bearer ${staffLogin.body.token}`)
+        .send({})
+        .expect(403, { error: 'Shop owner or admin permission is required.' });
 });
 
 test('admin rejects invalid order status transitions without changing the order', async () => {
@@ -2379,7 +2897,7 @@ test('serves the admin dashboard and same-origin catalog with a restrictive scri
     assert.match(policy, /script-src 'self'/);
     assert.doesNotMatch(policy, /unsafe-eval/);
     assert.doesNotMatch(policy, /fakestoreapi\.com/);
-    assert.match(policy, /img-src 'self' data: blob:/);
+    assert.match(policy, /img-src 'self' data: blob: https:/);
     assert.match(policy, /connect-src 'self'.*googletagmanager/);
     assert.doesNotMatch(policy, /upgrade-insecure-requests/);
     const catalog = await request(app).get('/api/v1/products?featured=true').expect(200);
@@ -2451,4 +2969,111 @@ test('readiness endpoint fails closed and does not expose database error details
     await request(app).get('/healthz')
         .expect(503, { status: 'unavailable' });
     assert.doesNotMatch(JSON.stringify(errorLog.mock.calls), /private connection detail/);
+});
+
+test('read-only preview rejects privileged and write routes before handlers while serving public reads', async () => {
+    const pool = fakePool();
+    const query = pool.query.bind(pool);
+    const statements = [];
+    pool.query = async (sql, values) => {
+        statements.push(sql);
+        if (!/^\s*(SELECT|WITH)\b/i.test(sql)) {
+            throw new Error('Unexpected database write in read-only preview test.');
+        }
+        return query(sql, values);
+    };
+    const app = createApp({ pool, config: { ...config, readOnlyPreview: true } });
+
+    const rejectedLogin = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: 'not-used-in-read-only-mode' })
+        .expect(405);
+    assert.equal(rejectedLogin.headers.allow, 'GET, HEAD');
+    assert.equal(rejectedLogin.headers['x-request-id']?.length, 36);
+    await request(app).post('/api/v1/orders').send({}).expect(405);
+    await request(app).post('/api/v1/customer/order-lookup').send({}).expect(405);
+    await request(app).post('/api/v1/shops/main/push-subscriptions').send({}).expect(405);
+    await request(app).options('/api/v1/orders').expect(405);
+    await request(app).put('/api/v1/admin/products/1').send({}).expect(405);
+    await request(app).patch('/api/v1/admin/orders/1/status').send({}).expect(405);
+    await request(app).delete('/api/v1/admin/products/1').expect(405);
+    const queryCountBeforePrivilegedReads = statements.length;
+    for (const path of [
+        '/admin',
+        '/api/v1/admin/login',
+        '/api/v1/admin/profile',
+        '/api/v1/admin/dashboard',
+        '/api/v1/admin/dashboard?route=/api/v1/products',
+        '/api/v1/%61dmin/dashboard',
+        '/api/v1/admin%2Fdashboard',
+        '/api/v1/admin/products',
+        '/api/v1/admin/orders',
+        '/api/v1/shops/main/push-key',
+        '/api/v1/shops/main/push-key?route=/api/v1/products',
+        '/find-order',
+        '/find-order?route=/api/v1/products',
+        '/%66ind-order'
+    ]) {
+        await request(app).get(path).expect(404);
+    }
+    await request(app).head('/api/v1/admin/dashboard').expect(404);
+    await request(app).head('/api/v1/orders').expect(404);
+    await request(app).head('/api/v1/customer/order-lookup').expect(404);
+    assert.equal(statements.length, queryCountBeforePrivilegedReads);
+    await request(app).get('/api/v1/products?route=/api/v1/admin/dashboard').expect(200);
+    await request(app).get('/api/v1/products').expect(200);
+    await request(app).head('/api/v1/products').expect(200);
+    const storefront = await request(app).get('/').expect(200).expect('Content-Type', /html/);
+    assert.match(storefront.text, /Local read-only preview: browsing is enabled/);
+    assert.match(storefront.text, /checkout, order lookup, notifications, and administration are disabled/);
+    await request(app).get('/css/styles.css').expect(200).expect('Content-Type', /css/);
+    await request(app).get('/js/main.js').expect(200).expect('Content-Type', /javascript/);
+    await request(app).get('/public-assets/shopademia-mark.svg').expect(200).expect('Content-Type', /svg/);
+    await request(app).head('/css/styles.css').expect(200);
+    await request(app).head('/js/main.js').expect(200);
+    await request(app).head('/public-assets/shopademia-mark.svg').expect(200);
+    for (const path of [
+        '/css/%2e%2e%2f.env',
+        '/css/%2e%2e/.env',
+        '/public-assets/%2e%2e/.env',
+        '/uploads/%2e%2e/%2e%2e/.env',
+        '/css/%2e%2e%5c.env',
+        '/public-assets/%252e%252e%252f.env',
+        '/css/%E0%A4%A',
+        '/js/%00.js',
+        `/css/${'a'.repeat(5000)}`
+    ]) {
+        const response = await request(app).get(path).expect(404, { error: 'Not found.' });
+        assert.equal(response.headers['x-request-id']?.length, 36);
+        assert.doesNotMatch(response.text, /password|DATABASE_URL|JWT_SECRET|stack/i);
+    }
+    await request(app).get('/api/v1/shops/main/push-subscriptions').expect(404);
+    assert.ok(statements.length > 0);
+    assert.ok(statements.every((sql) => /^\s*(SELECT|WITH)\b/i.test(sql)));
+});
+
+test('static serving rejects upload junctions that resolve outside the configured root', async () => {
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'shopademia-static-containment-'));
+    const uploadDirectory = join(temporaryDirectory, 'uploads');
+    const externalDirectory = join(temporaryDirectory, 'outside');
+    await mkdir(uploadDirectory);
+    await mkdir(externalDirectory);
+    await writeFile(join(externalDirectory, 'private.txt'), 'private fixture must not be served');
+    await writeFile(join(uploadDirectory, 'public.txt'), 'approved public fixture');
+
+    try {
+        await symlink(externalDirectory, join(uploadDirectory, 'outside'), 'junction');
+        for (const readOnlyPreview of [false, true]) {
+            const app = createApp({
+                pool: fakePool(),
+                config: { ...config, readOnlyPreview, uploadsDir: uploadDirectory }
+            });
+            await request(app).get('/uploads/public.txt')
+                .expect(200, 'approved public fixture');
+            const escapedFile = await request(app).get('/uploads/outside/private.txt')
+                .expect(404, { error: 'Not found.' });
+            assert.doesNotMatch(escapedFile.text, /private fixture must not be served/);
+        }
+    } finally {
+        await rm(temporaryDirectory, { recursive: true, force: true });
+    }
 });

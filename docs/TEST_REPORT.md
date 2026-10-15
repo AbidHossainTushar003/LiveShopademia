@@ -1,5 +1,99 @@
 # Shopademia test and verification report
 
+## Current release-gate verification — 2026-10-14 19:26 +06
+
+| Command/check | Exit | Result, target, and limitations |
+|---|---:|---|
+| `npm.cmd run test:api` | 0 | 85 passed, 0 failed, 0 skipped. Test harness/fake dependencies; not live staging evidence. |
+| `npm.cmd test` | 0 | 133 passed, 0 failed, 0 skipped. Includes API/server tests above; do not add totals. |
+| `node --test scripts\staging-config.test.js` | 0 | 15 passed, 0 failed; includes missing/placeholder rejection and `.env.example` URL regression. |
+| `node --test scripts\playwright-target.test.js` | 0 | 7 passed, 0 failed; target guard only. |
+| `npm.cmd run test:e2e` with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002` | 1 | 9 public-only Chromium cases attempted against existing preview; all failed before app behavior with `ERR_CONNECTION_REFUSED`/`ECONNREFUSED`. No listener was present on 3002; no server was started/restarted. |
+| `npm.cmd audit --audit-level=low` | 0 | 0 vulnerabilities. Fresh online audit: npm offline `false`, registry `https://registry.npmjs.org/`. |
+| `npm.cmd run validate:staging` | 1 (expected) | `.env.staging` absent; missing/placeholder configuration rejected. No configuration or secrets fabricated. |
+| `node -e "const m=require('./SECURITY_TEST_MATRIX.json'),ids=m.scenarios.map(s=>s.id),c={};for(const s of m.scenarios)c[s.status]=(c[s.status]||0)+1;if(ids.length!==1000||new Set(ids).size!==1000||Object.entries(m.statusCounts).some(([k,v])=>(c[k]||0)!==v))process.exit(1);console.log('matrix valid')"` | 0 | 1,000 unique IDs and declared historical counts verified; current E2E unavailability appended as BLOCKED evidence. |
+| `git diff --check` | 0 | No whitespace errors; line-ending warnings may be emitted for edited files. |
+
+This E2E result neither erases nor reinterprets earlier 9/9 runs; it records a new run against an unavailable local target. Historical browser passes remain historical. No privileged browser operations were selected. Dedicated secret scanning was unavailable. Filesystem check/open race remains unresolved. **STAGING: BLOCKED / NOT READY; PRODUCTION: NO-GO.**
+
+## Build and dependency verification — 2026-10-14 11:15 +06
+
+- `npm.cmd run build:css`: exit 0; Tailwind v4.3.3 completed. It regenerated the tracked `css/tailwind.generated.css`, adding one `.isolate` utility; this generated output remains as a worktree change. No application server was started.
+- `npm.cmd audit --audit-level=low`: exit 0; `found 0 vulnerabilities`. `npm.cmd config get offline` returned `false`; registry was `https://registry.npmjs.org/`, so this was a fresh online advisory query, not a cached/offline result.
+- `npm.cmd run validate:staging`: expected exit 1 because `.env.staging` is absent; validator reported missing/placeholder configuration. No staging file or secret was created.
+- Secret scanner availability check found no `secretlint`, `gitleaks`, `trufflehog`, or `detect-secrets` executable and no package script for secret scanning. No new secret scan is claimed.
+- The full Node suite, target guard, and public-only E2E suite were subsequently rerun in the fresh regression entry below.
+
+### Fresh regression rerun — 2026-10-14 11:15 +06
+
+| Command | Exit | Result and scope |
+|---|---:|---|
+| `npm.cmd test` | 0 | 133 passed, 0 failed, 0 skipped; includes API/server tests. |
+| `node --test scripts\playwright-target.test.js` | 0 | 7 passed, 0 failed; loopback/production/target policy guard. |
+| `npm.cmd run test:e2e` with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002` | 0 | 9 public-only Chromium tests passed against the existing read-only preview. No privileged or write-capable workflow was run. |
+
+The test and API totals overlap. The E2E suite exercised public browsing, product details, layout/responsiveness, keyboard focus, CDN failure resilience, and accessibility; it did not exercise cart/wishlist mutations, checkout, admin, or order writes against the preview.
+
+## Static race and example-URL follow-up — 2026-10-14 11:07 +06
+
+- Removed one bare, unassigned loopback PostgreSQL URL from `.env.example` after redacted inspection showed its password-like component was not a placeholder. The named `DATABASE_URL` example remains placeholder-backed. The removed value was not printed or tested; treat it as potentially usable until the owner determines whether it was valid/reused.
+- Added a regression test that rejects an unassigned PostgreSQL URL in `.env.example`; test output does not include line contents.
+- Remaining environment-example DB URLs use placeholder passwords; the URL in `scripts/staging-config.test.js` is deliberate synthetic invalid-host test data. The old Secretlint result is not a new scan. No dedicated scanner was available; no fresh secret scan passed.
+- Static serving still validates `realpath()` before Express opens the pathname; junction tests do not address races. No race-proof implementation is claimed; use immutable read-only asset roots, separate upload ingestion/publication, and actual runtime ownership/ACL acceptance evidence as detailed in the runbook.
+
+### Commands rerun for this follow-up
+
+| Command | Exit | Result |
+|---|---:|---|
+| `node --test scripts\staging-config.test.js` | 0 | 15 passed, 0 failed; includes unassigned-URL regression. |
+| `npm.cmd run test:api` | 0 | 85 passed, 0 failed, 0 skipped; includes API/read-only enforcement and junction containment tests. |
+| `npm.cmd test` | 0 | 133 passed, 0 failed, 0 skipped. Includes the API suite; totals overlap and must not be added. |
+| `node --test scripts\playwright-target.test.js` | 0 | 7 passed, 0 failed. |
+| `npm.cmd run test:e2e` with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002` | 0 | 9 public Chromium tests passed against the existing preview; no privileged tests or prohibited operations. |
+| `npm.cmd run validate:staging` | 1 (expected) | `.env.staging` absent; validation rejected missing/placeholder configuration. |
+| `git diff --check` | 0 | No whitespace errors; Git emitted an LF-to-CRLF working-copy warning for `.env.example`. |
+
+The five unauthenticated read-only GitHub REST requests in this pass (branch protection, rulesets, Actions permissions, environments and workflow content) each returned HTTP 403, API rate limit exceeded. No settings payload was obtained; settings remain **UNVERIFIED**.
+
+## Approval-gate validation follow-up — 2026-10-14
+
+- Baseline verification (not a re-run of prior suites): branch `feature/admin-v2`, HEAD `798e7227e907edbbd262e8fe25b78d9e79cd7247`, upstream `github/feature/admin-v2`; staged diff empty. Dirty and untracked work were preserved.
+- `.env.staging` is absent. `npm.cmd run validate:staging` exited 1 with the expected missing/placeholder configuration error; no environment file or secret was created.
+- Read-only GitHub settings queries (branch protection, rulesets, Actions permissions, environments, workflow contents) each returned HTTP 403 API rate-limit errors; MCP branch listing returned 404; `gh` is unavailable. No remote settings were observed. Local CI YAML was inspected separately and does not establish repository protection settings.
+- The repo has no configured dedicated secret-scanner package/script or available scanner executable in this environment. The previously reported ephemeral Secretlint scan is historical and was **not re-executed** in this pass. Previous fresh online npm audit result is also historical here; no new dependency-audit invocation was made during this approval-only pass.
+- No test contacted privileged preview routes, and the preview was not restarted or reconfigured. No database, DNS, provider account, or deployment was accessed.
+- Documentation and integrity checks for this pass are recorded in the final report; release remains **STAGING: BLOCKED / NOT READY; PRODUCTION: NO-GO**.
+
+### Independently rerun safe checks — 2026-10-14 10:56 +06
+
+| Command | Exit | Result and scope |
+|---|---:|---|
+| `npm.cmd test` | 0 | 132 passed, 0 failed, 0 skipped. Includes API tests; counts not additive to prior runs. |
+| `node --test scripts\playwright-target.test.js` | 0 | 7 passed, 0 failed. |
+| `npm.cmd run test:e2e -- --list` with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002` | 0 | 9 tests listed in the single public storefront spec. |
+| `npm.cmd run test:e2e` with the same loopback base URL | 0 | 9 public Chromium tests passed. Only allowed read-only browsing ran. |
+| `npm.cmd run test:e2e:all -- --list` with explicit privileged opt-in against loopback | 1 (expected) | Both admin specs rejected the loopback target at discovery; 0 tests listed, no browser launched. |
+| `npm.cmd audit --audit-level=low` | 0 | Fresh online query; 0 vulnerabilities, npm offline false, registry `https://registry.npmjs.org/`. |
+| `npm.cmd run validate:staging` | 1 (expected) | `.env.staging` absent; validator rejected missing config. No placeholder created. |
+| `git diff --check` | 0 | No whitespace errors. |
+
+No dedicated/repository-supported secret scanner was available (no scanner script/dependency or known executable). The prior ephemeral Secretlint scan was not re-run; its seven potential DB-URL matches remain historical findings for manual triage. No detected values were printed.
+
+## Read-only and privileged-browser safety follow-up (2026-10-14)
+
+This newer evidence supplements earlier staging remediation results and does not imply a hosted deployment.
+
+- `npm.cmd run test:api`: **85 passed, 0 failed, 0 skipped** (exit 0).
+- `npm.cmd test`: **132 passed, 0 failed, 0 skipped** (exit 0). The API suite overlaps this total; do not sum the two.
+- `npm.cmd run test:e2e` with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002`: **9 passed, 0 failed** (exit 0); this command now selects only public storefront tests.
+- `node --test scripts\\playwright-target.test.js`: **7 passed, 0 failed** (exit 0). `npm.cmd run test:e2e:all -- --list` against loopback returned nonzero before discovery, with both privileged admin specs rejecting the target and **0 tests listed**. This was the expected guard behavior; no browser was launched.
+- An in-process `server/app.test.js` directory-junction fixture passed: the in-root asset was served and a junction to a sibling directory returned generic 404. The canonical-path check has a time-of-check/time-of-use window; no concurrent replacement race test ran.
+- `npm.cmd audit --offline --audit-level=low`: **0 vulnerabilities** in cached advisory metadata; this does not establish current registry advisory freshness. `git diff --check`: passed.
+- The existing loopback preview process was not restarted. The static containment source change is verified in tests but is not asserted active in that running process. No database counts were freshly queried; no database writes, staging/production access, DNS changes, or deployment occurred.
+- Branch/HEAD remain `feature/admin-v2` / `798e7227e907edbbd262e8fe25b78d9e79cd7247`; existing staged/unstaged/untracked content was preserved, and no file was staged or discarded.
+- Production workflow source has a main-push and repository-variable condition but declares no protected GitHub `environment`. Remote branch protection/environment rules remain **NOT TESTED** and require owner verification.
+- Release decision remains **STAGING: BLOCKED / NOT READY; PRODUCTION: NO-GO**.
+
 **Updated:** 2026-10-13
 **Environment:** Local Windows development workspace. The security-audit services were cleaned up; a separate synthetic browser preview is currently running on loopback `127.0.0.1:3002` with an isolated PostgreSQL 16 cluster on `127.0.0.1:55441`. No production or hosted staging database was accessed.
 

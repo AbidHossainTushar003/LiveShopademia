@@ -10,7 +10,7 @@
     "start": "node server/index.js",
     "test": "node --test",
     "test:api": "node --test server/*.test.js",
-    "test:e2e": "playwright test --project=chromium",
+    "test:e2e": "playwright test tests/e2e/storefront.spec.js --project=chromium",
     "test:e2e:all": "playwright test",
     "validate:staging": "node scripts/validate-staging-config.js",
     "staging:compose": "bash scripts/staging-compose.sh",

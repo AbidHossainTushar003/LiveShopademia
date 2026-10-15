@@ -246,9 +246,18 @@ export function registerPlatformRoutes(app, {
             || !Object.hasOwn(body, 'value')) {
             return res.status(400).json({ error: 'Provide a valid setting group, key, value, and secret flag.' });
         }
+        const isStorefrontAnnouncement = settingGroup === 'storefront' && settingKey === 'announcement';
+        if (isStorefrontAnnouncement && !req.isPlatformAdmin) {
+            return res.status(403).json({ error: 'Only a platform super admin can change the storefront announcement.' });
+        }
+        if (isStorefrontAnnouncement && (body.isSecret || typeof body.value !== 'string'
+            || !body.value.trim() || body.value.length > 160)) {
+            return res.status(400).json({ error: 'The storefront announcement must be public text between 1 and 160 characters.' });
+        }
+        const settingValue = isStorefrontAnnouncement ? body.value.trim() : body.value;
         let encodedValue;
         try {
-            const serialized = JSON.stringify(body.value);
+            const serialized = JSON.stringify(settingValue);
             if (serialized === undefined || Buffer.byteLength(serialized, 'utf8') > 4096) {
                 return res.status(400).json({ error: 'Setting values must be valid JSON under 4 KB.' });
             }
@@ -264,7 +273,7 @@ export function registerPlatformRoutes(app, {
                 }
                 encodedValue = encryptSettingSecret(body.value, adminSettingsEncryptionKey);
             } else {
-                encodedValue = body.value;
+                encodedValue = settingValue;
             }
         } catch (error) {
             return next(error);
@@ -307,7 +316,7 @@ export function registerPlatformRoutes(app, {
                 );
                 return { group: settingGroup, key: settingKey, isSecret: body.isSecret };
             });
-            return res.json({ data: { ...result, value: publicSettingValue(body.value, body.isSecret) } });
+            return res.json({ data: { ...result, value: publicSettingValue(settingValue, body.isSecret) } });
         } catch (error) {
             return next(error);
         }
@@ -1096,7 +1105,7 @@ export function registerPlatformRoutes(app, {
     app.get('/api/v1/admin/shop/reports', ...platformReader, async (req, res, next) => {
         const days = Math.max(1, Math.min(Number.parseInt(req.query.days, 10) || 30, 365));
         try {
-            const [orders, payments, topProducts] = await Promise.all([
+            const [orders, payments] = await Promise.all([
                 pool.query(
                     `SELECT COUNT(*)::int AS "orderCount",
                             COUNT(*) FILTER (WHERE status = 'cancelled')::int AS "cancelledCount",
@@ -1114,27 +1123,41 @@ export function registerPlatformRoutes(app, {
                      GROUP BY transaction_type, status
                      ORDER BY transaction_type, status`,
                     [req.shopId, days]
-                ),
-                pool.query(
-                    `SELECT item->>'productId' AS "productId", item->>'name' AS name,
-                            SUM((item->>'quantity')::integer)::int AS quantity,
-                            SUM((item->>'lineTotal')::bigint)::text AS revenue
-                     FROM orders CROSS JOIN LATERAL jsonb_array_elements(items) AS item
-                     WHERE shop_id = $1 AND status <> 'cancelled'
-                       AND created_at >= NOW() - ($2 * INTERVAL '1 day')
-                     GROUP BY item->>'productId', item->>'name'
-                     ORDER BY SUM((item->>'quantity')::integer) DESC LIMIT 10`,
-                    [req.shopId, days]
                 )
             ]);
             return res.json({
                 data: {
                     days,
                     orders: orders.rows[0],
-                    transactions: payments.rows,
-                    topProducts: topProducts.rows
+                    transactions: payments.rows
                 }
             });
+        } catch (error) {
+            return next(error);
+        }
+    });
+
+    app.get('/api/v1/admin/platform/top-products', ...platformAdmin, async (req, res, next) => {
+        const days = Math.max(1, Math.min(Number.parseInt(req.query.days, 10) || 30, 365));
+        try {
+            const { rows } = await pool.query(
+                `SELECT s.id AS "shopId", s.name AS "shopName",
+                        item->>'productId' AS "productId", item->>'name' AS name,
+                        SUM((item->>'quantity')::integer)::int AS quantity,
+                        SUM((item->>'lineTotal')::bigint)::text AS revenue
+                 FROM orders o
+                 JOIN shops s ON s.id = o.shop_id
+                 CROSS JOIN LATERAL jsonb_array_elements(o.items) AS item
+                 WHERE o.status <> 'cancelled'
+                   AND o.created_at >= NOW() - ($1 * INTERVAL '1 day')
+                 GROUP BY s.id, s.name, item->>'productId', item->>'name'
+                 ORDER BY SUM((item->>'quantity')::integer) DESC,
+                          SUM((item->>'lineTotal')::bigint) DESC,
+                          s.name, item->>'name'
+                 LIMIT 10`,
+                [days]
+            );
+            return res.json({ data: { days, topProducts: rows } });
         } catch (error) {
             return next(error);
         }

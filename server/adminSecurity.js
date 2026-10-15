@@ -55,7 +55,7 @@ export function auditRequestMetadata(req) {
     return {
         ip,
         userAgent: sanitizedText(req.get?.('user-agent'), 512),
-        requestId: randomUUID()
+        requestId: typeof req.id === 'string' ? req.id : randomUUID()
     };
 }
 
