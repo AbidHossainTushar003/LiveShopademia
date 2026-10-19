@@ -200,3 +200,29 @@ No application code, production files, DNS, process, database, uploads, orders, 
 | Git and exact-SHA CI at evidence collection | PASS — source/CI only | Branch `feature/admin-v2` at `bfb7277de0de1fe4f7a772fdcdfd00799e935fd7`; intended GitHub branch matches; Actions run [39243091143](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39243091143) succeeded. This is not deployment evidence. |
 
 **Next action:** provider to supply effective LiteSpeed/Passenger routing and request-correlated logs for the probe window, map both hostnames to the existing Express app through a supported change, and establish consistent protected PostgreSQL/upload backup plus isolated restore/rollback. No production mutation or deployment is approved by this verification. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**
+
+## Timestamped routing matrix and recovery gate — 2026-10-19 17:37–17:38 +06
+
+| Host/path | DNS A | Latest observation | Conclusion / status |
+|---|---|---|---|
+| Storefront `/` | `122.173.84.249` | 17:37:33.460 +06; TLS verified; 200 HTML, 34,371 bytes, 0.368 s; LiteSpeed; no redirect | Reachability PASS only; customer flows/live SHA unknown |
+| Storefront `/healthz` | `122.173.84.249` | 17:37:33.858 +06; TLS verified; 200 JSON, 15 bytes, 0.276 s; LiteSpeed | Health response PASS; effective proxy topology unknown |
+| Storefront `/api/v1/products?limit=1` | `122.173.84.249` | 17:37:34.158 +06; TLS verified; 200 JSON, 3,770 bytes, 0.274 s; LiteSpeed | Same-origin API reachability PASS |
+| Admin `/` | `122.173.84.249` | 17:37:34.455 +06; TLS verified; 403 HTML, 1,242 bytes, 0.270 s; LiteSpeed. 17:38:11.689 body check: no directory-index marker. | cPanel No Indexing remains selected; containment PASS, admin UI not proven |
+| Admin `/admin` | `122.173.84.249` | 17:37:34.748 +06; TLS verified; 404 HTML, 1,251 bytes, 0.272 s; LiteSpeed | FAIL — intended vhost/app mapping unverified; no correlated logs |
+| API `/healthz` | `122.173.84.249` | 17:37:35.053 +06; TLS negotiated/verified; timed out at 10.011 s, HTTP 000, zero bytes | FAIL — exact cause unknown; no correlated logs |
+
+Requests followed redirects and each final URL matched the requested URL; no redirects were observed. No request IDs or provider logs were available. LiteSpeed response headers do not establish whether an upstream proxy exists.
+
+| Recovery/staging gate | Status | Clearing evidence |
+|---|---|---|
+| Live PostgreSQL identity/role | BLOCKED — ACCESS | Provider confirms actual runtime target/grants privately |
+| Complete PostgreSQL backup | BLOCKED — SAFETY | Supported consistent backup of verified DB; timestamp, checksum/integrity, version, schema/data coverage |
+| Complete uploads backup | BLOCKED — SAFETY | Inventory of authoritative persistent paths, validated backup coverage and DB reference consistency |
+| Isolated DB+uploads restore | BLOCKED — SAFETY | Separate named target, successful restore, integrity/data and file-reference checks |
+| Application/data rollback | BLOCKED — SAFETY | Release identity, migration compatibility and isolated rollback rehearsal |
+| Host routing / admin / API | BLOCKED — PROVIDER | Effective vhosts, Passenger listener/socket, correlated logs, supported mapping, successful public verification |
+| Staging and E2E/PG integration | BLOCKED — ACCESS / SAFETY | Separate app, DB/role, secrets, uploads, controlled URL and side effects verified |
+| Provider support request | NOT SENT | No authenticated provider-ticket integration was connected. Use the hosting provider's authenticated support interface; full draft appears in the task response. |
+
+Exact-SHA CI remains run [39244548503](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39244548503) for `1a9fdf8a7ff04fc918e5aa70d5bc4dca0fc220df`; this does not clear production gates. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**

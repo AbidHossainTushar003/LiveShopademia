@@ -1024,3 +1024,33 @@ Source inspection confirms `server/app.js` registers `GET /admin`, redirects `/a
 - Provider request is prepared but **not sent**: request effective LiteSpeed/Passenger/upstream routing and request-correlated logs for the 2026-10-19 17:17–17:22 +06 probe window; route admin/API host paths to the existing Passenger app using supported hosting configuration; privately verify the active PostgreSQL target; identify a consistent database+uploads backup; and provide an isolated restore/rollback and isolated staging facility. Do not provide or request secret values in chat.
 
 No production DNS, runtime, application, database, uploads, order, inventory, or customer record was changed; no deployment occurred. Backup integrity, isolated restoration, rollback, staging, protected runtime configuration, intended admin access, and dedicated API routing remain blocked. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**
+
+## Timestamped provider escalation evidence — 2026-10-19 17:37–17:38 +06
+
+At 17:37:57.019 +06, A lookups for storefront, admin, and API each returned `122.173.84.249`. Certificate-validating HTTPS GETs with a 10-second maximum and redirect-following were started at:
+
+| Requested URL | Start time (+06) | HTTP/final result | Body/time | Server |
+|---|---|---|---|---|
+| `https://shopademia.store/` | 17:37:33.460 | 200; final URL unchanged | HTML, 34,371 bytes, 0.368 s | LiteSpeed |
+| `https://shopademia.store/healthz` | 17:37:33.858 | 200; final URL unchanged | JSON, 15 bytes, 0.276 s | LiteSpeed |
+| `https://shopademia.store/api/v1/products?limit=1` | 17:37:34.158 | 200; final URL unchanged | JSON, 3,770 bytes, 0.274 s | LiteSpeed |
+| `https://admin.shopademia.store/` | 17:37:34.455 | 403; final URL unchanged | HTML, 1,242 bytes, 0.270 s | LiteSpeed |
+| `https://admin.shopademia.store/admin` | 17:37:34.748 | 404; final URL unchanged | HTML, 1,251 bytes, 0.272 s | LiteSpeed |
+| `https://api.shopademia.store/healthz` | 17:37:35.053 | No HTTP response; curl exit 28 / HTTP 000 | 0 bytes, timed out at 10.011 s; TLS negotiated and certificate verified | No HTTP response header |
+
+At 17:38:11.689 +06, a separate bounded request to the admin root returned 403 HTML (1,242 bytes, 0.252 s, LiteSpeed); a local body-marker check found no `Index of`, `cgi-bin`, or `php.ini`. The body and headers were removed afterward. The cPanel Indexes control still showed No Indexing selected for `/home/shopadem/admin.shopademia.store`. No redirects were observed in these probes. No request IDs or correlated provider logs are available. LiteSpeed headers do not prove the absence or presence of another proxy.
+
+### Recovery ledger
+
+| Item | Status | Required evidence / next action |
+|---|---|---|
+| PostgreSQL authoritative target and grants | BLOCKED — ACCESS | Provider confirms the runtime connection target and role through protected configuration/DB evidence; do not disclose credentials |
+| PostgreSQL backup | BLOCKED — SAFETY | Supported consistent backup of the identified live DB, with timestamp, size/checksum, PostgreSQL version, integrity and schema/data coverage |
+| Persistent uploads backup | BLOCKED — SAFETY | Inventory all app-persistent paths; complete validated backup and coverage/reference check; two observed files are not the full inventory |
+| Isolated database/uploads restore | BLOCKED — SAFETY | Separate owner-approved target; successful restore, integrity checks and representative DB-to-file references |
+| Rollback | BLOCKED — SAFETY | Identify current release and migration compatibility; rehearse app/database/uploads recovery in isolation |
+| Admin and API routing | BLOCKED — PROVIDER | Effective LiteSpeed/Passenger/upstream vhosts, current listener/socket, request-correlated logs, supported mappings and successful fresh probes |
+| Isolated staging | BLOCKED — ACCESS / SAFETY | Distinct app, PostgreSQL database/role, secrets, uploads, private URL, synthetic data and side-effect/reset controls |
+| Provider escalation | NOT SENT | Tool discovery found no connected authenticated hosting-support submission channel. No ticket/reference exists. Send the supplied provider request through the provider's authenticated support interface. |
+
+At baseline, branch `feature/admin-v2`, HEAD `1a9fdf8a7ff04fc918e5aa70d5bc4dca0fc220df`, matches the intended remote; Actions run [39244548503](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39244548503) passed for the exact SHA. The two unrelated untracked entries remain untouched. No production resources or records were changed. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**

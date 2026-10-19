@@ -280,3 +280,37 @@ This update records fresh read-only checks. Times below are local +06; HTTPS pro
 This is a prepared request, **not a claim that the provider was contacted**. No production file, DNS, process, database, upload, order, inventory, or customer record was changed; no backup was downloaded and no restore/deployment was attempted. At evidence collection, local `feature/admin-v2` was at `bfb7277de0de1fe4f7a772fdcdfd00799e935fd7`, matching the intended GitHub branch; Actions run [39243091143](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39243091143) succeeded for that exact SHA. The two unrelated untracked entries remain untouched.
 
 **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.** The single safest next action is a provider support request for the routing/log evidence and protected isolated recovery capability listed above; do not deploy or change DNS before those gates pass.
+
+## Fresh provider-escalation evidence — 2026-10-19 17:37–17:38 +06
+
+Certificate-validating HTTPS GETs used a 10-second maximum with redirect-following enabled. Individual request start times, statuses, final URLs, response types/sizes, and durations were captured below; each final URL matched its requested URL, with no redirect observed. DNS A records were queried at 17:37:57 +06. cPanel Indexes was reopened and still showed **No Indexing** selected for the confirmed admin root. At 17:38:11 +06, a bounded admin-root response-body check found no directory-index marker.
+
+| Host/path | Start (+06) | DNS A | Result | Provider log/routing evidence |
+|---|---|---|---|---|
+| `shopademia.store/` | 17:37:33.460 | `122.173.84.249` | TLS-verified HTTPS; 200 HTML; 34,371 bytes; 0.368 s; `Server: LiteSpeed` | No request ID/correlated log available |
+| `shopademia.store/healthz` | 17:37:33.858 | `122.173.84.249` | TLS-verified HTTPS; 200 JSON; 15 bytes; 0.276 s; `Server: LiteSpeed` | No request ID/correlated log available |
+| `shopademia.store/api/v1/products?limit=1` | 17:37:34.158 | `122.173.84.249` | TLS-verified HTTPS; 200 JSON; 3,770 bytes; 0.274 s; `Server: LiteSpeed` | No request ID/correlated log available |
+| `admin.shopademia.store/` | 17:37:34.455 | `122.173.84.249` | TLS-verified HTTPS; 403 HTML; 1,242 bytes; 0.270 s; `Server: LiteSpeed` | Directory-index marker subsequently absent at 17:38:11.689; no correlated log available |
+| `admin.shopademia.store/admin` | 17:37:34.748 | `122.173.84.249` | TLS-verified HTTPS; 404 HTML; 1,251 bytes; 0.272 s; `Server: LiteSpeed` | No request ID/correlated log available |
+| `api.shopademia.store/healthz` | 17:37:35.053 | `122.173.84.249` | TLS was negotiated and certificate validation completed; client timed out after 10.011 s, HTTP `000`, zero bytes | No request ID/correlated log available |
+| `admin.shopademia.store/` (body check) | 17:38:11.689 | `122.173.84.249` | TLS-verified HTTPS; 403 HTML; 1,242 bytes; 0.252 s; `Server: LiteSpeed`; no `Index of`, `cgi-bin`, or `php.ini` marker | Body checked locally and removed; no file contents from the host opened |
+
+`Server: LiteSpeed` identifies the responding HTTP server only; it does not prove whether another proxy layer exists. HTTP 000 is the curl outcome for a request receiving no HTTP response, not a diagnosis of the root cause. Public TLS/HTTP observations and cPanel UI labels do not reveal the effective vhost/upstream or deployed app SHA.
+
+### Recovery checklist and evidence status
+
+| Step | Status | Evidence required to clear |
+|---|---|---|
+| Identify the authoritative live PostgreSQL target and role | BLOCKED — ACCESS | Provider verifies the actual app target and grants through protected runtime/DB evidence without disclosing connection secrets |
+| Create a consistent PostgreSQL backup | BLOCKED — SAFETY | Provider-supported dump of the identified DB with timestamp, size/checksum, version, and integrity/coverage checks; do not rely on `shopadem_shop.sql.gz` |
+| Inventory and back up persistent uploads | BLOCKED — SAFETY | Provider-supported complete inventory/backup of app uploads (and any other persistent paths), with archive integrity, metadata, and DB-reference coverage |
+| Restore PostgreSQL and uploads in isolation | BLOCKED — SAFETY | Named isolated owner/target, separate credentials/storage, successful restore, schema/data checks, and representative DB-to-file reference validation |
+| Test application/database/uploads rollback | BLOCKED — SAFETY | Prior release identity, migration compatibility analysis, and successful isolated rollback/recovery rehearsal |
+| Admin/API host routing and health | BLOCKED — PROVIDER | Effective LiteSpeed/Passenger/upstream config, assigned listener/socket, request-correlated logs, supported route mapping, and successful fresh host checks |
+| Isolated staging and write-capable tests | BLOCKED — ACCESS / SAFETY | Separate app, PostgreSQL DB/role, secrets, uploads, private URL, and reset/side-effect controls verified before integration/E2E tests |
+
+Provider contact status: **NOT SENT**. No connected authenticated provider-support submission tool was available; no support response or ticket number exists. A complete ready-to-send request is supplied in the current task response. No application source fix was indicated by the fresh evidence.
+
+Local source remains at `1a9fdf8a7ff04fc918e5aa70d5bc4dca0fc220df` on `feature/admin-v2`; the intended GitHub ref matches and exact-SHA CI run [39244548503](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39244548503) passed. The tracked worktree was clean before this documentation update; two unrelated untracked entries remain untouched. No production database, file, upload, DNS, route, hosting setting, process, or customer record was changed.
+
+**PRODUCTION NO-GO — DEPLOYMENT BLOCKED.** Next action: submit the prepared provider request via its authenticated support interface; do not deploy until recovery, routing, staging, and release gates are independently verified.
