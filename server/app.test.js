@@ -973,6 +973,23 @@ test('shareable storefront routes serve the app shell', async () => {
     }
 });
 
+test('product metadata is not exposed under another shop route', async () => {
+    const otherShopId = '00000000-0000-4000-8000-000000000099';
+    const pool = fakePool();
+    const query = pool.query.bind(pool);
+    pool.query = async (sql, values) => {
+        if (sql.includes('SELECT id, slug, name, status FROM shops WHERE slug = $1')
+            && values[0] === 'other-shop') {
+            return { rows: [{ id: otherShopId, slug: 'other-shop', name: 'Other Shop', status: 'active' }] };
+        }
+        return query(sql, values);
+    };
+    const app = createApp({ pool, config: { ...config, siteUrl: 'https://shopademia.example' } });
+
+    const response = await request(app).get('/product/1?shop=other-shop').expect(404);
+    assert.doesNotMatch(response.text, /Wireless Earbuds Pro|Main Shop/);
+});
+
 test('redirects www requests to the configured canonical host and preserves the request path', async () => {
     const app = createApp({ pool: fakePool(), config: { ...config, siteUrl: 'https://shopademia.example' } });
 
