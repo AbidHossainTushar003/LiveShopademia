@@ -1051,6 +1051,6 @@ At 17:38:11.689 +06, a separate bounded request to the admin root returned 403 H
 | Rollback | BLOCKED — SAFETY | Identify current release and migration compatibility; rehearse app/database/uploads recovery in isolation |
 | Admin and API routing | BLOCKED — PROVIDER | Effective LiteSpeed/Passenger/upstream vhosts, current listener/socket, request-correlated logs, supported mappings and successful fresh probes |
 | Isolated staging | BLOCKED — ACCESS / SAFETY | Distinct app, PostgreSQL database/role, secrets, uploads, private URL, synthetic data and side-effect/reset controls |
-| Provider escalation | NOT SENT | Tool discovery found no connected authenticated hosting-support submission channel. No ticket/reference exists. Send the supplied provider request through the provider's authenticated support interface. |
+| Provider escalation | REQUEST PREPARED — NOT SENT | Tool discovery found no connected authenticated hosting-support submission channel. No ticket/reference exists. Submit the prepared request through the provider's authenticated support interface. |
 
 At baseline, branch `feature/admin-v2`, HEAD `1a9fdf8a7ff04fc918e5aa70d5bc4dca0fc220df`, matches the intended remote; Actions run [39244548503](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39244548503) passed for the exact SHA. The two unrelated untracked entries remain untouched. No production resources or records were changed. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**

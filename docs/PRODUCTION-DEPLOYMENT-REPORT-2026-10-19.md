@@ -309,7 +309,7 @@ Certificate-validating HTTPS GETs used a 10-second maximum with redirect-followi
 | Admin/API host routing and health | BLOCKED — PROVIDER | Effective LiteSpeed/Passenger/upstream config, assigned listener/socket, request-correlated logs, supported route mapping, and successful fresh host checks |
 | Isolated staging and write-capable tests | BLOCKED — ACCESS / SAFETY | Separate app, PostgreSQL DB/role, secrets, uploads, private URL, and reset/side-effect controls verified before integration/E2E tests |
 
-Provider contact status: **NOT SENT**. No connected authenticated provider-support submission tool was available; no support response or ticket number exists. A complete ready-to-send request is supplied in the current task response. No application source fix was indicated by the fresh evidence.
+Provider contact status: **REQUEST PREPARED — NOT SENT**. No connected authenticated provider-support submission tool was available; no support response or ticket number exists. The ready-to-send request is supplied in the current task response. No application source fix was indicated by the fresh evidence.
 
 Local source remains at `1a9fdf8a7ff04fc918e5aa70d5bc4dca0fc220df` on `feature/admin-v2`; the intended GitHub ref matches and exact-SHA CI run [39244548503](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39244548503) passed. The tracked worktree was clean before this documentation update; two unrelated untracked entries remain untouched. No production database, file, upload, DNS, route, hosting setting, process, or customer record was changed.
 

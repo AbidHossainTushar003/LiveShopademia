@@ -223,6 +223,6 @@ Requests followed redirects and each final URL matched the requested URL; no red
 | Application/data rollback | BLOCKED — SAFETY | Release identity, migration compatibility and isolated rollback rehearsal |
 | Host routing / admin / API | BLOCKED — PROVIDER | Effective vhosts, Passenger listener/socket, correlated logs, supported mapping, successful public verification |
 | Staging and E2E/PG integration | BLOCKED — ACCESS / SAFETY | Separate app, DB/role, secrets, uploads, controlled URL and side effects verified |
-| Provider support request | NOT SENT | No authenticated provider-ticket integration was connected. Use the hosting provider's authenticated support interface; full draft appears in the task response. |
+| Provider support request | REQUEST PREPARED — NOT SENT | No authenticated provider-ticket integration was connected. Submit the full draft through the hosting provider's authenticated support interface; no ticket/reference exists. |
 
 Exact-SHA CI remains run [39244548503](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39244548503) for `1a9fdf8a7ff04fc918e5aa70d5bc4dca0fc220df`; this does not clear production gates. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**
