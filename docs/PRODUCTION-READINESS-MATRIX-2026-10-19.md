@@ -170,3 +170,16 @@ This refresh rechecks the current published candidate and public service outcome
 | Legal/business, monitoring, operations | OPEN | Earlier owner/legal decisions and monitoring requirements remain unresolved; no staging or live observability acceptance. |
 
 Production remains NO-GO. Provider route diagnosis and recovery proof are release gates, not code-test gaps that can be waived by CI.
+
+## Post-containment verification — 2026-10-19 17:09 +06
+
+| Requirement | Status | Current evidence / remaining action |
+|---|---|---|
+| Admin directory-index containment | FIXED AND VERIFIED (containment only) | For the confirmed cPanel root `/home/shopadem/admin.shopademia.store`, prior setting was **Inherit**; cPanel saved **No Indexing** and confirmed directory indexing disabled. Reopened control shows No Indexing selected. Rollback is to select Inherit for this same root. Public `/` now returns LiteSpeed HTTP 403 (1,242 bytes); no directory-index marker was present. |
+| Admin application and protected routes | BLOCKED — PROVIDER | Public `/admin` still returns LiteSpeed HTTP 404; the containment setting does not map the domain to Express. Provider-supported routing to the existing app and authenticated protected-route verification remain required. |
+| Storefront host and same-origin API | OPEN | Fresh HTTPS probes: root 200 HTML (34,371 bytes); `/healthz` 200 JSON (15 bytes); `/api/v1/products` 200 JSON (3,770 bytes). No browser customer journey, deployed SHA, or persistence acceptance. |
+| Dedicated API hostname | BLOCKED — PROVIDER | Fresh `/healthz` probe timed out at 10.008 s with HTTP `000` and zero bytes. Effective LiteSpeed/Passenger/upstream mapping and correlated logs are required. |
+| PostgreSQL, backup/restore, rollback, staging | BLOCKED — RECOVERY / PROVIDER | Production connection identity, complete database/upload backup, successful isolated restore, rollback rehearsal, and isolated staging remain unverified. |
+| Local Git and CI evidence | PASS (source/CI only) | Local `feature/admin-v2` HEAD is `7c7895ac635f93882e8c46e67e737b0d953f35c4`; GitHub Actions run [39241513265](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39241513265) passed for that SHA. The configured local `github` remote points elsewhere and `git ls-remote` returned repository-not-found; this does not invalidate the repository Actions record or prove deployment. |
+
+No application code, production files, DNS, process, database, uploads, orders, inventory, or customer records were changed. The cPanel setting is a narrowly scoped, reversible listing containment only. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED** remains the verdict.

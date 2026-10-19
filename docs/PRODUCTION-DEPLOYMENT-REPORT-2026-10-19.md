@@ -230,3 +230,26 @@ Certificate-validating HTTPS requests used a 10-second maximum. All three DNS A 
 The cPanel Indexes menu was not changed: production recovery evidence remains incomplete, and the current browser interaction did not successfully open that control. The exact next step is an authorized, narrowly scoped cPanel **No Indexing** change after the recovery/rollback gate, followed by a public check that the directory listing is gone; it will not fix the `/admin` or API route mapping. Do not guess at the API upstream or migrate away from PostgreSQL.
 
 **Final release decision remains PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**
+
+## Admin directory-index containment and public recheck — 2026-10-19 17:09 +06
+
+The cPanel Indexes control was opened for the exact admin document root, `/home/shopadem/admin.shopademia.store`. Before saving, it showed **Inherit** selected and offered **No Indexing**. The authorized change selected **No Indexing** and cPanel confirmed: “The system updated the directory index settings for the ‘/home/shopadem/admin.shopademia.store’ directory. Directory indexing is disabled.” Reopening that exact directory's setting showed **No Indexing** selected. The prior state and rollback are known: select **Inherit** for this same directory in cPanel Indexes. No files were opened, deleted, or replaced.
+
+One bounded, certificate-validating public recheck after the change observed:
+
+| Target | Result |
+|---|---|
+| `https://admin.shopademia.store/` | HTTP 403, HTML, 1,242 bytes, 0.254 s, `Server: LiteSpeed`; response no longer contained a directory-index marker. Listing suppression is verified, but the admin UI is not served. |
+| `https://admin.shopademia.store/admin` | HTTP 404, HTML, 1,251 bytes, 0.255 s, `Server: LiteSpeed`. |
+| `https://shopademia.store/` | HTTP 200, HTML, 34,371 bytes, 0.422 s, `Server: LiteSpeed`. |
+| `https://shopademia.store/healthz` | HTTP 200, JSON, 15 bytes, 0.248 s. |
+| `https://shopademia.store/api/v1/products` | HTTP 200, JSON, 3,770 bytes, 0.271 s. |
+| `https://api.shopademia.store/healthz` | curl exit 28 after 10.008 s, HTTP `000`, zero bytes. |
+
+This cPanel change is limited to directory indexing for the admin document root. It does not change DNS, document roots, routes, application processes, databases, uploads, or customer data; it does not repair the admin route or API hostname. The root's new 403 is containment, not successful admin access.
+
+### Release status after containment
+
+The current local branch is `feature/admin-v2` at `7c7895ac635f93882e8c46e67e737b0d953f35c4`. GitHub Actions run [39241513265](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39241513265) succeeded for that exact SHA. The configured local `github` remote points to a different repository and its read-only `git ls-remote` attempt returned “Repository not found”; the intended repository's Actions record is the available publication/CI evidence. No new commit or push is represented by this cPanel change.
+
+The API routing cause, effective LiteSpeed/Passenger/upstream configuration, live application revision, production database identity, full database/upload backup, isolated restore, rollback, staging, and deployment authorization remain unverified. No deployment was performed. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED** remains the release decision. Before deployment, the hosting provider must map admin and API traffic to the existing Express app and provide request-correlated diagnostics plus verifiable recovery/staging evidence.

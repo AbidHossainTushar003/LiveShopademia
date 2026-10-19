@@ -978,3 +978,22 @@ No code defect explaining the public admin/API host failures was established, so
 No application source defect was reproduced that explains the current host-specific admin/API behavior. Do not fabricate a Caddy fix for a LiteSpeed/Passenger deployment. No cPanel setting was changed during this continuation: recovery is not proven, and the current authenticated browser control could not be opened. The current cPanel Indexes value was previously observed as Inherit; applying No Indexing remains a narrow containment action that still requires the recovery/rollback gate and successful public verification. No DNS, production app, PostgreSQL, uploads, or customer data was modified.
 
 **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**
+
+## Admin listing containment recheck — 2026-10-19 17:09 +06
+
+Using the authenticated cPanel Indexes interface, verified the target directory as `/home/shopadem/admin.shopademia.store` and recorded its prior state as **Inherit**. Selected **No Indexing** only for that directory. cPanel confirmed that directory indexing was disabled; reopening the setting showed No Indexing selected. Reversal is available by selecting **Inherit** for that same directory. No directory contents were inspected, copied, deleted, or replaced.
+
+Independent HTTPS GETs after the cPanel save identified LiteSpeed and returned:
+
+- Admin root `/`: HTTP 403, HTML, 1,242 bytes, 0.254 s; no directory-index marker in the response.
+- Admin `/admin`: HTTP 404, HTML, 1,251 bytes, 0.255 s.
+- Storefront `/`: HTTP 200, HTML, 34,371 bytes, 0.422 s.
+- Storefront `/healthz`: HTTP 200, JSON, 15 bytes, 0.248 s.
+- Storefront `/api/v1/products`: HTTP 200, JSON, 3,770 bytes, 0.271 s.
+- Dedicated API `/healthz`: timed out at 10.008 s, HTTP `000`, zero response bytes.
+
+The containment stopped the public directory index but did not restore or serve the admin UI; `/admin` remains unavailable. The exact API timeout cause remains unknown. Public HTTP outcomes do not establish application revision, proxy topology, database target, or full user-flow acceptance.
+
+At this recheck, local branch `feature/admin-v2` was at `7c7895ac635f93882e8c46e67e737b0d953f35c4`, with Actions run [39241513265](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39241513265) successful for that SHA. The configured local `github` remote is `MyTestProjects007/ShopademiaAdmin`; a read-only `git ls-remote` returned repository-not-found. No deployment or new commit/push is evidenced here.
+
+No code change was warranted by this hosting-only containment. Production PostgreSQL identity, database/upload inventory, complete backup, successful isolated restore, rollback, staging, live app routing, and deployment authorization remain unverified. Keep production **NO-GO** until the provider supplies a supported mapping of admin and API hostnames to the existing Express application and the recovery gates are proven.
