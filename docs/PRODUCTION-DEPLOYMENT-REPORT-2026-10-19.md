@@ -137,7 +137,7 @@ This section records a new bounded read-only check after the preceding cPanel in
 
 - Local branch `feature/admin-v2` and HEAD are `61eff3c199ecb2fadf9574bbd168ce52b934367a`. GitHub confirms `AbidHossainTushar003/LiveShopademia:feature/admin-v2` points to this exact SHA; Actions run [39237401770](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237401770) completed successfully for it.
 - The local `github` tracking remote points to a different repository, and `origin` is the cPanel SSH deployment target. The local “ahead 6” label is relative to that unrelated tracking ref; it is not evidence of divergence from the intended GitHub repository. The intended GitHub branch was independently checked through GitHub.
-- The tracked worktree was clean at audit start. This audit has since modified the three reports and regenerated the CSS artifact; those local changes are not committed or covered by CI. Two unrelated untracked entries remain untouched. No production commit, cPanel configuration, DNS, process, database, upload, or customer record was changed.
+- The tracked worktree was clean at audit start. The resulting three report updates and generated CSS artifact were committed and pushed as `affc95fbe515a5d2ed86a16bcd651f1d67b3f127`; Actions run [39239950754](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39239950754) passed for that exact SHA. Two unrelated untracked entries remain untouched. No production deployment, cPanel configuration, DNS, process, database, upload, or customer record was changed.
 
 ### Fresh public checks
 

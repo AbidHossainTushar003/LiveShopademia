@@ -906,7 +906,7 @@ This bounded refresh supersedes earlier interpretations where the new cPanel evi
 - Local branch `feature/admin-v2`, HEAD `61eff3c199ecb2fadf9574bbd168ce52b934367a`.
 - GitHub API independently confirms `AbidHossainTushar003/LiveShopademia:feature/admin-v2` is at this exact SHA, and Actions run [39237401770](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237401770) succeeded for it.
 - The configured local `github` tracking remote points to a different repository; `origin` is the cPanel SSH deployment target. The local ahead-count is therefore not a comparison against the intended GitHub branch.
-- The tracked worktree was clean at audit start. This audit has since modified the three reports and regenerated the CSS artifact; those local changes are not committed or covered by CI. Two unrelated untracked entries were preserved. No production setting, source file, process, DNS, database, upload, or customer record was changed.
+- The tracked worktree was clean at audit start. The resulting three report updates and generated CSS artifact were committed and pushed as `affc95fbe515a5d2ed86a16bcd651f1d67b3f127`; Actions run [39239950754](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39239950754) passed for that exact SHA. Two unrelated untracked entries were preserved. No production setting, source file, process, DNS, database, upload, or customer record was changed.
 
 ### Fresh domain and hosting observations
 
