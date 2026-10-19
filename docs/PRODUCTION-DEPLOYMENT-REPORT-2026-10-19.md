@@ -123,3 +123,10 @@ This section records a new bounded read-only check after the preceding cPanel in
 - **Fresh local verification:** `npm test` — 169 total, 168 passed, 0 failed, 1 opt-in PostgreSQL test skipped; `npm audit --audit-level=low` — 0 vulnerabilities; `npm run build:css` and independent temporary build succeeded with identical generated output; baseline CSS diff is limited to the stale unused utility described above; `git diff --check` passed.
 
 **Fresh domain disposition:** storefront reachable (limited endpoint checks); admin remains failed at root and `/admin`; API remains timed out. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**
+
+## Published source candidate and CI — 2026-10-19 16:25 +06
+
+- Commit `1ec245ca10a9d4c552b7718ad1ea6c7739ae108c` was created from the reviewed five-file scope and pushed without force to `AbidHossainTushar003/LiveShopademia:feature/admin-v2`. GitHub branch lookup and `git ls-remote` both confirmed the remote SHA.
+- GitHub Actions CI run [39237231146](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237231146) completed successfully for exactly this commit. It validates the workflow checks, not a production deployment.
+- Local verification for this candidate: 169 tests total, 168 passed, 0 failed, 1 opt-in PostgreSQL integration test skipped; dependency audit found 0 vulnerabilities; CSS build and independent output comparison passed; `git diff --check` passed.
+- No production deployment, file/configuration change, DNS change, process restart, or database/upload mutation was performed. Two unrelated untracked entries remain untouched. The release verdict remains **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**.

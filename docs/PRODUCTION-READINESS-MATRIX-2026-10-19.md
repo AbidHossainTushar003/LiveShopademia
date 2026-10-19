@@ -113,3 +113,11 @@ Latest local verification: `npm test` — 169 total, 168 passed, 0 failed, 1 opt
 Probes were certificate-validating HTTPS GETs with a 10-second maximum and redirect-following enabled; redirect counts were not captured. No live deployment, application restart, production file/database/upload/DNS mutation, commit, or push is established by this check. The two unrelated untracked files remain untouched. Verdict remains **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**.
 
 Current local suite and artifact checks: `npm test` — 169 total, 168 passed, 0 failed, 1 opt-in PostgreSQL test skipped; `npm audit --audit-level=low` — 0 vulnerabilities; production CSS build plus independent comparison — PASS; `git diff --check` — PASS.
+
+## Published source and CI — 2026-10-19 16:25 +06
+
+| Area | Status | Evidence |
+|---|---|---|
+| Candidate source | PASS (source only) | Commit `1ec245ca10a9d4c552b7718ad1ea6c7739ae108c` was pushed to `AbidHossainTushar003/LiveShopademia:feature/admin-v2`; GitHub branch SHA and `git ls-remote` match. |
+| CI for candidate | PASS (CI only) | GitHub Actions run [39237231146](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237231146) completed successfully for the exact commit above. No live deployment is implied. |
+| Production | BLOCKED | Admin/API routing and production recovery/authorization gates remain unresolved; no production change was made. |

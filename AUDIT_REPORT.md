@@ -892,3 +892,7 @@ Fresh local verification after this follow-up: `npm test` — 169 total, 168 pas
 **Current disposition remains `PRODUCTION NO-GO — DEPLOYMENT BLOCKED`.** The API vhost/upstream and production recovery gates remain unverified; successful storefront responses and baseline CI do not establish a complete release.
 
 Fresh local verification after the recheck: `npm test` — 169 total, 168 passed, 0 failed, 1 opt-in PostgreSQL test skipped; `npm audit --audit-level=low` — 0 vulnerabilities; `npm run build:css` plus an independent temporary build passed. The regenerated asset differs from baseline by removal of only the unused `.isolate{isolation:isolate}` Tailwind utility; source uses no `.isolate` class, while the separate `isolation:isolate` CSS declaration remains. `git diff --check` passed. This local asset correction is not a production deployment.
+
+## Published source candidate and CI — 2026-10-19 16:25 +06
+
+Commit `1ec245ca10a9d4c552b7718ad1ea6c7739ae108c` was pushed to the verified GitHub branch `AbidHossainTushar003/LiveShopademia:feature/admin-v2`. Actions run `39237231146` completed successfully for this exact SHA. Local validation was 168/169 passing (one opt-in PostgreSQL test skipped), zero dependency vulnerabilities, CSS build/comparison passing, and `git diff --check` passing. This is source publication only; the production admin/API failures, database identity, recovery evidence, and release authorization remain blockers. No production changes were made.
