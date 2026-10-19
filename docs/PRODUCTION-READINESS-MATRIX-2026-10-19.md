@@ -183,3 +183,20 @@ Production remains NO-GO. Provider route diagnosis and recovery proof are releas
 | Git and CI evidence at probe time | PASS (source/CI only) | At the time of the public/cPanel recheck, local `feature/admin-v2` was at `7c7895ac635f93882e8c46e67e737b0d953f35c4`; GitHub Actions run [39241513265](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39241513265) passed for that SHA. The configured local `github` remote points elsewhere and `git ls-remote` returned repository-not-found; this does not invalidate the repository Actions record or prove deployment. |
 
 No application code, production files, DNS, process, database, uploads, orders, inventory, or customer records were changed. The cPanel setting is a narrowly scoped, reversible listing containment only. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED** remains the verdict.
+
+## Recovery and routing recheck — 2026-10-19 17:17–17:22 +06
+
+| Gate | Status | New evidence / next action |
+|---|---|---|
+| Admin directory indexing | PASS — containment | cPanel still showed No Indexing for `/home/shopadem/admin.shopademia.store`; public root returned LiteSpeed 403, 1,242 bytes, with no directory-index marker. This is not admin availability. |
+| Admin app route | FAIL — provider mapping | Public `/admin` returned LiteSpeed 404. Source registers Express `/admin` and `/admin/` redirect; effective virtual host/proxy mapping remains unavailable. |
+| Storefront | PASS — reachability only | Root, `/healthz`, and same-origin `/api/v1/products?limit=1` returned HTTPS 200. |
+| Dedicated API | FAIL — provider diagnosis | `/healthz` timed out at 10.014 seconds with HTTP `000`, zero bytes. All three A records resolve to `122.173.84.249`; this does not establish correct virtual hosts. |
+| PostgreSQL identity | BLOCKED — ACCESS | cPanel lists `shopadem_shopapp` (8.54 MB) and `shopadem_shopuser`; no live application connection target or grants were verified. |
+| Database backup and restore | BLOCKED — SAFETY | cPanel Backup has no automatic backups; its partial SQL download is `shopadem_shop.sql.gz`, not the listed PostgreSQL DB name. JetBackup Restore & Download → Full Backups lists four records, but its Databases category shows No Backups Found. No download/integrity/isolated-restore test was performed. |
+| Upload inventory/recovery | PARTIAL / BLOCKED | File Manager metadata only confirms app-root `/uploads` with two image files (~252.77 KB total); contents were not opened. JetBackup Home Directory category shows No Backups Found; backup coverage and restored references remain unverified. |
+| Rollback and staging | BLOCKED — SAFETY / ACCESS | No current release rollback rehearsal or isolated environment. `.env.staging`, `.env.production`, `TEST_DATABASE_URL`, and `PLAYWRIGHT_BASE_URL` are absent; validators and E2E listing fail closed. |
+| Local tests/security/build | PASS — local scope | 169 tests: 168 passed, 0 failed, 1 opt-in PostgreSQL test skipped; npm audit zero vulnerabilities; CSS build passed without tracked output change; `git diff --check` passed. |
+| Git and exact-SHA CI at evidence collection | PASS — source/CI only | Branch `feature/admin-v2` at `bfb7277de0de1fe4f7a772fdcdfd00799e935fd7`; intended GitHub branch matches; Actions run [39243091143](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39243091143) succeeded. This is not deployment evidence. |
+
+**Next action:** provider to supply effective LiteSpeed/Passenger routing and request-correlated logs for the probe window, map both hostnames to the existing Express app through a supported change, and establish consistent protected PostgreSQL/upload backup plus isolated restore/rollback. No production mutation or deployment is approved by this verification. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**

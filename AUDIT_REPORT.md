@@ -997,3 +997,30 @@ The containment stopped the public directory index but did not restore or serve 
 At this recheck, local branch `feature/admin-v2` was at `7c7895ac635f93882e8c46e67e737b0d953f35c4`, with Actions run [39241513265](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39241513265) successful for that SHA. The configured local `github` remote is `MyTestProjects007/ShopademiaAdmin`; a read-only `git ls-remote` returned repository-not-found. No deployment or new commit/push is evidenced here.
 
 No code change was warranted by this hosting-only containment. Production PostgreSQL identity, database/upload inventory, complete backup, successful isolated restore, rollback, staging, live app routing, and deployment authorization remain unverified. Keep production **NO-GO** until the provider supplies a supported mapping of admin and API hostnames to the existing Express application and the recovery gates are proven.
+
+## Recovery and routing evidence refresh — 2026-10-19 17:17–17:22 +06
+
+At evidence collection, local branch `feature/admin-v2` was at `bfb7277de0de1fe4f7a772fdcdfd00799e935fd7`; the intended GitHub branch matched, and CI run [39243091143](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39243091143) succeeded for that exact SHA. The two unrelated untracked entries remain untouched.
+
+The cPanel Indexes page still showed **No Indexing** for `/home/shopadem/admin.shopademia.store`. A fresh public admin-root GET returned LiteSpeed 403 (1,242-byte HTML) and the response was checked locally for a directory-index marker (none found); no response body was retained. `/admin` returned LiteSpeed 404 (1,251 bytes). Storefront `/`, `/healthz`, and `/api/v1/products?limit=1` returned HTTPS 200. `api.shopademia.store/healthz` timed out after 10.014 seconds with HTTP `000` and zero bytes. All three A records resolve to `122.173.84.249`. TLS validation succeeded for completed HTTPS responses; public headers identify LiteSpeed, but effective upstream/vhost configuration is still unavailable.
+
+Source inspection confirms `server/app.js` registers `GET /admin`, redirects `/admin/` to `/admin`, and implements `/healthz` as a PostgreSQL `SELECT 1` check returning only `ok`/`unavailable`. `server/index.js` requires the production database/site/admin URLs and secrets and binds using configured `PORT` (default 3000). Repository `Caddyfile` routes admin/API hosts only for the Docker deployment; it is not evidence of active cPanel routing. No source defect explaining the observed host-specific failures was reproduced, so no code fix was justified.
+
+### Data recovery and hosting evidence
+
+- cPanel PostgreSQL lists `shopadem_shopapp` (8.54 MB) and `shopadem_shopuser`; the live `DATABASE_URL` value and grants were not read.
+- cPanel Backup reports no automatically generated backups and offers an Oct. 8 home archive and partial SQL download named `shopadem_shop.sql.gz`. That name does not match the PostgreSQL database listed, and the UI does not prove it backs up PostgreSQL.
+- JetBackup Restore & Download → Full Backups shows four records: Oct. 18, 17, and 16 Daily Incremental/local (282.49, 282.48, and 282.47 MB) and Oct. 12 Weekly Compressed/drive (49.12 MB). Its Databases and Home Directory categories both show **No Backups Found**. No export, download, restore, or integrity check was initiated.
+- cPanel File Manager metadata confirms `/home/shopadem/shopademia-app/uploads` exists (0755) and contains two image files totaling approximately 252.77 KB (0644; dates Oct. 11–12). Filenames and bytes were not added to reports; image contents were not opened or copied. No backup coverage or restored DB-to-file references were verified.
+- Earlier cPanel evidence reported a Passenger Node.js 20.20.2 app for the storefront URI as `started`; current Node.js selector rendered only its loader, and the Errors-page navigation timed out. Current live process state, effective env, vhost map, and request-correlated logs are therefore not independently verified in this refresh.
+
+### Validation and blockers
+
+- `npm test`: 169 total, 168 passed, 0 failed, 1 opt-in PostgreSQL integration test skipped.
+- `npm audit --audit-level=low`: 0 vulnerabilities.
+- `npm run build:css`: passed; no tracked stylesheet diff.
+- `git diff --check`: passed.
+- `.env.production`, `.env.staging`, `TEST_DATABASE_URL`, and `PLAYWRIGHT_BASE_URL` are absent (presence only checked; values were not read). Production/staging validators exited 1 with fail-closed missing-config messages; Playwright test listing exited 1 because no authorized local/staging base URL was provided. No E2E or live PostgreSQL test ran.
+- Provider request is prepared but **not sent**: request effective LiteSpeed/Passenger/upstream routing and request-correlated logs for the 2026-10-19 17:17–17:22 +06 probe window; route admin/API host paths to the existing Passenger app using supported hosting configuration; privately verify the active PostgreSQL target; identify a consistent database+uploads backup; and provide an isolated restore/rollback and isolated staging facility. Do not provide or request secret values in chat.
+
+No production DNS, runtime, application, database, uploads, order, inventory, or customer record was changed; no deployment occurred. Backup integrity, isolated restoration, rollback, staging, protected runtime configuration, intended admin access, and dedicated API routing remain blocked. **PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**
