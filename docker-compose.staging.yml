@@ -49,6 +49,7 @@ services:
       PORT: 3000
       TRUST_PROXY_HOPS: 1
       PUBLIC_SITE_URL: https://${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
+      ADMIN_SITE_URL: https://admin.${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.staging}
       DATABASE_SSL: "false"
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.staging}
@@ -73,11 +74,13 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     environment:
-      DOMAIN: ${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
+      STOREFRONT_DOMAIN: ${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
+      ADMIN_DOMAIN: admin.${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
+      API_DOMAIN: api.${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+      - "127.0.0.1:443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - shopademia-staging-caddy-data:/data

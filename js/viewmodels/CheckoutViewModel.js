@@ -51,10 +51,23 @@ export class CheckoutViewModel {
     open() {
         if (this.cart.count === 0) { this.toast.show('Your cart is empty'); return; }
         if (!this.cart.canCheckout()) {
-            this.toast.show('Update or remove unavailable cart items before checkout.');
+            this.toast.show('Checkout one shop at a time and update or remove unavailable items.');
             return;
         }
-        const subtotal = this.cart.total, advance = this.config.delivery.advanceCharge;
+        const product = this.cart.lines.value[0].product;
+        this.checkoutShopId = product.shopId || this.config.shopId;
+        this.checkoutShopName = product.shopName || this.config.shopName;
+        const advanceCharge = product.shopAdvanceCharge;
+        const advance = Number.isSafeInteger(advanceCharge) && advanceCharge >= 0
+            ? advanceCharge
+            : this.checkoutShopId === this.config.shopId
+                ? this.config.delivery.advanceCharge
+                : null;
+        if (advance === null) {
+            this.toast.show('Could not verify this shop’s delivery advance. Refresh the catalog and try again.');
+            return;
+        }
+        const subtotal = this.cart.total;
         this.summary.set({ subtotal, advance, due: subtotal });
         this.errors.set({}); this.status.set('idle'); this.result.set({ orderNumber: '', error: '', receipt: null });
         this.isOpen.set(true);
@@ -80,7 +93,7 @@ export class CheckoutViewModel {
         const receipt = {
             customer: { name: f.name.trim(), phone: CheckoutValidator.normalizePhone(f.phone), address: f.address.trim() },
             items: lines.map(({ product, quantity }) => ({ name: product.name, quantity, lineTotal: product.price * quantity })),
-            shopName: this.config.shopName || 'Shopademia',
+            shopName: this.checkoutShopName || 'Shopademia',
             issuedAt: new Date().toISOString()
         };
         const retryKey = eventStorageKey;
@@ -95,7 +108,7 @@ export class CheckoutViewModel {
         });
         this.status.set('submitting');
         try {
-            const { orderNumber, subtotal, advanceAmount, due } = await this.orders.place(request);
+            const { orderNumber, subtotal, advanceAmount, due } = await this.orders.place(request, this.checkoutShopId);
             this.summary.set({ subtotal, advance: advanceAmount, due });
             this.analytics.track('purchase', AnalyticsService.fromLines(lines, {
                 transactionId: orderNumber, eventId: request.eventId,

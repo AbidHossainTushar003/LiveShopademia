@@ -70,6 +70,7 @@ test('checkout clears customer personal data after success and when dismissed af
         toast: { show() {} },
         config: { delivery: { advanceCharge: 10 } }
     });
+
     const customerDetails = {
         name: 'Test Customer',
         phone: '01712345678',
@@ -97,4 +98,47 @@ test('checkout clears customer personal data after success and when dismissed af
     checkout.close();
     assert.deepEqual(checkout.fields.value, { name: '', phone: '', address: '', bkashNumber: '' });
     assert.equal(checkout.isOpen.value, false);
+});
+
+test('checkout uses the selected product shop id, advance charge, and name', async () => {
+    const cart = new CartService();
+    cart.add({
+        id: 'other-shop-product',
+        name: 'Other shop product',
+        price: 250,
+        shopId: 'other-shop-id',
+        shopSlug: 'other-shop',
+        shopName: 'Other Shop',
+        shopAdvanceCharge: 35
+    });
+    let submittedShopId;
+    const checkout = new CheckoutViewModel({
+        cartService: cart,
+        orderRepository: {
+            async place(_request, shopId) {
+                submittedShopId = shopId;
+                return { orderNumber: 'SH-OTHER-1', subtotal: 250, advanceAmount: 35, due: 250 };
+            }
+        },
+        analytics: { track() {} },
+        toast: { show() {} },
+        config: {
+            shopId: 'main-shop-id',
+            shopName: 'Main Shop',
+            delivery: { advanceCharge: 100 }
+        }
+    });
+
+    checkout.open();
+    assert.deepEqual(checkout.summary.value, { subtotal: 250, advance: 35, due: 250 });
+    checkout.fields.set({
+        name: 'Test Customer',
+        phone: '01712345678',
+        address: 'Test address, Dhaka',
+        bkashNumber: '01812345678'
+    });
+    await checkout.submit();
+
+    assert.equal(submittedShopId, 'other-shop-id');
+    assert.equal(checkout.result.value.receipt.shopName, 'Other Shop');
 });

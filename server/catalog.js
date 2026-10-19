@@ -47,6 +47,7 @@ export function setManagedProducts(records) {
             : (record.image ? [record.image] : []),
         stockQuantity: record.stockQuantity == null ? 0 : Number(record.stockQuantity),
         isAvailable: record.isAvailable !== false,
+        isArchived: record.isArchived === true,
         shopId: record.shopId ?? DEFAULT_SHOP_ID,
         icon: iconByCategory[record.category] || 'fa-box',
         tint: tintByCategory[record.category] || 'slate',
@@ -90,11 +91,13 @@ export function updateManagedStock(stockUpdates) {
 }
 
 export function getFeaturedProducts() {
-    return products.slice(0, Math.ceil(products.length / 2));
+    const visible = products.filter((product) => !product.isArchived);
+    return visible.slice(0, Math.ceil(visible.length / 2));
 }
 
 export function getNewArrivals() {
-    return products.slice(Math.ceil(products.length / 2));
+    const visible = products.filter((product) => !product.isArchived);
+    return visible.slice(Math.ceil(visible.length / 2));
 }
 
 export function getHeroProduct() {
@@ -109,12 +112,12 @@ export function findProduct(id) {
 export function getProductsForShop(shopId) {
     return [
         ...(shopId === DEFAULT_SHOP_ID ? baseProducts.map((product) => ({ ...product, shopId: DEFAULT_SHOP_ID })) : []),
-        ...managedProducts.filter((product) => product.shopId === shopId)
+        ...managedProducts.filter((product) => product.shopId === shopId && !product.isArchived)
     ];
 }
 
 export function getUploadedProductsForShop(shopId) {
-    return managedProducts.filter((product) => product.shopId === shopId);
+    return managedProducts.filter((product) => product.shopId === shopId && !product.isArchived);
 }
 
 export function getHeroProductForShop(shopId) {
@@ -127,14 +130,14 @@ export function getHeroProductForShop(shopId) {
 export function getAllProducts() {
     return [
         ...baseProducts.map((product) => ({ ...product, shopId: DEFAULT_SHOP_ID })),
-        ...managedProducts
+        ...managedProducts.filter((product) => !product.isArchived)
     ];
 }
 
 export function findProductForShop(id, shopId) {
     const product = findProduct(id);
     if (!product) return undefined;
-    return (product.shopId ?? DEFAULT_SHOP_ID) === shopId ? product : undefined;
+    return !product.isArchived && (product.shopId ?? DEFAULT_SHOP_ID) === shopId ? product : undefined;
 }
 
 export function getCategories(shopId = null) {

@@ -88,7 +88,7 @@ async function bootstrap() {
     const customerProfileView = new CustomerProfileView({ apiBaseUrl: appConfig.apiBaseUrl });
     new CategoryGridView(document.getElementById('categoryGrid'), homeVM, shopSlug);
     new ProductGridView(document.getElementById('featuredProductGrid'), { homeVM, cartVM, checkoutVM, wishlistVM, shopSlug });
-    new NewArrivalsView(document.getElementById('newArrivalsGrid'), homeVM, cartVM, wishlistVM, shopSlug);
+    new NewArrivalsView(document.getElementById('newArrivalsGrid'), homeVM, cartVM, checkoutVM, wishlistVM, shopSlug);
     new HeroView({ homeVM, cartVM, shopSlug, slides: result.data.heroSlides || [] });
     const bannerImage = document.getElementById('shopBannerImage');
     if (result.data.bannerImage) {

@@ -4,13 +4,13 @@ import { fetchWithTimeout } from '../utils/fetchWithTimeout.js';
 /** POSTs to your central API. Adjust the path/response shape to your backend. */
 export class ApiOrderRepository extends OrderRepository {
     constructor(baseUrl, shopId = null) { super(); this.baseUrl = baseUrl; this.shopId = shopId; }
-    async place(orderRequest) {
+    async place(orderRequest, shopId = this.shopId) {
         const res = await fetchWithTimeout(`${this.baseUrl}/orders`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ...orderRequest.toPayload(),
-                ...(this.shopId ? { shopId: this.shopId } : {})
+                ...(shopId ? { shopId } : {})
             })
         });
         const body = await res.json().catch(() => ({}));

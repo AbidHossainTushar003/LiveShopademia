@@ -1,3 +1,5 @@
+name: shopademia-production
+
 services:
   database:
     build:
@@ -23,6 +25,7 @@ services:
   migrate:
     build:
       context: .
+    image: shopademia-app:${SHOPADEMIA_RELEASE:?Set SHOPADEMIA_RELEASE to the immutable release identifier}
     restart: "no"
     command: ["node", "server/migrate.js"]
     environment:
@@ -41,16 +44,29 @@ services:
   app:
     build:
       context: .
+    image: shopademia-app:${SHOPADEMIA_RELEASE:?Set SHOPADEMIA_RELEASE to the immutable release identifier}
     restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    stop_grace_period: 35s
     environment:
       NODE_ENV: production
       PORT: 3000
       TRUST_PROXY_HOPS: 1
-      PUBLIC_SITE_URL: https://${DOMAIN:?Set DOMAIN in .env.production}
+      PUBLIC_SITE_URL: https://${STOREFRONT_DOMAIN:?Set STOREFRONT_DOMAIN in .env.production}
+      ADMIN_SITE_URL: https://${ADMIN_DOMAIN:?Set ADMIN_DOMAIN in .env.production}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
       DATABASE_SSL: ${DATABASE_SSL:-false}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?Set MFA_ENCRYPTION_KEY in .env.production}
+      ADMIN_SETTINGS_ENCRYPTION_KEY: ${ADMIN_SETTINGS_ENCRYPTION_KEY:-}
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_VAPID_SUBJECT: ${WEB_PUSH_VAPID_SUBJECT:-}
       DELIVERY_ADVANCE_CHARGE: ${DELIVERY_ADVANCE_CHARGE:-100}
     volumes:
       - shopademia-product-images:/app/uploads
@@ -70,8 +86,16 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
     environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env.production}
+      STOREFRONT_DOMAIN: ${STOREFRONT_DOMAIN:?Set STOREFRONT_DOMAIN in .env.production}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?Set ADMIN_DOMAIN in .env.production}
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env.production}
     ports:
       - "80:80"
       - "443:443"

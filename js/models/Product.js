@@ -3,13 +3,13 @@ export class Product {
         id, name, description = '', price, oldPrice = null, rating = 0, reviews = '0',
         icon = 'fa-box', tint = 'blue', category = 'more', image = '', images = [],
         stockQuantity = null, isAvailable = true, imageAlt = '', seoTitle = '', metaDescription = '',
-        shopSlug = '', shopName = ''
+        shopSlug = '', shopName = '', shopId = null, shopAdvanceCharge = null
     }) {
         Object.assign(this, {
             id, name, description, price, oldPrice, rating, reviews, icon, tint, category, image,
             images: Array.isArray(images) && images.length ? images : (image ? [image] : []),
             stockQuantity, isAvailable, imageAlt: imageAlt || name,
-            seoTitle: seoTitle || name, metaDescription, shopSlug, shopName
+            seoTitle: seoTitle || name, metaDescription, shopSlug, shopName, shopId, shopAdvanceCharge
         });
     }
     get hasDiscount() { return this.oldPrice != null && this.oldPrice > this.price; }

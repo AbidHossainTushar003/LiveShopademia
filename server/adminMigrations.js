@@ -93,5 +93,64 @@ export const ADMIN_MIGRATIONS = [
     {
         version: '002_reusable_product_image_links',
         sql: `ALTER TABLE managed_products DROP CONSTRAINT IF EXISTS managed_products_image_key;`
+    },
+    {
+        version: '003_inventory_adjustment_history',
+        sql: `
+            CREATE TABLE inventory_adjustments (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE RESTRICT,
+                product_id TEXT NOT NULL,
+                actor_user_id UUID NOT NULL,
+                actor_email TEXT NOT NULL CHECK (char_length(actor_email) BETWEEN 3 AND 254),
+                idempotency_key UUID NOT NULL,
+                request_id UUID NOT NULL,
+                delta INTEGER NOT NULL CHECK (delta <> 0),
+                previous_quantity BIGINT NOT NULL CHECK (previous_quantity >= 0),
+                new_quantity BIGINT NOT NULL CHECK (new_quantity >= 0),
+                reason TEXT NOT NULL CHECK (char_length(reason) BETWEEN 8 AND 500),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (shop_id, idempotency_key),
+                CHECK (new_quantity = previous_quantity + delta)
+            );
+
+            CREATE INDEX inventory_adjustments_shop_product_created_at_idx
+                ON inventory_adjustments (shop_id, product_id, created_at DESC);
+
+            CREATE FUNCTION reject_inventory_adjustment_mutation() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+                RAISE EXCEPTION 'inventory adjustment history is append-only';
+            END;
+            $$;
+
+            CREATE TRIGGER inventory_adjustments_append_only
+            BEFORE UPDATE OR DELETE OR TRUNCATE ON inventory_adjustments
+            FOR EACH STATEMENT EXECUTE FUNCTION reject_inventory_adjustment_mutation();
+        `
+    },
+    {
+        version: '004_product_archiving_and_create_idempotency',
+        sql: `
+            ALTER TABLE managed_products
+                ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
+
+            CREATE INDEX IF NOT EXISTS managed_products_shop_archived_created_idx
+                ON managed_products (shop_id, is_archived, created_at DESC, id DESC);
+
+            CREATE TABLE admin_product_creation_requests (
+                shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE RESTRICT,
+                admin_user_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE RESTRICT,
+                idempotency_key UUID NOT NULL,
+                request_fingerprint CHAR(64) NOT NULL CHECK (request_fingerprint ~ '^[0-9a-f]{64}$'),
+                product_id TEXT NOT NULL REFERENCES managed_products(id) ON DELETE RESTRICT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (shop_id, admin_user_id, idempotency_key)
+            );
+        `
+    },
+    {
+        version: '005_category_descriptions',
+        sql: `ALTER TABLE shop_product_categories ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '' CHECK (char_length(description) <= 240);`
     }
 ];

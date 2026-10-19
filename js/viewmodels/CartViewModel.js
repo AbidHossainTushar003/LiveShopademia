@@ -26,6 +26,11 @@ export class CartViewModel {
         }));
     }
     add(product) {
+        if (!this.cart.canAddFromShop(product)) {
+            const currentShop = this.cart.lines.value[0]?.product.shopName || 'another shop';
+            this.toast.show(`Your cart has items from ${currentShop}. Checkout or remove them before shopping from another shop.`);
+            return false;
+        }
         if (!this.cart.add(product)) {
             if (product?.isAvailable === false || product?.stockQuantity === 0 || product?.isAvailableForPurchase === false) {
                 this.toast.show('This product is currently unavailable.');

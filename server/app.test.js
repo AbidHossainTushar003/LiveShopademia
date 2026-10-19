@@ -1,5 +1,6 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ import jwt from 'jsonwebtoken';
 import { createApp } from './app.js';
 import { hashAdminPassword } from './adminPassword.js';
 import { createTotpCode, encryptTotpSecret } from './adminTotp.js';
-import { findProduct, getManagedProducts, setManagedProducts } from './catalog.js';
+import { findProduct, findProductForShop, getManagedProducts, setManagedProducts } from './catalog.js';
 import { isSafeProductImage } from '../js/utils/format.js';
 
 const config = {
@@ -33,6 +34,10 @@ const mainShopTestProducts = [
     }
 ];
 beforeEach(() => setManagedProducts(mainShopTestProducts));
+
+function createProductRequest(app, idempotencyKey = randomUUID()) {
+    return request(app).post('/api/v1/admin/products').set('Idempotency-Key', idempotencyKey);
+}
 
 test('service worker source parses successfully', async () => {
     const source = await readFile(new URL('../service-worker.js', import.meta.url), 'utf8');
@@ -56,6 +61,13 @@ function fakePool() {
     const orders = new Map();
     const orderEvents = [];
     const managedProducts = new Map();
+    const inventoryAdjustments = new Map();
+    const databaseAdjustmentRow = (adjustment) => ({
+        ...adjustment,
+        previousQuantity: String(adjustment.previousQuantity),
+        newQuantity: String(adjustment.newQuantity)
+    });
+    const productCreationRequests = new Map();
     const categories = new Map([
         ['gadgets', { id: 'gadgets', name: 'Electronics', icon: 'fa-laptop', active: true, isDefault: true }],
         ['accessories', { id: 'accessories', name: 'Jewelry & Accessories', icon: 'fa-gem', active: true, isDefault: true }],
@@ -83,13 +95,37 @@ function fakePool() {
     const adminAudit = [];
     let passwordChangeRaceHash = null;
     let failOrderRetryLookup = false;
+    let failOrderCommitAfterPersist = false;
+    let orderCreationActivityCount = 0;
+    let failProductCreateCommitAfterPersist = false;
+    let failProductCreateRecoveryLookupAfterCommit = false;
+    let failNextProductCreateRecoveryLookup = false;
     let transactionSnapshot = null;
+    let transactionLock = Promise.resolve();
     return Object.assign({
         markLegacyRequestHash(eventId) {
             orders.get(eventId).requestHash = null;
         },
+        orderCount() {
+            return orders.size;
+        },
+        orderNumberForEvent(eventId) {
+            return orders.get(eventId)?.orderNumber;
+        },
+        orderCreationActivityCount() {
+            return orderCreationActivityCount;
+        },
         failOrderRetryLookup() {
             failOrderRetryLookup = true;
+        },
+        failNextOrderCommitAfterPersist() {
+            failOrderCommitAfterPersist = true;
+        },
+        failNextProductCreateCommitAfterPersist() {
+            failProductCreateCommitAfterPersist = true;
+        },
+        failNextProductCreateRecoveryLookupAfterCommit() {
+            failProductCreateRecoveryLookupAfterCommit = true;
         },
         raceAdminPasswordChange(passwordHash) {
             passwordChangeRaceHash = passwordHash;
@@ -110,6 +146,19 @@ function fakePool() {
         addManagedProduct(product) {
             managedProducts.set(product.id, product);
         },
+        archiveManagedProduct(id) {
+            const product = managedProducts.get(id);
+            if (product) product.isArchived = true;
+        },
+        managedProduct(id) {
+            return managedProducts.get(id);
+        },
+        productCreationCount() {
+            return productCreationRequests.size;
+        },
+        inventoryAdjustments() {
+            return [...inventoryAdjustments.values()];
+        },
         addShopMembership(shopId, userId, role) {
             shopMemberships.set(`${shopId}:${userId}`, { shopId, userId, role });
         },
@@ -118,16 +167,27 @@ function fakePool() {
         },
         async connect() {
             const pool = this;
-            return { query: (...args) => pool.query(...args), release() {} };
+            const previous = transactionLock;
+            let unlock;
+            const current = new Promise((resolve) => { unlock = resolve; });
+            transactionLock = previous.then(() => current);
+            await previous;
+            return {
+                query: (...args) => pool.query(...args),
+                release() { unlock(); }
+            };
         },
         async query(sql, values = []) {
             if (sql === 'SELECT 1') return { rows: [{ '?column?': 1 }] };
             if (sql === 'BEGIN') {
                 transactionSnapshot = {
                     managedProducts: structuredClone([...managedProducts]),
+                    inventoryAdjustments: structuredClone([...inventoryAdjustments]),
+                    productCreationRequests: structuredClone([...productCreationRequests]),
                     categories: structuredClone([...categories]),
                     orders: structuredClone([...orders]),
                     orderEvents: structuredClone(orderEvents),
+                    orderCreationActivityCount,
                     adminSettings: structuredClone([...adminSettings]),
                     adminAudit: structuredClone(adminAudit)
                 };
@@ -135,17 +195,39 @@ function fakePool() {
             }
             if (sql === 'COMMIT') {
                 transactionSnapshot = null;
+                if (failOrderCommitAfterPersist) {
+                    failOrderCommitAfterPersist = false;
+                    throw Object.assign(new Error('Synthetic lost order COMMIT acknowledgement.'), { code: 'ECONNRESET' });
+                }
+                if (failProductCreateCommitAfterPersist) {
+                    failProductCreateCommitAfterPersist = false;
+                    if (failProductCreateRecoveryLookupAfterCommit) {
+                        failProductCreateRecoveryLookupAfterCommit = false;
+                        failNextProductCreateRecoveryLookup = true;
+                    }
+                    throw Object.assign(new Error('Synthetic lost COMMIT acknowledgement.'), { code: 'ECONNRESET' });
+                }
                 return { rows: [] };
+            }
+            if (sql.includes('FROM admin_product_creation_requests request')
+                && failNextProductCreateRecoveryLookup) {
+                failNextProductCreateRecoveryLookup = false;
+                throw Object.assign(new Error('Synthetic recovery lookup failure.'), { code: 'ECONNRESET' });
             }
             if (sql === 'ROLLBACK') {
                 if (transactionSnapshot) {
                     managedProducts.clear();
                     for (const [id, product] of transactionSnapshot.managedProducts) managedProducts.set(id, product);
+                    inventoryAdjustments.clear();
+                    for (const [key, adjustment] of transactionSnapshot.inventoryAdjustments) inventoryAdjustments.set(key, adjustment);
+                    productCreationRequests.clear();
+                    for (const [key, record] of transactionSnapshot.productCreationRequests) productCreationRequests.set(key, record);
                     categories.clear();
                     for (const [id, category] of transactionSnapshot.categories) categories.set(id, category);
                     orders.clear();
                     for (const [eventId, order] of transactionSnapshot.orders) orders.set(eventId, order);
                     orderEvents.splice(0, orderEvents.length, ...transactionSnapshot.orderEvents);
+                    orderCreationActivityCount = transactionSnapshot.orderCreationActivityCount;
                     adminSettings.clear();
                     for (const [key, setting] of transactionSnapshot.adminSettings) adminSettings.set(key, setting);
                     adminAudit.splice(0, adminAudit.length, ...transactionSnapshot.adminAudit);
@@ -158,7 +240,8 @@ function fakePool() {
                 const requests = ids.map((id, index) => ({ id, quantity: Number(quantities[index]) }));
                 const canAdjust = !reserve || requests.every(({ id, quantity }) => {
                     const product = managedProducts.get(id);
-                    return product && product.isAvailable && Number(product.stockQuantity) >= quantity;
+                    return product && !product.isArchived && product.isAvailable
+                        && Number(product.stockQuantity) >= quantity;
                 });
                 const stockUpdates = {};
                 if (canAdjust) {
@@ -177,6 +260,97 @@ function fakePool() {
                     }]
                 };
             }
+            if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
+            if (sql.includes('FROM admin_product_creation_requests request')) {
+                const key = `${values[0]}:${values[1]}:${values[2]}`;
+                const previous = productCreationRequests.get(key);
+                const product = previous ? managedProducts.get(previous.productId) : null;
+                return { rows: previous && product ? [{ ...product, requestFingerprint: previous.requestFingerprint }] : [] };
+            }
+            if (sql.includes('INSERT INTO admin_product_creation_requests')) {
+                const [id, name, description, imageAlt, seoTitle, metaDescription, price, oldPrice,
+                    category, image, stockQuantity, isAvailable, shopId, images, actorEmail,
+                    adminUserId, idempotencyKey, requestFingerprint] = values;
+                const row = {
+                    id, name, description, imageAlt, seoTitle, metaDescription, price: String(price),
+                    oldPrice: oldPrice === null ? null : String(oldPrice), category, image,
+                    stockQuantity: String(stockQuantity), isAvailable, isArchived: false,
+                    images, shopId, createdAt: new Date()
+                };
+                managedProducts.set(id, row);
+                productCreationRequests.set(`${shopId}:${adminUserId}:${idempotencyKey}`, {
+                    requestFingerprint,
+                    productId: id
+                });
+                return { rows: [row] };
+            }
+            if (sql.includes('FROM inventory_adjustments')) {
+                if (sql.includes('idempotency_key = $2')) {
+                    const adjustment = inventoryAdjustments.get(`${values[0]}:${values[1]}`);
+                    return { rows: adjustment ? [databaseAdjustmentRow(adjustment)] : [] };
+                }
+                const adjustments = [...inventoryAdjustments.values()]
+                    .filter((adjustment) => adjustment.shopId === values[0] && adjustment.productId === values[1])
+                    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+                if (sql.includes('COUNT(*)::int AS total')) {
+                    return { rows: [{ total: adjustments.length }] };
+                }
+                return { rows: adjustments.slice(values[3], values[3] + values[2]).map(databaseAdjustmentRow) };
+            }
+            if (sql.includes('SELECT id, stock_quantity AS "stockQuantity"') && sql.includes('FOR UPDATE')) {
+                const requestedIds = Array.isArray(values[0]) ? values[0] : [values[0]];
+                return {
+                    rows: requestedIds
+                        .map((id) => {
+                            const product = managedProducts.get(id);
+                            if (!product || (values[1] != null && product.shopId !== values[1])) return null;
+                            return { id: product.id, stockQuantity: product.stockQuantity };
+                        })
+                        .filter(Boolean)
+                };
+            }
+            if (sql.includes('UPDATE managed_products') && sql.includes('SET stock_quantity = $1')) {
+                const [stockQuantity, id, shopId] = values;
+                const product = managedProducts.get(id);
+                if (!product || product.shopId !== shopId) return { rows: [] };
+                product.stockQuantity = String(stockQuantity);
+                return { rows: [{ stockQuantity: product.stockQuantity }] };
+            }
+            if (sql.includes('INSERT INTO inventory_adjustments')) {
+                const [shopId, productId, actorUserId, actorEmail, idempotencyKey, requestId,
+                    delta, previousQuantity, newQuantity, reason] = values;
+                const adjustment = {
+                    id: String(inventoryAdjustments.size + 1),
+                    productId,
+                    delta,
+                    reason,
+                    previousQuantity,
+                    newQuantity,
+                    createdAt: new Date()
+                };
+                inventoryAdjustments.set(`${shopId}:${idempotencyKey}`, {
+                    ...adjustment,
+                    shopId,
+                    actorUserId,
+                    actorEmail,
+                    idempotencyKey,
+                    requestId
+                });
+                return { rows: [databaseAdjustmentRow(adjustment)] };
+            }
+            if (sql.includes('UPDATE managed_products') && sql.includes('SET is_archived = $1')) {
+                const product = managedProducts.get(values[1]);
+                if (!product || product.shopId !== values[2] || product.isArchived === values[0]) return { rows: [] };
+                product.isArchived = values[0];
+                return { rows: [{ ...product, createdAt: product.createdAt ?? new Date() }] };
+            }
+            if (sql.includes('UPDATE managed_products SET category = $1 WHERE shop_id')) {
+                const [categoryId, shopId, previousId] = values;
+                for (const product of managedProducts.values()) {
+                    if (product.shopId === shopId && product.category === previousId) product.category = categoryId;
+                }
+                return { rows: [] };
+            }
             if (sql.includes('UPDATE managed_products')) {
                 if (sql.includes("SET category = 'uncategorized'")) {
                     for (const product of managedProducts.values()) {
@@ -184,22 +358,22 @@ function fakePool() {
                     }
                     return { rows: [] };
                 }
-                const [name, description, price, oldPrice, category, id, stockQuantity, isAvailable, image] = values;
+                const [name, description, price, oldPrice, category, id, isAvailable, image] = values;
                 const current = managedProducts.get(id);
                 if (!current) return { rows: [] };
                 const row = {
                     ...current,
                     name,
                     description,
-                    imageAlt: values[11],
-                    seoTitle: values[12],
-                    metaDescription: values[13],
+                    imageAlt: values[10],
+                    seoTitle: values[11],
+                    metaDescription: values[12],
                     price: String(price),
                     oldPrice: oldPrice === null ? null : String(oldPrice),
                     category,
                     image: image ?? current.image,
-                    images: values[14] ?? current.images ?? (current.image ? [current.image] : []),
-                    stockQuantity: String(stockQuantity),
+                    images: values[13] ?? current.images ?? (current.image ? [current.image] : []),
+                    stockQuantity: current.stockQuantity,
                     isAvailable,
                     previousImage: current.image
                 };
@@ -241,6 +415,15 @@ function fakePool() {
                 }] };
             }
             if (sql.includes('FROM managed_products')) {
+                if (sql.includes('id = ANY($1::TEXT[])')) {
+                    const [ids, shopId] = values;
+                    return {
+                        rows: ids.map((id) => managedProducts.get(id))
+                            .filter((product) => product?.shopId === shopId
+                                && (!sql.includes('is_archived = FALSE') || !product.isArchived))
+                            .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                    };
+                }
                 if (sql.includes('WHERE id = $1 AND shop_id = $2')) {
                     const product = managedProducts.get(values[0]);
                     return { rows: product?.shopId === values[1] ? [product] : [] };
@@ -260,6 +443,7 @@ function fakePool() {
                     id, name, description, imageAlt, seoTitle, metaDescription, price: String(price),
                     oldPrice: oldPrice === null ? null : String(oldPrice),
                     category, image, stockQuantity: String(values[10]), isAvailable: values[11],
+                    isArchived: false,
                     images: values[13] ?? [image],
                     shopId: values[12], createdAt: new Date()
                 };
@@ -270,7 +454,10 @@ function fakePool() {
                 if (sql.includes('WITH created AS')) {
                     const [shopId, id, name] = values;
                     const previous = categories.get(id);
-                    const category = { id, name, icon: 'fa-box', active: true, isDefault: previous?.isDefault ?? false };
+                    const category = {
+                        id, name, description: values[3] ?? '',
+                        icon: 'fa-box', active: true, isDefault: previous?.isDefault ?? false
+                    };
                     categories.set(id, category);
                     return { rows: [category] };
                 }
@@ -292,8 +479,20 @@ function fakePool() {
                 return { rows: [...categories.values()] };
             }
             if (sql.includes('UPDATE shop_product_categories')) {
-                const category = categories.get(sql.includes('SET name = $1') ? values[2] : values[1]);
+                const isSlugUpdate = sql.includes('SET id = $1, name = $2');
+                const category = categories.get(isSlugUpdate ? values[4] : (sql.includes('SET name = $1') ? values[2] : values[1]));
                 if (!category || !category.active) return { rows: [] };
+                if (isSlugUpdate) {
+                    if (categories.has(values[0]) && values[0] !== category.id) {
+                        throw Object.assign(new Error('duplicate category slug'), { code: '23505' });
+                    }
+                    categories.delete(category.id);
+                    category.id = values[0];
+                    category.name = values[1];
+                    if (values[2] !== null) category.description = values[2];
+                    categories.set(category.id, category);
+                    return { rows: [{ ...category }] };
+                }
                 if (sql.includes('SET name = $1')) {
                     category.name = values[0];
                     return { rows: [{ ...category }] };
@@ -543,6 +742,25 @@ function fakePool() {
                 );
                 return { rows: row ? [{ ...row }] : [] };
             }
+            if (sql.includes('FROM orders') && sql.includes('WHERE shop_id = $1')
+                && (sql.includes('COUNT(*)') || sql.includes('SELECT id, order_number'))) {
+                let all = [...orders.values()].filter((order) => order.shopId === values[0]);
+                if (sql.includes('status =')) all = all.filter((order) => order.status === values[1]);
+                const search = values.find((value) =>
+                    typeof value === 'string' && value.startsWith('%') && value.endsWith('%')
+                );
+                if (search) {
+                    const term = search.slice(1, -1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\%/g, '.*').replace(/\\_/g, '.');
+                    const matcher = new RegExp(term, 'i');
+                    all = all.filter((order) =>
+                        matcher.test(order.orderNumber) || matcher.test(order.customerName) || matcher.test(order.phone)
+                    );
+                }
+                if (sql.includes('COUNT(*)')) return { rows: [{ total: all.length }] };
+                const offset = values.at(-1);
+                const limit = values.at(-2);
+                return { rows: all.slice(offset, offset + limit).map(({ event_id, ...row }) => row) };
+            }
             if (sql.includes('COUNT(*)')) {
                 const all = [...orders.values()];
                 return { rows: [{ total: sql.includes('WHERE status') ? all.filter((order) => order.status === values[1]).length : all.length }] };
@@ -606,7 +824,10 @@ function fakePool() {
                 });
                 return { rows: [] };
             }
-            if (sql.includes('INSERT INTO shop_activity_logs')) return { rows: [] };
+            if (sql.includes('INSERT INTO shop_activity_logs')) {
+                if (sql.includes("'order.created'")) orderCreationActivityCount += 1;
+                return { rows: [] };
+            }
             if (sql.includes('SELECT rp.granted') && sql.includes('admin_role_permissions')) {
                 return { rows: ['settings.read', 'settings.write', 'audit.read', 'permissions.read', 'secrets.write'].includes(values[0])
                     ? [{ granted: true }]
@@ -666,8 +887,9 @@ function fakePool() {
                     granted: true
                 }] };
             }
-            if (sql.includes("SELECT id, slug, name FROM shops WHERE status = 'active'")) {
-                return { rows: [{ id: mainShopId, slug: 'main', name: 'Main Shop' }] };
+            if (sql.includes('SELECT id, slug, name, advance_charge AS "shopAdvanceCharge"')
+                && sql.includes("FROM shops WHERE status = 'active'")) {
+                return { rows: [{ id: mainShopId, slug: 'main', name: 'Main Shop', shopAdvanceCharge: 100 }] };
             }
             if (sql.includes('SELECT id, slug, name, status FROM shops WHERE slug = $1')) {
                 return {
@@ -864,11 +1086,11 @@ test('public discounted products include active shops with their storefront link
         }
     ]);
     pool.query = async (sql, values) => {
-        if (sql.includes('SELECT id, slug, name FROM shops')
+        if (sql.includes('SELECT id, slug, name, advance_charge AS "shopAdvanceCharge" FROM shops')
             && sql.includes("WHERE status = 'active' ORDER BY name, slug")) {
             return { rows: [
-                { id: mainShopId, slug: 'main', name: 'Main Shop' },
-                { id: otherShopId, slug: 'other-shop', name: 'Other Shop' }
+                { id: mainShopId, slug: 'main', name: 'Main Shop', shopAdvanceCharge: 40 },
+                { id: otherShopId, slug: 'other-shop', name: 'Other Shop', shopAdvanceCharge: 75 }
             ] };
         }
         return query(sql, values);
@@ -880,9 +1102,9 @@ test('public discounted products include active shops with their storefront link
         .expect(200);
 
     assert.deepEqual(response.body.data.filter(({ id }) => ['main-discount', 'other-discount'].includes(id))
-        .map(({ id, shopSlug, shopName }) => ({ id, shopSlug, shopName })), [
-        { id: 'main-discount', shopSlug: 'main', shopName: 'Main Shop' },
-        { id: 'other-discount', shopSlug: 'other-shop', shopName: 'Other Shop' }
+        .map(({ id, shopId, shopSlug, shopName, shopAdvanceCharge }) => ({ id, shopId, shopSlug, shopName, shopAdvanceCharge })), [
+        { id: 'main-discount', shopId: mainShopId, shopSlug: 'main', shopName: 'Main Shop', shopAdvanceCharge: 40 },
+        { id: 'other-discount', shopId: otherShopId, shopSlug: 'other-shop', shopName: 'Other Shop', shopAdvanceCharge: 75 }
     ]);
     assert.equal(response.body.data.some(({ id }) => id === 'not-discounted'), false);
 });
@@ -905,11 +1127,11 @@ test('public catalog includes marketplace products with the correct seller links
         }
     ]);
     pool.query = async (sql, values) => {
-        if (sql.includes('SELECT id, slug, name FROM shops')
+        if (sql.includes('SELECT id, slug, name, advance_charge AS "shopAdvanceCharge"')
             && sql.includes("WHERE status = 'active'")) {
             return { rows: [
-                { id: mainShopId, slug: 'main', name: 'Main Shop' },
-                { id: otherShopId, slug: 'other-shop', name: 'Other Shop' }
+                { id: mainShopId, slug: 'main', name: 'Main Shop', shopAdvanceCharge: 100 },
+                { id: otherShopId, slug: 'other-shop', name: 'Other Shop', shopAdvanceCharge: 55 }
             ] };
         }
         return query(sql, values);
@@ -919,9 +1141,9 @@ test('public catalog includes marketplace products with the correct seller links
     const response = await request(app).get('/api/v1/products').expect(200);
     assert.deepEqual(response.body.data
         .filter(({ id }) => ['main-catalog-item', 'other-catalog-item'].includes(id))
-        .map(({ id, shopSlug, shopName }) => ({ id, shopSlug, shopName })), [
-        { id: 'main-catalog-item', shopSlug: 'main', shopName: 'Main Shop' },
-        { id: 'other-catalog-item', shopSlug: 'other-shop', shopName: 'Other Shop' }
+        .map(({ id, shopId, shopSlug, shopName, shopAdvanceCharge }) => ({ id, shopId, shopSlug, shopName, shopAdvanceCharge })), [
+        { id: 'main-catalog-item', shopId: mainShopId, shopSlug: 'main', shopName: 'Main Shop', shopAdvanceCharge: 100 },
+        { id: 'other-catalog-item', shopId: otherShopId, shopSlug: 'other-shop', shopName: 'Other Shop', shopAdvanceCharge: 55 }
     ]);
 });
 
@@ -939,7 +1161,7 @@ test('public weekly top products rank active shop order items without exposing s
         if (sql.includes('FROM orders o') && sql.includes('date_trunc(\'week\', NOW())')) {
             rankingQuery = sql;
             return { rows: [{
-                shopId, shopSlug: 'main', shopName: 'Main Shop', productId, units: 3
+                shopId, shopSlug: 'main', shopName: 'Main Shop', shopAdvanceCharge: 100, productId, units: 3
             }] };
         }
         return query(sql, values);
@@ -952,8 +1174,10 @@ test('public weekly top products rank active shop order items without exposing s
 
     assert.match(rankingQuery, /o\.status <> 'cancelled'/);
     assert.match(rankingQuery, /date_trunc\('week', NOW\(\)\)/);
-    assert.deepEqual(response.body.data.map(({ id, shopSlug, shopName }) => ({ id, shopSlug, shopName })), [
-        { id: productId, shopSlug: 'main', shopName: 'Main Shop' }
+    assert.deepEqual(response.body.data.map(({ id, shopId, shopSlug, shopName, shopAdvanceCharge }) => ({
+        id, shopId, shopSlug, shopName, shopAdvanceCharge
+    })), [
+        { id: productId, shopId, shopSlug: 'main', shopName: 'Main Shop', shopAdvanceCharge: 100 }
     ]);
     assert.equal(JSON.stringify(response.body).includes('units'), false);
     assert.equal(JSON.stringify(response.body).includes('revenue'), false);
@@ -1046,6 +1270,180 @@ test('persists a correctly priced order and returns the same order for a retry',
     assert.equal(first.body.data.advanceAmount, 100);
 });
 
+test('checkout retry recovers the committed order after a lost commit acknowledgement', async (t) => {
+    const previousProducts = getManagedProducts();
+    t.after(() => setManagedProducts(previousProducts));
+    const product = {
+        id: 'admin-66666666-6666-4666-8666-666666666666',
+        name: 'Lost commit acknowledgement fixture',
+        description: 'A retry must recover an order whose commit response was lost.',
+        price: 100,
+        oldPrice: null,
+        category: 'gadgets',
+        image: '/uploads/66666666-6666-4666-8666-666666666666.webp',
+        stockQuantity: 2,
+        isAvailable: true,
+        isArchived: false,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    };
+    setManagedProducts([...previousProducts, product]);
+    const pool = fakePool();
+    pool.addManagedProduct({ ...product, price: '250' });
+    pool.failNextOrderCommitAfterPersist();
+    const errorLog = t.mock.method(console, 'error', () => {});
+    const app = createApp({ pool, config });
+    const checkout = {
+        ...payload,
+        items: [{ productId: product.id, quantity: 1 }],
+        eventId: 'lost-order-commit-ack-event'
+    };
+
+    await request(app).post('/api/v1/orders').send(checkout)
+        .expect(500, { error: 'The request could not be completed. Please try again.' });
+    assert.equal(errorLog.mock.calls[0].arguments[1].code, 'ECONNRESET');
+
+    const savedOrderNumber = pool.orderNumberForEvent(checkout.eventId);
+    assert.ok(savedOrderNumber);
+    assert.equal(pool.orderCount(), 1);
+    assert.equal(pool.managedProduct(product.id).stockQuantity, '1');
+    assert.equal(pool.orderCreationActivityCount(), 1);
+
+    const retry = await request(app).post('/api/v1/orders').send(checkout).expect(200);
+    assert.equal(retry.body.data.orderNumber, savedOrderNumber);
+    assert.equal(pool.orderCount(), 1);
+    assert.equal(pool.managedProduct(product.id).stockQuantity, '1');
+    assert.equal(pool.orderCreationActivityCount(), 1);
+});
+
+test('checkout prices managed products from database state instead of a stale process catalog', async (t) => {
+    const previousProducts = getManagedProducts();
+    t.after(() => setManagedProducts(previousProducts));
+    const product = {
+        id: 'admin-22222222-2222-4222-8222-222222222222',
+        name: 'Edited catalog product',
+        description: 'The database copy has a newer approved price.',
+        price: 100,
+        oldPrice: null,
+        category: 'gadgets',
+        image: '/uploads/22222222-2222-4222-8222-222222222222.webp',
+        stockQuantity: 2,
+        isAvailable: true,
+        isArchived: false,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    };
+    setManagedProducts([...previousProducts, product]);
+    const pool = fakePool();
+    pool.addManagedProduct({ ...product, price: '250' });
+    const app = createApp({ pool, config });
+
+    const response = await request(app).post('/api/v1/orders').send({
+        ...payload,
+        items: [{ productId: product.id, quantity: 1 }],
+        eventId: 'fresh-db-price-event'
+    }).expect(201);
+
+    assert.equal(response.body.data.subtotal, 250);
+    assert.equal(findProduct(product.id).price, 100);
+});
+
+test('checkout retries replay a saved order after its product is archived', async (t) => {
+    const previousProducts = getManagedProducts();
+    t.after(() => setManagedProducts(previousProducts));
+    const product = {
+        id: 'admin-55555555-5555-4555-8555-555555555555',
+        name: 'Order retry archive fixture',
+        description: 'A saved order must remain retryable after catalog changes.',
+        price: 100,
+        oldPrice: null,
+        category: 'gadgets',
+        image: '/uploads/55555555-5555-4555-8555-555555555555.webp',
+        stockQuantity: 2,
+        isAvailable: true,
+        isArchived: false,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    };
+    setManagedProducts([...previousProducts, product]);
+    const pool = fakePool();
+    pool.addManagedProduct({ ...product, price: '250' });
+    const app = createApp({ pool, config });
+    const checkout = {
+        ...payload,
+        items: [{ productId: product.id, quantity: 1 }],
+        eventId: 'retry-after-archive-event'
+    };
+
+    const first = await request(app).post('/api/v1/orders').send(checkout).expect(201);
+    pool.archiveManagedProduct(product.id);
+    const retry = await request(app).post('/api/v1/orders').send(checkout).expect(200);
+
+    assert.equal(retry.body.data.orderNumber, first.body.data.orderNumber);
+    assert.equal(retry.body.data.subtotal, first.body.data.subtotal);
+    assert.equal(pool.orderCount(), 1);
+    assert.equal(pool.managedProduct(product.id).stockQuantity, '1');
+});
+
+test('checkout rejects a managed product archived in the database despite a stale active cache', async (t) => {
+    const previousProducts = getManagedProducts();
+    t.after(() => setManagedProducts(previousProducts));
+    const product = {
+        id: 'admin-33333333-3333-4333-8333-333333333333',
+        name: 'Archived catalog product',
+        description: 'This product has been archived in the database.',
+        price: 100,
+        oldPrice: null,
+        category: 'gadgets',
+        image: '/uploads/33333333-3333-4333-8333-333333333333.webp',
+        stockQuantity: 2,
+        isAvailable: true,
+        isArchived: false,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    };
+    setManagedProducts([...previousProducts, product]);
+    const pool = fakePool();
+    pool.addManagedProduct({ ...product, isArchived: true });
+    const app = createApp({ pool, config });
+
+    await request(app).post('/api/v1/orders').send({
+        ...payload,
+        items: [{ productId: product.id, quantity: 1 }],
+        eventId: 'archived-db-product-event'
+    }).expect(400);
+
+    assert.equal(pool.orderCount(), 0);
+    assert.equal(findProduct(product.id).stockQuantity, 2);
+});
+
+test('checkout rejects a managed product unavailable in the database despite a stale active cache', async (t) => {
+    const previousProducts = getManagedProducts();
+    t.after(() => setManagedProducts(previousProducts));
+    const product = {
+        id: 'admin-44444444-4444-4444-8444-444444444444',
+        name: 'Unavailable catalog product',
+        description: 'This product has been made unavailable in the database.',
+        price: 100,
+        oldPrice: null,
+        category: 'gadgets',
+        image: '/uploads/44444444-4444-4444-8444-444444444444.webp',
+        stockQuantity: 2,
+        isAvailable: true,
+        isArchived: false,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    };
+    setManagedProducts([...previousProducts, product]);
+    const pool = fakePool();
+    pool.addManagedProduct({ ...product, isAvailable: false });
+    const app = createApp({ pool, config });
+
+    await request(app).post('/api/v1/orders').send({
+        ...payload,
+        items: [{ productId: product.id, quantity: 1 }],
+        eventId: 'unavailable-db-product-event'
+    }).expect(409);
+
+    assert.equal(pool.orderCount(), 0);
+    assert.equal(findProduct(product.id).stockQuantity, 2);
+});
+
 test('checkout rolls back inventory reservation when order persistence fails', async (t) => {
     const previousProducts = getManagedProducts();
     t.after(() => setManagedProducts(previousProducts));
@@ -1089,10 +1487,16 @@ test('checkout rolls back inventory reservation when order persistence fails', a
 
     await request(app).post('/api/v1/orders').send(interruptedOrder).expect(500);
     assert.ok(statements.includes('ROLLBACK'));
+    assert.equal(pool.orderCount(), 0);
+    assert.equal(pool.managedProduct(product.id).stockQuantity, '2');
+    assert.equal(pool.orderCreationActivityCount(), 0);
     assert.equal(findProduct(product.id).stockQuantity, 2);
     assert.doesNotMatch(JSON.stringify(errorLog.mock.calls), /Synthetic order persistence interruption/);
 
     await request(app).post('/api/v1/orders').send(interruptedOrder).expect(201);
+    assert.equal(pool.orderCount(), 1);
+    assert.equal(pool.managedProduct(product.id).stockQuantity, '1');
+    assert.equal(pool.orderCreationActivityCount(), 1);
     assert.equal(findProduct(product.id).stockQuantity, 1);
 });
 
@@ -1159,7 +1563,7 @@ test('order lookup validates inputs and applies a strict rate limit', async () =
     assert.match(limitedCatalog.body.error, /too many catalog requests/i);
 });
 
-test('admin product management supports authenticated create, update, replacement, and removal', async (t) => {
+test('admin product management supports authenticated create, update, replacement, archive, and restore', async (t) => {
     const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-product-test-'));
     t.after(async () => {
         setManagedProducts([]);
@@ -1169,7 +1573,7 @@ test('admin product management supports authenticated create, update, replacemen
     const app = createApp({ pool, config: { ...config, uploadsDir: uploadDirectory } });
     const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64');
 
-    await request(app).post('/api/v1/admin/products')
+    await createProductRequest(app)
         .field('name', 'Admin Product')
         .attach('image', image, { filename: 'product.png', contentType: 'image/png' })
         .expect(401);
@@ -1178,7 +1582,12 @@ test('admin product management supports authenticated create, update, replacemen
         .send({ email: config.adminEmail, password: config.adminPassword })
         .expect(200);
     const authorization = `Bearer ${login.body.token}`;
-    const created = await request(app).post('/api/v1/admin/products')
+    await createProductRequest(app, '')
+        .set('Authorization', authorization)
+        .field('name', 'Missing idempotency key')
+        .expect(400);
+    const createKey = randomUUID();
+    const created = await createProductRequest(app, createKey)
         .set('Authorization', authorization)
         .field('name', 'Admin Product')
         .field('description', 'Added from the admin catalog.')
@@ -1195,6 +1604,39 @@ test('admin product management supports authenticated create, update, replacemen
         .expect(201);
 
     const product = created.body.data;
+    const replay = await createProductRequest(app, createKey)
+        .set('Authorization', authorization)
+        .field('name', 'Admin Product')
+        .field('description', 'Added from the admin catalog.')
+        .field('imageAlt', 'Compact black wireless earbuds in their charging case')
+        .field('seoTitle', 'Wireless Earbuds | Admin Shop')
+        .field('metaDescription', 'Compact wireless earbuds with a portable charging case.')
+        .field('price', '1250')
+        .field('oldPrice', '1500')
+        .field('stockQuantity', '5')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/earbuds-detail.jpg')
+        .attach('image', image, { filename: 'product.png', contentType: 'image/png' })
+        .expect(201);
+    assert.equal(replay.body.data.id, product.id);
+    assert.equal(replay.body.replayed, true);
+    const changedReplay = await createProductRequest(app, createKey)
+        .set('Authorization', authorization)
+        .field('name', 'Different product')
+        .field('description', 'Added from the admin catalog.')
+        .field('imageAlt', 'Compact black wireless earbuds in their charging case')
+        .field('seoTitle', 'Wireless Earbuds | Admin Shop')
+        .field('metaDescription', 'Compact wireless earbuds with a portable charging case.')
+        .field('price', '1250')
+        .field('oldPrice', '1500')
+        .field('stockQuantity', '5')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .field('imageUrls', 'https://images.example.com/earbuds-detail.jpg')
+        .attach('image', image, { filename: 'product.png', contentType: 'image/png' })
+        .expect(409);
+    assert.match(changedReplay.body.error, /already used/i);
     assert.equal(product.name, 'Admin Product');
     assert.equal(product.price, 1250);
     assert.equal(product.oldPrice, 1500);
@@ -1362,7 +1804,17 @@ test('admin product management supports authenticated create, update, replacemen
         .field('stockQuantity', '0')
         .field('isAvailable', 'true')
         .field('category', 'accessories')
-        .expect(200);
+        .expect(400);
+    assert.equal(findProduct(product.id).stockQuantity, 3);
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', authorization)
+        .send({
+            delta: -3,
+            reason: 'Record exhausted stock',
+            idempotencyKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+        })
+        .expect(201);
+    assert.equal(findProduct(product.id).stockQuantity, 0);
     await request(app).patch('/api/v1/admin/orders/2/status')
         .set('Authorization', authorization)
         .send({ status: 'new' })
@@ -1378,12 +1830,15 @@ test('admin product management supports authenticated create, update, replacemen
         .expect(200);
     assert.equal(findProduct(product.id).stockQuantity, 0);
 
-    await request(app).delete(`/api/v1/admin/products/${product.id}`).expect(401);
-    await request(app).delete(`/api/v1/admin/products/${product.id}`)
+    await request(app).patch(`/api/v1/admin/products/${product.id}/archive`)
+        .send({ archived: true }).expect(401);
+    const archived = await request(app).patch(`/api/v1/admin/products/${product.id}/archive`)
         .set('Authorization', authorization)
-        .expect(200, { data: { id: product.id } });
-    assert.equal(findProduct(product.id), undefined);
-    await assert.rejects(readFile(join(uploadDirectory, replacement.body.data.image.split('/').at(-1))), { code: 'ENOENT' });
+        .send({ archived: true })
+        .expect(200);
+    assert.equal(archived.body.data.isArchived, true);
+    assert.equal(findProductForShop(product.id, product.shopId), undefined);
+    await request(app).get(replacement.body.data.image).expect(200);
     await request(app).get('/api/v1/products').expect(200).expect(({ body }) => {
         assert.ok(!body.data.some(({ id }) => id === product.id));
     });
@@ -1392,18 +1847,378 @@ test('admin product management supports authenticated create, update, replacemen
         items: [{ productId: product.id, quantity: 1 }],
         eventId: 'admin-product-event-after-delete'
     }).expect(400);
+    const stillRecordedOrder = await request(app).get('/api/v1/admin/orders')
+        .set('Authorization', authorization)
+        .expect(200);
+    assert.equal(stillRecordedOrder.body.data.find(({ id }) => id === '2').status, 'cancelled');
+    const restoredAvailable = await request(app).patch(`/api/v1/admin/products/${product.id}/archive`)
+        .set('Authorization', authorization)
+        .send({ archived: false })
+        .expect(200)
+        .expect(({ body }) => assert.equal(body.data.isArchived, false));
+    assert.equal(restoredAvailable.body.data.isAvailable, true);
+    assert.equal(restoredAvailable.body.data.stockQuantity, 0);
+    assert.ok(findProductForShop(product.id, product.shopId));
+    await request(app).delete(`/api/v1/admin/products/${product.id}`)
+        .set('Authorization', authorization)
+        .expect(405);
+    await request(app).get(replacement.body.data.image).expect(200);
     await request(app).delete('/api/v1/admin/products/not-a-product')
         .set('Authorization', authorization)
-        .expect(404, { error: 'Product not found.' });
+        .expect(405, { error: 'Products cannot be permanently deleted. Archive the product instead.' });
+    const concurrentKey = randomUUID();
+    const concurrentCreate = () => createProductRequest(app, concurrentKey)
+        .set('Authorization', authorization)
+        .field('name', 'Concurrent product')
+        .field('description', 'Created once despite a simultaneous retry.')
+        .field('imageAlt', 'Concurrent product image.')
+        .field('seoTitle', 'Concurrent product')
+        .field('metaDescription', 'Concurrent product test record.')
+        .field('price', '500')
+        .field('stockQuantity', '1')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .attach('image', image, { filename: 'concurrent.png', contentType: 'image/png' });
+    const simultaneous = await Promise.all([concurrentCreate(), concurrentCreate()]);
+    assert.equal(simultaneous[0].status, 201);
+    assert.equal(simultaneous[1].status, 201);
+    assert.equal(simultaneous[0].body.data.id, simultaneous[1].body.data.id);
+    assert.equal(simultaneous.filter(({ body }) => body.replayed === true).length, 1);
 });
 
-test('shop admins can rename categories and choose whether category products are kept or deleted', async (t) => {
+test('product creation reconciles a lost commit acknowledgement without deleting committed images', async (t) => {
+    const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-ambiguous-product-commit-'));
+    t.after(async () => {
+        setManagedProducts([]);
+        await rm(uploadDirectory, { recursive: true, force: true });
+    });
+    const pool = fakePool();
+    const app = createApp({ pool, config: { ...config, uploadsDir: uploadDirectory } });
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64');
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const authorization = `Bearer ${login.body.token}`;
+    const idempotencyKey = randomUUID();
+    pool.failNextProductCreateCommitAfterPersist();
+
+    const created = await createProductRequest(app, idempotencyKey)
+        .set('Authorization', authorization)
+        .field('name', 'Ambiguous Commit Product')
+        .field('description', 'Product survives a lost commit acknowledgement.')
+        .field('imageAlt', 'Product image for ambiguous commit recovery.')
+        .field('seoTitle', 'Ambiguous Commit Product')
+        .field('metaDescription', 'Regression coverage for safe create recovery.')
+        .field('price', '500')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .attach('image', image, { filename: 'ambiguous.png', contentType: 'image/png' })
+        .expect(201);
+
+    assert.equal(created.body.replayed, true);
+    assert.equal(pool.productCreationCount(), 1);
+    assert.equal(getManagedProducts().filter(({ name }) => name === 'Ambiguous Commit Product').length, 1);
+    await request(app).get(created.body.data.image).expect(200);
+
+    const replay = await createProductRequest(app, idempotencyKey)
+        .set('Authorization', authorization)
+        .field('name', 'Ambiguous Commit Product')
+        .field('description', 'Product survives a lost commit acknowledgement.')
+        .field('imageAlt', 'Product image for ambiguous commit recovery.')
+        .field('seoTitle', 'Ambiguous Commit Product')
+        .field('metaDescription', 'Regression coverage for safe create recovery.')
+        .field('price', '500')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .attach('image', image, { filename: 'ambiguous.png', contentType: 'image/png' })
+        .expect(201);
+    assert.equal(replay.body.data.id, created.body.data.id);
+    assert.equal(replay.body.data.image, created.body.data.image);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(pool.productCreationCount(), 1);
+    await request(app).get(created.body.data.image).expect(200);
+    assert.equal((await readdir(uploadDirectory)).length, 1);
+});
+
+test('product creation retains uploaded files when commit reconciliation is unavailable', async (t) => {
+    const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-unresolved-product-commit-'));
+    t.after(async () => {
+        setManagedProducts([]);
+        await rm(uploadDirectory, { recursive: true, force: true });
+    });
+    t.mock.method(console, 'error', () => {});
+    const pool = fakePool();
+    const app = createApp({ pool, config: { ...config, uploadsDir: uploadDirectory } });
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64');
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const authorization = `Bearer ${login.body.token}`;
+    const idempotencyKey = randomUUID();
+    pool.failNextProductCreateCommitAfterPersist();
+    pool.failNextProductCreateRecoveryLookupAfterCommit();
+
+    const failed = await createProductRequest(app, idempotencyKey)
+        .set('Authorization', authorization)
+        .field('name', 'Unresolved Commit Product')
+        .field('description', 'Pending recovery preserves the uploaded file.')
+        .field('imageAlt', 'Product image for unresolved commit recovery.')
+        .field('seoTitle', 'Unresolved Commit Product')
+        .field('metaDescription', 'Regression coverage for unresolved commit recovery.')
+        .field('price', '500')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .attach('image', image, { filename: 'unresolved.png', contentType: 'image/png' })
+        .expect(500);
+    assert.equal(failed.body.error, 'The request could not be completed. Please try again.');
+    assert.equal(pool.productCreationCount(), 1);
+    assert.equal((await readdir(uploadDirectory)).length, 1);
+
+    const retry = await createProductRequest(app, idempotencyKey)
+        .set('Authorization', authorization)
+        .field('name', 'Unresolved Commit Product')
+        .field('description', 'Pending recovery preserves the uploaded file.')
+        .field('imageAlt', 'Product image for unresolved commit recovery.')
+        .field('seoTitle', 'Unresolved Commit Product')
+        .field('metaDescription', 'Regression coverage for unresolved commit recovery.')
+        .field('price', '500')
+        .field('stockQuantity', '2')
+        .field('isAvailable', 'true')
+        .field('category', 'gadgets')
+        .attach('image', image, { filename: 'unresolved.png', contentType: 'image/png' })
+        .expect(201);
+    assert.equal(retry.body.replayed, true);
+    assert.equal(pool.productCreationCount(), 1);
+    assert.equal((await readdir(uploadDirectory)).length, 1);
+    await request(app).get(retry.body.data.image).expect(200);
+});
+
+test('inventory adjustments are authorized, transactional, audited, and idempotent', async (t) => {
+    const pool = fakePool();
+    const product = {
+        id: 'admin-00000000-0000-4000-8000-000000000777',
+        name: 'Inventory Test Product',
+        description: 'Synthetic test product.',
+        image: 'https://images.example.com/inventory-test.webp',
+        price: 1000,
+        oldPrice: null,
+        category: 'gadgets',
+        stockQuantity: '4',
+        isAvailable: true,
+        shopId: '00000000-0000-4000-8000-000000000001',
+        createdAt: new Date()
+    };
+    pool.addManagedProduct(product);
+    setManagedProducts([...mainShopTestProducts, product]);
+    t.after(() => setManagedProducts(mainShopTestProducts));
+    const app = createApp({ pool, config });
+    const ownerLogin = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const ownerAuthorization = `Bearer ${ownerLogin.body.token}`;
+    const requestBody = {
+        delta: 5,
+        reason: 'Received supplier delivery',
+        idempotencyKey: '11111111-1111-4111-8111-111111111111'
+    };
+
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .send(requestBody)
+        .expect(401);
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', ownerAuthorization)
+        .send({ ...requestBody, delta: 0 })
+        .expect(400);
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', ownerAuthorization)
+        .send({ ...requestBody, reason: 'test' })
+        .expect(400);
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', ownerAuthorization)
+        .send({ ...requestBody, idempotencyKey: 'not-a-uuid' })
+        .expect(400);
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', ownerAuthorization)
+        .send({ ...requestBody, delta: -5 })
+        .expect(409);
+    assert.equal(findProduct(product.id).stockQuantity, 4);
+    assert.equal(pool.inventoryAdjustments().length, 0);
+
+    const applied = await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', ownerAuthorization)
+        .send(requestBody)
+        .expect(201);
+    assert.deepEqual(
+        {
+            productId: applied.body.data.productId,
+            delta: applied.body.data.delta,
+            previousQuantity: applied.body.data.previousQuantity,
+            newQuantity: applied.body.data.newQuantity,
+            reason: applied.body.data.reason,
+            replayed: applied.body.data.replayed
+        },
+        {
+            productId: product.id,
+            delta: 5,
+            previousQuantity: 4,
+            newQuantity: 9,
+            reason: requestBody.reason,
+            replayed: false
+        }
+    );
+    assert.equal(findProduct(product.id).stockQuantity, 9);
+    assert.equal(pool.inventoryAdjustments().length, 1);
+    assert.equal(pool.inventoryAdjustments()[0].actorUserId, '00000000-0000-4000-8000-000000000101');
+    assert.equal(pool.inventoryAdjustments()[0].requestId, applied.headers['x-request-id']);
+
+    const history = await request(app)
+        .get(`/api/v1/admin/products/${product.id}/inventory-adjustments?limit=1&offset=0`)
+        .set('Authorization', ownerAuthorization)
+        .expect(200);
+    assert.equal(history.body.data.length, 1);
+    assert.equal(history.body.data[0].actorEmail, config.adminEmail);
+    assert.equal(history.body.data[0].reason, requestBody.reason);
+    assert.equal(history.body.pagination.total, 1);
+    assert.equal(history.body.pagination.hasMore, false);
+    await request(app)
+        .get(`/api/v1/admin/products/${product.id}/inventory-adjustments?limit=0`)
+        .set('Authorization', ownerAuthorization)
+        .expect(400);
+
+    const replay = await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', ownerAuthorization)
+        .send(requestBody)
+        .expect(200);
+    assert.equal(replay.body.data.replayed, true);
+    assert.equal(replay.body.data.newQuantity, 9);
+    assert.equal(findProduct(product.id).stockQuantity, 9);
+    assert.equal(pool.inventoryAdjustments().length, 1);
+
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', ownerAuthorization)
+        .send({ ...requestBody, delta: 6 })
+        .expect(409);
+
+    const concurrent = await Promise.all([
+        request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+            .set('Authorization', ownerAuthorization)
+            .send({ ...requestBody, delta: 2, idempotencyKey: '44444444-4444-4444-8444-444444444444' }),
+        request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+            .set('Authorization', ownerAuthorization)
+            .send({ ...requestBody, delta: 3, idempotencyKey: '55555555-5555-4555-8555-555555555555' })
+    ]);
+    assert.deepEqual(concurrent.map(({ status }) => status), [201, 201]);
+    assert.equal(findProduct(product.id).stockQuantity, 14);
+    assert.deepEqual(
+        pool.inventoryAdjustments().slice(1).map(({ previousQuantity, newQuantity }) => [previousQuantity, newQuantity])
+            .sort((a, b) => a[0] - b[0]),
+        [[9, 11], [11, 14]]
+    );
+    const duplicateResponses = await Promise.all([
+        request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+            .set('Authorization', ownerAuthorization)
+            .send({ ...requestBody, delta: 4, idempotencyKey: '66666666-6666-4666-8666-666666666666' }),
+        request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+            .set('Authorization', ownerAuthorization)
+            .send({ ...requestBody, delta: 4, idempotencyKey: '66666666-6666-4666-8666-666666666666' })
+    ]);
+    assert.deepEqual(duplicateResponses.map(({ status }) => status).sort(), [200, 201]);
+    assert.equal(findProduct(product.id).stockQuantity, 18);
+    assert.equal(pool.inventoryAdjustments().length, 4);
+
+    const staffId = '00000000-0000-4000-8000-000000000202';
+    pool.addAdminUser({
+        id: staffId,
+        email: 'staff@example.com',
+        passwordHash: initialAdminPasswordHash,
+        sessionVersion: 1
+    });
+    pool.addShopMembership('00000000-0000-4000-8000-000000000001', staffId, 'staff');
+    const staffLogin = await request(app).post('/api/v1/admin/login')
+        .send({ email: 'staff@example.com', password: config.adminPassword })
+        .expect(200);
+    assert.equal(typeof staffLogin.body.token, 'string');
+    await request(app).post(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', `Bearer ${staffLogin.body.token}`)
+        .send({
+            ...requestBody,
+            idempotencyKey: '22222222-2222-4222-8222-222222222222'
+        })
+        .expect(403);
+    await request(app).get(`/api/v1/admin/products/${product.id}/inventory-adjustments`)
+        .set('Authorization', `Bearer ${staffLogin.body.token}`)
+        .expect(403);
+    assert.equal(findProduct(product.id).stockQuantity, 18);
+    assert.equal(pool.inventoryAdjustments().length, 4);
+
+    pool.addManagedProduct({
+        ...product,
+        id: 'admin-00000000-0000-4000-8000-000000000888',
+        shopId: '00000000-0000-4000-8000-000000000002'
+    });
+    await request(app).post('/api/v1/admin/products/admin-00000000-0000-4000-8000-000000000888/inventory-adjustments')
+        .set('Authorization', ownerAuthorization)
+        .send({ ...requestBody, idempotencyKey: '33333333-3333-4333-8333-333333333333' })
+        .expect(404);
+    assert.equal(pool.inventoryAdjustments().length, 4);
+});
+
+test('product edits preserve stock and return the saved PostgreSQL fields', async (t) => {
+    const pool = fakePool();
+    const product = {
+        id: 'admin-00000000-0000-4000-8000-000000000777',
+        name: 'Editable Test Product',
+        description: 'Synthetic product for the product edit regression test.',
+        image: 'https://images.example.com/edit-test.webp',
+        price: 1000,
+        oldPrice: null,
+        category: 'gadgets',
+        stockQuantity: '4',
+        isAvailable: true,
+        shopId: '00000000-0000-4000-8000-000000000001',
+        createdAt: new Date()
+    };
+    pool.addManagedProduct(product);
+    setManagedProducts([...mainShopTestProducts, product]);
+    t.after(() => setManagedProducts(mainShopTestProducts));
+    const app = createApp({ pool, config });
+    const login = await request(app).post('/api/v1/admin/login')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const response = await request(app).put(`/api/v1/admin/products/${product.id}`)
+        .set('Authorization', `Bearer ${login.body.token}`)
+        .send({
+            name: 'Updated Editable Product',
+            description: product.description,
+            imageAlt: 'Updated product image',
+            seoTitle: 'Updated Editable Product',
+            metaDescription: 'Updated product metadata for the regression test.',
+            category: product.category,
+            price: '1250',
+            oldPrice: '',
+            stockQuantity: '4',
+            isAvailable: 'true',
+            imageUrls: ''
+        })
+        .expect(200);
+
+    assert.equal(response.body.data.name, 'Updated Editable Product');
+    assert.equal(response.body.data.price, 1250);
+    assert.equal(Number(response.body.data.stockQuantity), 4);
+    assert.equal(findProduct(product.id).stockQuantity, 4);
+});
+
+test('shop admins can rename and deactivate categories without deleting products', async (t) => {
     const uploadDirectory = await mkdtemp(join(tmpdir(), 'shopademia-category-test-'));
     t.after(async () => {
         setManagedProducts([]);
         await rm(uploadDirectory, { recursive: true, force: true });
     });
-    const app = createApp({ pool: fakePool(), config: { ...config, uploadsDir: uploadDirectory } });
+    const pool = fakePool();
+    const app = createApp({ pool, config: { ...config, uploadsDir: uploadDirectory } });
     const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJr0ErkJggg==', 'base64');
     const login = await request(app).post('/api/v1/admin/login')
         .send({ email: config.adminEmail, password: config.adminPassword })
@@ -1415,13 +2230,26 @@ test('shop admins can rename categories and choose whether category products are
         .send({ name: 'Home Decor' })
         .expect(201);
     assert.equal(createdCategory.body.data.id, 'home-decor');
-    const renamedCategory = await request(app).patch('/api/v1/admin/shop/categories/home-decor')
-        .set('Authorization', authorization)
-        .send({ name: 'Home & Living' })
+    const staffId = '00000000-0000-4000-8000-000000000303';
+    pool.addAdminUser({
+        id: staffId,
+        email: 'category-staff@example.com',
+        passwordHash: initialAdminPasswordHash,
+        sessionVersion: 1
+    });
+    pool.addShopMembership('00000000-0000-4000-8000-000000000001', staffId, 'staff');
+    const staffLogin = await request(app).post('/api/v1/admin/login')
+        .send({ email: 'category-staff@example.com', password: config.adminPassword })
         .expect(200);
-    assert.equal(renamedCategory.body.data.name, 'Home & Living');
-
-    const createProduct = (name, category = 'home-decor') => request(app).post('/api/v1/admin/products')
+    await request(app).patch('/api/v1/admin/shop/categories/home-decor')
+        .set('Authorization', `Bearer ${staffLogin.body.token}`)
+        .send({ name: 'Unauthorized Rename', slug: 'home-decor' })
+        .expect(403);
+    await request(app).patch('/api/v1/admin/shop/categories/home-decor')
+        .set('Authorization', authorization)
+        .send({ name: 'Home and Gadgets', slug: 'gadgets' })
+        .expect(409, { error: 'A category with that name already exists.' });
+    const createProduct = (name, category = 'home-decor') => createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', name)
         .field('description', `${name} product description.`)
@@ -1434,7 +2262,16 @@ test('shop admins can rename categories and choose whether category products are
         .field('category', category)
         .attach('images', image, { filename: `${name}.png`, contentType: 'image/png' });
     const kept = await createProduct('Kept decor').expect(201);
-    await request(app).delete('/api/v1/admin/shop/categories/home-decor')
+    const renamedCategory = await request(app).patch('/api/v1/admin/shop/categories/home-decor')
+        .set('Authorization', authorization)
+        .send({ name: 'Home & Living', slug: 'home-living', description: 'Decor and home accessories.' })
+        .expect(200);
+    assert.equal(renamedCategory.body.data.name, 'Home & Living');
+    assert.equal(renamedCategory.body.data.id, 'home-living');
+    assert.equal(renamedCategory.body.data.description, 'Decor and home accessories.');
+    assert.equal((await request(app).get('/api/v1/admin/products')
+        .set('Authorization', authorization).expect(200)).body.data[0].category, 'home-living');
+    await request(app).delete('/api/v1/admin/shop/categories/home-living')
         .set('Authorization', authorization)
         .send({ deleteProducts: false })
         .expect(200);
@@ -1449,11 +2286,16 @@ test('shop admins can rename categories and choose whether category products are
     await request(app).delete(`/api/v1/admin/shop/categories/${deleteCategory.body.data.id}`)
         .set('Authorization', authorization)
         .send({ deleteProducts: true })
+        .expect(400);
+    assert.ok(await readFile(join(uploadDirectory, removed.body.data.image.split('/').at(-1))));
+    await request(app).delete(`/api/v1/admin/shop/categories/${deleteCategory.body.data.id}`)
+        .set('Authorization', authorization)
+        .send({ deleteProducts: false })
         .expect(200);
     const remaining = await request(app).get('/api/v1/admin/products')
         .set('Authorization', authorization).expect(200);
-    assert.deepEqual(remaining.body.data.map(({ id }) => id), [kept.body.data.id]);
-    await assert.rejects(readFile(join(uploadDirectory, removed.body.data.image.split('/').at(-1))));
+    assert.deepEqual(new Set(remaining.body.data.map(({ id }) => id)), new Set([kept.body.data.id, removed.body.data.id]));
+    assert.ok(remaining.body.data.every(({ category }) => category === 'uncategorized'));
 });
 
 test('shop admins can publish and replace HTTPS product image links with complete details', async (t) => {
@@ -1467,7 +2309,7 @@ test('shop admins can publish and replace HTTPS product image links with complet
         .send({ email: config.adminEmail, password: config.adminPassword })
         .expect(200);
     const authorization = `Bearer ${login.body.token}`;
-    const fields = (name, imageUrls) => request(app).post('/api/v1/admin/products')
+    const fields = (name, imageUrls) => createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', name)
         .field('description', `${name} has complete product details for the marketplace.`)
@@ -1480,7 +2322,7 @@ test('shop admins can publish and replace HTTPS product image links with complet
         .field('category', 'gadgets')
         .field('imageUrls', imageUrls);
 
-    const incomplete = await request(app).post('/api/v1/admin/products')
+    const incomplete = await createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', 'Incomplete linked product')
         .field('price', '800')
@@ -1490,7 +2332,7 @@ test('shop admins can publish and replace HTTPS product image links with complet
         .field('imageUrls', 'https://images.example.com/incomplete.jpg')
         .expect(400);
     assert.equal(incomplete.body.error, 'Enter a product description.');
-    const missingAlt = await request(app).post('/api/v1/admin/products')
+    const missingAlt = await createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', 'Missing alt text')
         .field('description', 'A product description with the other details omitted.')
@@ -1501,7 +2343,7 @@ test('shop admins can publish and replace HTTPS product image links with complet
         .field('imageUrls', 'https://images.example.com/missing-alt.jpg')
         .expect(400);
     assert.equal(missingAlt.body.error, 'Enter descriptive alt text for the product image.');
-    const missingSeoTitle = await request(app).post('/api/v1/admin/products')
+    const missingSeoTitle = await createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', 'Missing SEO title')
         .field('description', 'A product description with the other details omitted.')
@@ -1513,7 +2355,7 @@ test('shop admins can publish and replace HTTPS product image links with complet
         .field('imageUrls', 'https://images.example.com/missing-seo.jpg')
         .expect(400);
     assert.equal(missingSeoTitle.body.error, 'Enter an SEO title for the product.');
-    const missingMetaDescription = await request(app).post('/api/v1/admin/products')
+    const missingMetaDescription = await createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', 'Missing meta description')
         .field('description', 'A product description with the other details omitted.')
@@ -1718,7 +2560,7 @@ test('admin product uploads sanitize WebP images without locking the uploaded fi
         .expect(200);
     const authorization = `Bearer ${login.body.token}`;
 
-    const created = await request(app).post('/api/v1/admin/products')
+    const created = await createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', 'WebP Product')
         .field('description', 'A WebP product upload test.')
@@ -1741,7 +2583,7 @@ test('admin product uploads sanitize WebP images without locking the uploaded fi
         const metadata = await sharp(await readFile(imagePath)).metadata();
         assert.ok(metadata.width <= 1600 && metadata.height <= 1600);
     }
-    const tooManyImages = request(app).post('/api/v1/admin/products')
+    const tooManyImages = createProductRequest(app)
         .set('Authorization', authorization)
         .field('name', 'Too Many Images')
         .field('description', 'A product with too many uploaded images.')
@@ -1783,22 +2625,22 @@ test('admin rejects unsupported and spoofed product image uploads without publis
         .field('category', 'more');
 
     await request(app).get('/api/v1/admin/products').expect(401);
-    await productFields(request(app).post('/api/v1/admin/products'))
+    await productFields(createProductRequest(app))
         .attach('image', Buffer.from('<svg></svg>'), { filename: 'product.svg', contentType: 'image/svg+xml' })
         .expect(400, { error: 'Upload a JPEG, PNG, or WebP product image.' });
 
-    await productFields(request(app).post('/api/v1/admin/products'))
+    await productFields(createProductRequest(app))
         .attach('image', Buffer.from('<not an image>'), { filename: 'product.png', contentType: 'image/png' })
         .expect(400, { error: 'The uploaded file does not match its JPEG, PNG, or WebP image type.' });
 
-    await productFields(request(app).post('/api/v1/admin/products'))
+    await productFields(createProductRequest(app))
         .attach('image', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), {
             filename: 'truncated.png',
             contentType: 'image/png'
         })
         .expect(400, { error: 'The uploaded file does not match its JPEG, PNG, or WebP image type.' });
 
-    await productFields(request(app).post('/api/v1/admin/products'))
+    await productFields(createProductRequest(app))
         .field('oldPrice', '100')
         .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64'), {
             filename: 'product.png',
@@ -1806,7 +2648,7 @@ test('admin rejects unsupported and spoofed product image uploads without publis
         })
         .expect(400, { error: 'The previous price must be a whole BDT amount greater than the current price.' });
 
-    await productFields(request(app).post('/api/v1/admin/products'), { seoTitle: 'x'.repeat(71) })
+    await productFields(createProductRequest(app), { seoTitle: 'x'.repeat(71) })
         .attach('image', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==', 'base64'), {
             filename: 'product.png',
             contentType: 'image/png'
@@ -2117,6 +2959,12 @@ test('forwards idempotency lookup failures after inventory conflicts to API erro
         category: 'more', image: '/uploads/00000000-0000-4000-8000-000000000002.png',
         stockQuantity: 0, isAvailable: true
     }]);
+    pool.addManagedProduct({
+        id: productId, name: 'Out-of-stock product', description: '', price: '100', oldPrice: null,
+        category: 'more', image: '/uploads/00000000-0000-4000-8000-000000000002.png',
+        stockQuantity: '0', isAvailable: true, isArchived: false,
+        shopId: '00000000-0000-4000-8000-000000000001'
+    });
     t.after(() => setManagedProducts([]));
     pool.failOrderRetryLookup();
     const app = createApp({ pool, config });
@@ -2301,6 +3149,7 @@ test('platform administrators must enroll in TOTP and cannot reuse an authentica
         .set('Authorization', `Bearer ${enrolled.body.token}`)
         .expect(200, { data: {
             email: config.adminEmail,
+            userId: '00000000-0000-4000-8000-000000000101',
             shopId: null,
             role: null,
             isPlatformAdmin: true
@@ -2470,7 +3319,11 @@ test('native admin clients use bearer sessions and shop-scoped dashboard resourc
     await request(app).get('/api/v1/admin/dashboard')
         .set('Authorization', `Bearer ${staffLogin.body.token}`)
         .expect(200);
-    await request(app).post('/api/v1/admin/products')
+    await request(app).patch('/api/v1/admin/orders/1/status')
+        .set('Authorization', `Bearer ${staffLogin.body.token}`)
+        .send({ status: 'confirmed' })
+        .expect(403, { error: 'Shop owner or admin permission is required.' });
+    await createProductRequest(app)
         .set('Authorization', `Bearer ${staffLogin.body.token}`)
         .send({})
         .expect(403, { error: 'Shop owner or admin permission is required.' });
@@ -2509,6 +3362,18 @@ test('admin rejects invalid order status transitions without changing the order'
         .set('Authorization', authorization)
         .expect(200);
     assert.equal(orders.body.data[0].status, 'new');
+
+    const searched = await request(app).get('/api/v1/admin/orders?search=Hossain')
+        .set('Authorization', authorization)
+        .expect(200);
+    assert.equal(searched.body.total, 1);
+    assert.equal(searched.body.data[0].customerName, 'Abid Hossain');
+    await request(app).get(`/api/v1/admin/orders?search=${'x'.repeat(101)}`)
+        .set('Authorization', authorization)
+        .expect(400, { error: 'Order search must be at most 100 characters.' });
+    await request(app).get('/api/v1/admin/orders?status=new&status=cancelled')
+        .set('Authorization', authorization)
+        .expect(400, { error: 'Invalid order status filter.' });
 });
 
 test('admin logout revokes only the current server-side session', async () => {
@@ -2585,6 +3450,31 @@ test('admin browser sessions use HttpOnly same-site cookies and reject cross-ori
     assert.match(secureLogin.headers['set-cookie'][0], /Secure/);
 });
 
+test('admin browser writes accept only the configured admin subdomain origin', async () => {
+    const app = createApp({
+        pool: fakePool(),
+        config: {
+            ...config,
+            siteUrl: 'https://shopademia.store',
+            adminSiteUrl: 'https://admin.shopademia.store'
+        }
+    });
+    const login = await request(app).post('/api/v1/admin/login')
+        .set('Origin', 'https://admin.shopademia.store')
+        .send({ email: config.adminEmail, password: config.adminPassword })
+        .expect(200);
+    const cookie = login.headers['set-cookie'].find((value) => value.startsWith('shopademia_admin=')).split(';')[0];
+
+    await request(app).post('/api/v1/admin/logout')
+        .set('Cookie', cookie)
+        .set('Origin', 'https://shopademia.store')
+        .expect(403, { error: 'This admin request must come from the same origin.' });
+    await request(app).post('/api/v1/admin/logout')
+        .set('Cookie', cookie)
+        .set('Origin', 'https://admin.shopademia.store')
+        .expect(204);
+});
+
 test('admin profile displays the configured account and password changes revoke active sessions', async () => {
     const pool = fakePool();
     const app = createApp({ pool, config });
@@ -2601,6 +3491,7 @@ test('admin profile displays the configured account and password changes revoke 
         .set('Authorization', `Bearer ${oldToken}`)
         .expect(200, { data: {
             email: config.adminEmail,
+            userId: '00000000-0000-4000-8000-000000000101',
             shopId: '00000000-0000-4000-8000-000000000001',
             role: 'owner',
             isPlatformAdmin: false
@@ -2635,6 +3526,7 @@ test('admin profile displays the configured account and password changes revoke 
         .set('Authorization', `Bearer ${replacementLogin.body.token}`)
         .expect(200, { data: {
             email: config.adminEmail,
+            userId: '00000000-0000-4000-8000-000000000101',
             shopId: '00000000-0000-4000-8000-000000000001',
             role: 'owner',
             isPlatformAdmin: false
@@ -2685,7 +3577,7 @@ test('shop member role changes revoke the member session immediately', async () 
 
     await request(app).get('/api/v1/admin/profile')
         .set('Authorization', `Bearer ${memberToken}`)
-        .expect(200, { data: { email: memberEmail, shopId, role: 'staff', isPlatformAdmin: false } });
+        .expect(200, { data: { email: memberEmail, userId: memberId, shopId, role: 'staff', isPlatformAdmin: false } });
 
     await request(app).patch(`/api/v1/admin/shop/members/${memberId}`)
         .set('Authorization', `Bearer ${platformLogin.body.token}`)
@@ -2733,7 +3625,7 @@ test('shop member removal revokes the member session immediately', async () => {
 
     await request(app).get('/api/v1/admin/profile')
         .set('Authorization', `Bearer ${memberToken}`)
-        .expect(200, { data: { email: memberEmail, shopId, role: 'staff', isPlatformAdmin: false } });
+        .expect(200, { data: { email: memberEmail, userId: memberId, shopId, role: 'staff', isPlatformAdmin: false } });
 
     await request(app).delete(`/api/v1/admin/shop/members/${memberId}`)
         .set('Authorization', `Bearer ${ownerLogin.body.token}`)

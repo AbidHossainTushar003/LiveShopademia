@@ -31,6 +31,7 @@ export class CartDrawerView {
                         <i aria-hidden="true" class="fa-solid ${/^[a-z0-9-]+$/.test(l.icon) ? l.icon : 'fa-box'} text-lg ${isSafeProductImage(l.image) ? 'hidden' : ''}"></i>
                     </div>
                     <div class="flex-1">
+                        ${l.shopName ? `<p class="text-[10px] font-semibold text-slate-500">${escapeHtml(l.shopName)}</p>` : ''}
                         <h5 class="text-xs font-bold text-slate-800">${escapeHtml(l.name)}</h5>
                         <p class="text-xs text-blue-600 font-extrabold mt-0.5">${l.subtotalText}</p>
                         ${l.isAvailableForPurchase ? '' : `<p class="mt-1 text-[11px] font-semibold text-rose-600">${escapeHtml(

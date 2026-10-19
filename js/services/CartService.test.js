@@ -51,6 +51,22 @@ test('managed stock caps cart additions and prevents checkout for a stale quanti
     assert.equal(cart.canCheckout(), true);
 });
 
+test('cart accepts products from only one shop per order', () => {
+    const cart = new CartService();
+    const mainProduct = { ...product, id: 'main-item', shopId: 'main', shopName: 'Main Shop' };
+    const otherProduct = { ...product, id: 'other-item', shopId: 'other', shopName: 'Other Shop' };
+
+    assert.equal(cart.add(mainProduct), true);
+    assert.equal(cart.canAddFromShop(otherProduct), false);
+    assert.equal(cart.add(otherProduct), false);
+    assert.equal(cart.lines.value.length, 1);
+    assert.equal(cart.canCheckout(), true);
+
+    cart.remove(mainProduct.id);
+    assert.equal(cart.add(otherProduct), true);
+    assert.equal(cart.canCheckout(), true);
+});
+
 test('restored cart quantities are capped rather than discarding saved items', (t) => {
     const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
     const values = new Map([['shopademia.cart.v2', JSON.stringify([

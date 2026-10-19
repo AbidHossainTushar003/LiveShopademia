@@ -37,10 +37,14 @@ html { scroll-padding-top:10.5rem; }
 .marketplace-utility { color:#eaf2ff; background:#10284e; font-size:.72rem; font-weight:650; }
 .marketplace-utility .marketplace-header-inner { display:flex; min-height:2rem; align-items:center; justify-content:space-between; gap:1rem; }
 .marketplace-utility i { margin-right:.35rem; color:#93c5fd; }
-.marketplace-announcement { min-width:0; flex:1; overflow:hidden; }
+.marketplace-announcement { display:flex; min-width:0; flex:1; align-items:center; gap:.75rem; }
+.marketplace-announcement-viewport { min-width:0; flex:1; overflow:hidden; }
 .marketplace-announcement-track { display:flex; width:max-content; animation:marketplace-announcement-slide 24s linear infinite; }
 .marketplace-announcement-copy { display:inline-flex; flex:none; align-items:center; padding-right:4rem; white-space:nowrap; }
-.marketplace-announcement:hover .marketplace-announcement-track,.marketplace-announcement:focus-within .marketplace-announcement-track { animation-play-state:paused; }
+.marketplace-announcement:hover .marketplace-announcement-track,.marketplace-announcement.is-paused .marketplace-announcement-track { animation-play-state:paused; }
+.marketplace-announcement-toggle { flex:none; border:1px solid rgba(203,213,225,.45); border-radius:999px; padding:.2rem .55rem; color:#eaf2ff; background:rgba(255,255,255,.08); font:inherit; font-size:.65rem; font-weight:750; cursor:pointer; }
+.marketplace-announcement-toggle:hover { background:rgba(255,255,255,.16); }
+.marketplace-announcement-toggle:focus-visible { outline:2px solid #93c5fd; outline-offset:2px; }
 @keyframes marketplace-announcement-slide { to { transform:translateX(-50%); } }
 .marketplace-utility-note { color:#cbd5e1; }
 @media(prefers-reduced-motion:reduce) {
@@ -48,6 +52,7 @@ html { scroll-padding-top:10.5rem; }
     .marketplace-announcement-track { width:auto; animation:none; transform:none; }
     .marketplace-announcement-copy { padding-right:0; white-space:normal; }
     .marketplace-announcement-copy[aria-hidden="true"] { display:none; }
+    .marketplace-announcement-toggle { display:none; }
 }
 .marketplace-primary-nav { display:flex; min-height:5rem; align-items:center; gap:clamp(.7rem,2vw,1.6rem); }
 .marketplace-primary-nav > a { text-decoration:none; }
@@ -103,6 +108,7 @@ html { scroll-padding-top:10.5rem; }
     .marketplace-utility { font-size:.65rem; }
     .marketplace-utility .marketplace-header-inner { min-height:1.8rem; }
     .marketplace-utility-note { display:none; }
+    .marketplace-announcement-toggle { display:none; }
     .marketplace-primary-nav { min-height:4.4rem; gap:.55rem; }
     .marketplace-primary-nav img { width:2.25rem; height:2.25rem; border-radius:.7rem; }
     .marketplace-home { padding-top:.9rem; }

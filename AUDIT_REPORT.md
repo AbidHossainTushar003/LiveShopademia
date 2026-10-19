@@ -448,3 +448,382 @@ This addendum updates implementation and test evidence after the historical Phas
 - The browser accessibility run exposed low contrast on empty/loading catalog messages. Their text classes were darkened and Tailwind CSS rebuilt. This is a limited, verified improvement and not an accessibility certification.
 - Disabled drawer items are explicit placeholders for unimplemented modules, not evidence that those modules work.
 - Current production recommendation remains **NO-GO**. The full decision, risk, test, and deployment handoff is recorded in [docs/PROGRESS.md](./docs/PROGRESS.md), [docs/IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md), [docs/TEST_REPORT.md](./docs/TEST_REPORT.md), [docs/DEPLOYMENT_RUNBOOK.md](./docs/DEPLOYMENT_RUNBOOK.md), and [docs/FEATURE_MATRIX.md](./docs/FEATURE_MATRIX.md).
+
+## 13. Full project audit and local remediation — 2026-10-15
+
+This addendum records a fresh audit of the current checkout, including the latest uncommitted marketplace product-card and seller-specific checkout work. It supplements, rather than overwrites, the dated baseline and admin-program evidence above. Only local code and the loopback demo were tested; no staging or production service, account, or database was changed.
+
+### Newly verified findings and dispositions
+
+| ID | Priority | Status | Finding and impact | Remediation / evidence |
+|---|---|---|---|---|
+| AUD-UI-001 | P2 / Medium | **FIXED** | Struck-through former prices used `#94a3b8` on white, giving a 2.56:1 contrast ratio and failing WCAG AA. | Darkened the old-price text in marketplace cards and product details to `#64748b`. The full Chromium accessibility checks now pass. |
+| AUD-E2E-001 | P2 / test reliability | **FIXED** | Browser assertions still expected the previous “View product” accessible name, the old shop-directory heading, and no purchase buttons on marketplace ranking/deal cards. These stale expectations caused false failures and did not verify the current purchase UX. | Updated the assertions to the current accessible names and headings and to require enabled Add to cart and Buy now controls. |
+| AUD-E2E-002 | P2 / test reliability | **FIXED** | Purchase and product-detail tests assumed the default `main` shop had an available product. In a multi-shop catalog it may not, causing tests to skip or fail before exercising the behavior. Repeated SPA startup requests in the route smoke test also exhausted the local app’s 120-request/minute public-catalog limiter and produced 429 errors in the suite. | Select an available item from the marketplace catalog and use its seller slug; mock public APIs only in the route-rendering smoke test. Production rate limits were not relaxed or bypassed. The complete public Chromium suite now passes 18/18 with no skipped tests. |
+
+### Current verification
+
+| Check | Result | Scope / limitation |
+|---|---|---|
+| `npm.cmd test` | **146 passed, 0 failed** | Unit and API suites; not a live PostgreSQL/staging test. |
+| `npm.cmd run test:e2e` | **18 passed, 0 failed, 0 skipped** | Public Chromium flows against the existing loopback demo at `127.0.0.1:3000`; includes seller-specific product detail, card purchase actions, responsive checks, and axe checks on home, directory, privacy, and terms. |
+| `npm.cmd audit --audit-level=low` | **0 vulnerabilities** | Dependency advisory scan only; not a source-code security review. |
+| `git diff --check` | **Passed** | Git reports existing LF-to-CRLF worktree warnings; no whitespace errors. |
+| `npm.cmd run validate:staging` | **Blocked as expected** | `.env.staging` is not configured; no placeholder or secret was created. |
+| Android `testDebugUnitTest` | **Not run** | The environment has no Java runtime (`JAVA_HOME` and `java` are unavailable). |
+
+### Existing open release blockers
+
+The existing findings and approval gates in Sections 3, 6, 8, and 9 remain relevant and are **not** closed by these local tests. The release decision remains **STAGING: BLOCKED / NOT READY; PRODUCTION: NO-GO**. In particular:
+
+- Store/admin domain topology and tenant/canonical URL behavior need an owner-approved decision before changes to cross-shop visibility or indexing.
+- Retention/deletion, seller fulfillment/refund terms, and applicable privacy/legal wording need owner and qualified legal approval.
+- Production MFA/recovery policy, repository-level deployment protections, and provider/secret configuration were not verified.
+- No authorized staging database migration, backup/restore drill, rollback test, production TLS/DNS check, or operational monitoring validation was performed.
+- Android unit tests and authenticated Android/admin end-to-end behavior remain unverified.
+
+The existing untracked `Docker Desktop Installer.exe` was left untouched and excluded from the audit fixes. No changes were committed or pushed.
+
+## Docker VPS release-readiness follow-up — 2026-10-15 20:53 +06
+
+**Decision: PRODUCTION NO-GO.** This section supersedes earlier deployment-path notes: the target is Docker Compose on a Linux VPS using PostgreSQL, not cPanel. The cPanel deployment job was removed from active CI. No production or staging system, provider, DNS record, database, secret file, or remote host was contacted or changed.
+
+- Reviewed the Compose stack, Caddy routing, image build context, startup/environment validation, PostgreSQL roles/migrations, persistent volumes, health checks, shutdown handling, existing backup/restore scripts, CI, and deployment docs.
+- Added a fixed Compose project name to keep named persistent volumes stable; the app and one-shot migrator share the SHA-tagged application image. Caddy separates `shopademia.store`, `admin.shopademia.store`, and `api.shopademia.store`. App/admin origin validation and a regression test cover the distinct admin origin. The app and Caddy containers use read-only roots, `no-new-privileges`, and explicit writable data paths.
+- Added a fail-closed production environment validator that requires the exact domains, immutable Git SHA, private Compose PostgreSQL endpoint and least-privilege roles, protected unique secrets, HTTPS admin origin, and an age backup recipient. No secret values are recorded. The validator also rejects reusing the optional admin-settings encryption key.
+- Repaired two locally observed UI issues: single-item product grids now constrain card width at desktop breakpoints, and the hero discount label uses contrast-compliant text. Focused Chromium card/accessibility tests passed 2/2 against the local synthetic preview.
+- Verification: `npm.cmd test` **153/153**; production-config plus admin-origin tests **66/66**; CSS build passed; `npm.cmd audit --audit-level=low` reported 0 vulnerabilities; JavaScript syntax passed for 98 files; offline production Compose config parse passed; `git diff --check` passed with line-ending warnings. Full Chromium against the non-production preview was 13/18; five remaining failures are fixture mismatches (shop identity, CORS, unknown-path status, and canonical metadata), not a release-candidate E2E pass.
+- Docker CLI `29.8.2` and Compose `v5.6.0` are installed, but the `desktop-linux` daemon pipe is missing. Image build, Caddy parser validation, and application/PostgreSQL/Caddy runtime checks are **BLOCKED**. The production config validator correctly failed because `.env.production` is absent. No production env, secrets, or DNS was fabricated.
+- Recovery evidence is not established: backup/restore scripts were inspected, but no real backup artifacts, off-host storage, age identity custody, isolated restore, RPO/RTO, or rollback rehearsal were available. External monitoring, TLS/DNS and VPS ownership/access are also unverified. PostgreSQL 16 target is preserved; `postgres:16-alpine` and `caddy:2-alpine` remain mutable image tags and need reviewed digest pinning.
+- Existing dirty application files and the untracked `Docker Desktop Installer.exe` were preserved. The installer is excluded from Docker build context but was not executed or removed. No commit, push, deployment, migration, or live change occurred.
+
+See [docs/DEPLOYMENT_RUNBOOK.md](./docs/DEPLOYMENT_RUNBOOK.md) for the exact local evidence, authorized VPS procedure, rollback boundaries, and remaining gates; [docs/TEST_REPORT.md](./docs/TEST_REPORT.md) records command results and limitations.
+
+## 12. Full engineering master-prompt audit — 2026-10-16
+
+### Repository and starting state
+
+- **Repository/branch:** Shopademia storefront, `feature/admin-v2`.
+- **Starting commit:** `d2c755aaf196a57f3ba42d818e371dacda1739f6`.
+- **Starting worktree:** 32 tracked files modified, four untracked paths, none staged. Existing changes were preserved. The untracked `Docker Desktop Installer.exe` was left untouched. No commit, push, deployment, DNS update, production database operation, or credential/configuration creation occurred.
+- **Architecture found:** Node.js/Express, PostgreSQL, static JavaScript storefront/admin, Docker Compose/Caddy deployment files, and a native Kotlin/XML Android admin project. PostgreSQL is the sole intended authoritative database.
+
+### Current evidence
+
+| Area | Status | Evidence |
+|---|---|---|
+| Web/backend unit and API suite | **VERIFIED** | `npm test`: 153 passed, 0 failed, 0 skipped. This suite includes test doubles and does not establish live PostgreSQL behavior. |
+| Dependency advisories | **VERIFIED** | `npm audit --audit-level=low`: zero reported vulnerabilities. This is not a source-code/security or secret scan. |
+| Selected JavaScript syntax / diff hygiene | **VERIFIED** | `node --check` passed for the selected server/config files; `git diff --check` passed with line-ending warnings. No lint script is defined. |
+| Compose configuration syntax | **VERIFIED, LIMITED** | Staging and production Compose config parsed using checked-in example files. No image was built and no container or service was started. |
+| Storefront browser/accessibility E2E | **BLOCKED** | Playwright configuration rejected test discovery because `PLAYWRIGHT_BASE_URL` was unset; no app listener existed on the inspected local ports. No cases ran in this audit. Earlier browser passes remain historical. |
+| Android build/tests/lint | **BLOCKED** | Gradle wrapper exists, but Java/JAVA_HOME is absent; Gradle stopped before executing. No Android test or build result is claimed. |
+| Docker image/Caddy/runtime | **BLOCKED** | Docker CLI is present, but the Docker Desktop Linux engine pipe is unavailable. |
+| Staging/production configuration | **BLOCKED, FAIL-CLOSED** | Staging and production validators refused to proceed because `.env.staging` and `.env.production` are absent. No secrets or placeholder runtime files were created. |
+| Database migration, concurrency, backup/restore, rollback | **NOT RUN / UNVERIFIED** | No live test database or approved isolated deployment target was available. Backup/restore procedures were reviewed only. |
+| Hosted CI, DNS/TLS, monitoring, legal/security approvals | **NOT RUN / UNVERIFIED** | Workflow source was inspected, but no hosted workflow or external service was contacted. Specialist and owner approval evidence is absent. |
+| Dedicated secret scan | **NOT RUN** | No supported scanner executable was available; dependency audit must not be interpreted as secret scanning. |
+
+### Findings and remaining implementation gaps
+
+1. **Android admin application is not feature-complete against the requested scope.** The existing app supports authentication/MFA and read-only dashboard/product/order views. It does not implement product create/edit/archive or image upload, order-state changes, inventory adjustments, category workflows, backend sales summaries, or push notifications. It uses `findViewById`, not ViewBinding. Android implementation and regression verification remain open.
+2. **Inventory adjustment workflow is incomplete.** The server has managed-stock reservation behavior and product update paths, but the documented Android-facing contract has no dedicated stock adjustment with reason/operator audit history. The Android app exposes no stock mutation.
+3. **Current browser acceptance is not demonstrated.** There is no active local target and no authorized staging target for E2E or manual accessibility testing. Prior results in earlier audit sections are dated evidence, not this-run verification.
+4. **Operational release evidence is incomplete.** Compose syntax alone does not establish image reproducibility/runtime behavior. Mutable `postgres:16-alpine` and `caddy:2-alpine` tags still need reviewed digest pinning. No authorized VPS, verified domains/TLS, live migration, off-host backup, isolated restore, rollback rehearsal, monitoring, or alert delivery was verified.
+5. **Security/legal review remains open.** Dependency audit passed, but no comprehensive source security clearance or fresh secret scan was performed. The previously documented static-file realpath/open race and uncertainty about external credential reuse remain unresolved. Privacy/terms, payment, consumer, tax, retention, and fulfillment policies require qualified review and owner approval.
+6. **Payment-provider integration is absent/unverified.** Existing bKash/manual payment wording must not be treated as provider processing or payment verification. No payment flow was invented or enabled.
+
+### Remediation in this audit pass
+
+- Re-ran the current Node suite, dependency audit, Compose syntax checks, configuration gates, selected syntax checks, and diff hygiene.
+- Updated [docs/TEST_REPORT.md](./docs/TEST_REPORT.md) with the current evidence, test/tooling blockers, Android scope gaps, and precise release status.
+- No application behavior was changed in this pass because the Android build and browser target were unavailable and no additional safe defect was reproduced. Existing uncommitted application work was preserved.
+
+### Release decision and next safe action
+
+**STAGING: BLOCKED / NOT READY. PRODUCTION: NO-GO.** Do not deploy or expose real customer data. The next safe local step is to make a Java 17+ / Android SDK toolchain and the approved local browser target available, then implement and test the Android write workflows and inventory audit path. Reconsider staging only after a verified isolated target, authorized configuration/secrets, image/Caddy runtime validation, migration review, paired backup and successful isolated restore, rollback rehearsal, monitoring, and required specialist/owner approvals are evidenced. Production still requires explicit authorization for the exact release and target.
+
+## PostgreSQL recovery investigation — 2026-10-19
+
+- Local database investigation found two PostgreSQL clusters listening on loopback: PostgreSQL 17 on `127.0.0.1:5432` (Windows service `postgresql-x64-17`) and PostgreSQL 16 on `127.0.0.1:5433` (`C:\Program Files\PostgreSQL\16\data`). The 17 cluster uses `scram-sha-256` auth on loopback and the 16 cluster listens on `*` with `port = 5433`.
+- Direct authentication probes using the project’s configured local database role and password failed: `127.0.0.1:5432` returned SQLSTATE `28P01` (password authentication failed) and `127.0.0.1:5433` returned `28000` (authentication/configuration failure). The project’s app remains blocked by invalid or unauthorised credentials.
+- `docker version` failed because the Docker Desktop engine pipe is not available; the repository’s Docker Compose local PostgreSQL bootstrap method therefore remains unavailable in this environment.
+- No writable local Shopademia database, role, migration run, or synthetic order creation was performed. No system-global authentication settings or databases were changed. This remains a genuine infrastructure and authorization blocker, not a code fix.
+- Final local status: browser preview is live at `http://127.0.0.1:3002`, full writable local startup remains blocked, staging remains **BLOCKED / NOT READY**, and production remains **NO-GO**.
+
+## Android admin and inventory-integrity continuation — 2026-10-17
+
+The subsequent implementation pass completed the Android product and order-management paths against the existing authenticated APIs, added regression tests, and closed a stock-audit bypass in the generic product-update endpoint. Existing product edits now must submit the current stock value and the server does not update that column; attempts to change it are rejected with guidance to use the dedicated inventory adjustment route. The Android editor makes the existing stock value read-only and directs managers to the audited adjustment workflow. Initial stock on product creation remains supported.
+
+### Evidence from this continuation
+
+- `npm test`: **155 passed, 0 failed**.
+- `npm audit --audit-level=low`: **0 vulnerabilities reported** (dependency advisory coverage only).
+- `git diff --check`: passed; existing line-ending warnings remain.
+- `node --check` passed for `server/app.js` and `server/app.test.js`.
+- Changed Android XML parsed successfully with Python's XML parser.
+- Added server regression coverage verifies that a generic product update cannot change stock and that an audited adjustment does change it. Other tests cover concurrent inventory adjustments/idempotency, order search validation, staff authorization denial, and order transition rules.
+- Android repository/ViewModel/navigation tests were added but **not executed**: the Gradle command stopped before Gradle because Java/JAVA_HOME is absent (exit 9009). No Android build is claimed.
+- Docker image/runtime validation remains blocked by the missing Docker Desktop Linux engine pipe. No live PostgreSQL transaction/migration run or staging verification was performed in this continuation.
+
+### Updated implementation status
+
+- Android: product create/edit, availability control, validated image upload with progress and retryable error state, stock display/adjustment/history, order search/filter/detail/status/audit history, dashboard metrics from the backend, and expired-session/logout cleanup are implemented. Role gating is enforced in the UI and backend. Product archiving and shop-category management are not implemented. Product-create retry after an ambiguous lost response is not durably idempotent, so a manual retry could create a duplicate; no false persistence state is shown. Push notifications remain out of scope until infrastructure support is established.
+- Backend: existing product and order APIs are reused; order-status updates require owner/admin authorization, and product edits can no longer bypass audited stock adjustment. The existing transactional inventory route retains idempotency and audit history. The regression harness is not a substitute for live PostgreSQL concurrency verification.
+- The existing worktree remains dirty by design and includes the untracked Docker installer and other pre-existing files; nothing was staged, committed, pushed, deployed, reset, or discarded during this continuation.
+
+**Release decision remains unchanged: STAGING BLOCKED / NOT READY; PRODUCTION NO-GO.** Required remaining gates include Android build/tests, an authorized isolated staging target, live database/migration and concurrency verification, container/runtime checks, specialist security/legal review, verified backup/restore and rollback evidence, and explicit release authorization. No claim of security clearance, legal approval, recovery validation, or production readiness is made.
+
+## Product lifecycle and retry-safety continuation — 2026-10-17
+
+### Implemented behavior
+
+- Product archive/restore uses the authenticated manager API and retains historical product/order/inventory records. Public catalog and checkout queries exclude archived products; permanent deletion is rejected.
+- Product creation now requires a UUID `Idempotency-Key`. A PostgreSQL transaction lock serializes requests within the shop/admin/key scope; the database records the request fingerprint and product reference. Identical retries replay the product, while reuse with a different normalized payload or uploaded-image hash returns a conflict.
+- Shop categories support validated descriptions and slug updates. Product category references are updated in the same database transaction as a slug rename. Category removal is a soft deactivation/reassignment to Uncategorized, never a product deletion.
+- Category regression coverage verifies staff cannot rename categories and slug collisions return a conflict without replacing the existing category.
+- Android product/archive/category/inventory/order workflows are connected to existing authenticated server routes. Image uploads use multipart requests with local type/size checks and progress reporting. Inventory changes retain request idempotency after a lost response while the ViewModel remains alive, and history displays the server actor, reason, delta, and resulting quantity.
+- Android product creation now persists its pending UUID idempotency key, original draft, administrator/shop scope, and copied images in app-private no-backup storage before the request. A process-recreated retry reuses that exact request; changed payloads and cross-account retries are rejected. State is cleared only after a confirmed response. The Android unit suite passes; instrumentation sources compile but instrumentation execution still requires a device/emulator.
+- Product archive/restore tests additionally verify restoration preserves both current stock and availability. The focused server test and full JavaScript suite pass.
+- Existing push support is browser Web Push for storefront offer publication only. No verified Android/admin order-status notification delivery, provider readiness, or durable event outbox was found; native/admin push remains unimplemented and unverified.
+
+### Latest verification and limits
+
+- `npm test`: **157 passed, 0 failed, 0 skipped**.
+- `node --test --test-name-pattern="admin product management supports authenticated create" server\app.test.js`: **1 passed, 0 failed**, including restore preservation of stock and availability.
+- Targeted product lifecycle and migration tests: **2 passed, 0 failed**.
+- Targeted category permission and slug-collision test: **1 passed, 0 failed**.
+- `npm audit --audit-level=low`: **0 reported vulnerabilities**; dependency advisory coverage only.
+- `node --check` and `git diff --check` passed with existing line-ending warnings.
+- Android verification follow-up is recorded below: 37 unit tests and the debug assemble pass using the Android Studio bundled JBR; instrumentation source compilation passes, but no device/emulator is attached to execute instrumentation.
+- `npm run test:e2e`: blocked before test discovery because `PLAYWRIGHT_BASE_URL` is unset. `npm run validate:staging` and `npm run validate:production` fail closed because `.env.staging` and `.env.production` are absent. Production Compose parses with placeholder-only values; Docker cannot reach its `desktop-linux` engine.
+- Product-create concurrency was tested with the repository's fake database. No live PostgreSQL transaction, migration, or concurrent request verification was performed. Docker, staging, browser E2E, backup/restore, and rollback evidence remain unavailable.
+
+**Updated decision: IMPLEMENTATION INCOMPLETE; STAGING BLOCKED / NOT READY; PRODUCTION NO-GO.** No production/staging resource was contacted or modified, and no commit, push, deployment, reset, staging, or cleanup was performed. Automated JavaScript and Android unit tests pass, but browser E2E and Android instrumentation execution are blocked by missing targets. No live PostgreSQL concurrency/migration, Docker runtime, backup/restore, rollback, legal/security approval, monitoring, or explicit release authorization was verified. The dependency audit is not a source security review.
+
+## Android build verification and retry-store audit — 2026-10-17
+
+- **Repository:** `feature/admin-v2`, `HEAD d2c755aaf196a57f3ba42d818e371dacda1739f6`. The worktree was already dirty; no staging, commit, push, reset, branch change, or cleanup occurred.
+- **Toolchain:** Gradle wrapper `9.6.0`, Android Gradle Plugin `9.4.1`, compile SDK `37`, build-tools `36.0.0`, and JVM source/target `17` are confirmed in project files. `JAVA_HOME`/`java` are not globally configured, but Android Studio is registered at `I:\Android` and its bundled OpenJDK `25.0.3` JBR was compatible with the cached Gradle/AGP stack. Process-local `JAVA_HOME`, `ANDROID_HOME`, and `PATH` settings were used; no software or system settings were installed or altered.
+- **Final Android command:** from `phone app`, `.\gradlew.bat --offline :app:testDebugUnitTest :app:assembleDebug :app:compileDebugAndroidTestKotlin` — **exit 0**. The Android unit suite passed **37/37** (21 repository, 16 ViewModel), the debug APK was assembled, and Android instrumentation source compiled. The unit XML reports show zero failures/errors/skips. Instrumentation tests were not executed: `emulator -list-avds` returned no AVDs and `adb devices -l` reported no attached device.
+- Initial compiler/test runs found defects that were fixed rather than suppressed: `AtomicFile.exists()` was replaced with a base-file existence check; the archive request model import and nullable image MIME guard were corrected; Android test call sites/types/imports were repaired; deterministic I/O dispatcher injection stopped tests leaking work across `Dispatchers.Main` resets; and the fake upload repository now records its progress callbacks.
+- Added instrumentation assertions that pending image corruption/missing files fail closed and another admin or shop cannot reuse the pending operation. These new tests were compiled, not run.
+- Retry-store review: the atomic JSON operation record contains the immutable idempotency key, normalized draft, admin/shop scope, image metadata and SHA-256 values. Image bytes are copied and synced in `noBackupFilesDir`; load re-checks metadata, path, size, hash, and draft fingerprint before the repository/API call. The ViewModel checks current identity and clears only after a confirmed response; thrown/lost responses retain the operation. The production `AndroidPendingProductCreateStore` is used by the application, while unit tests use an in-memory fake; real process-death persistence remains covered only by compiled instrumentation source, not an executed device test. Server idempotency fingerprint conflict and same-key replay tests use the fake database; PostgreSQL behavior remains unverified.
+- Backend evidence: `npm test` **157/157**; targeted product/archive-retry and category permission tests **2/2**; dependency audit **0 vulnerabilities** (dependency advisories only); syntax checks passed for **27** changed/untracked JavaScript files; placeholder-only production Compose config parsed. No live DB or migration was used.
+- Browser E2E is blocked before discovery because `PLAYWRIGHT_BASE_URL` is unset. Docker CLI 29.8.2 cannot connect to the missing `desktop-linux` engine pipe. `.env.staging` and `.env.production` are absent; no target or credentials were invented.
+
+**Release decision: STAGING BLOCKED / NOT READY; PRODUCTION NO-GO.** Remaining gates include approved isolated staging and browser target, live PostgreSQL migration/concurrency evidence, Docker runtime, backup/restore, rollback rehearsal, required security/legal review, monitoring/on-call readiness, and explicit release authorization.
+
+## Android backup-recovery and staging-readiness follow-up — 2026-10-17
+
+- Fresh Android validation exited 0: **37/37** unit tests passed, debug APK assembled, and instrumentation sources compiled. No instrumentation tests were executed because `adb devices -l` showed no device and `emulator -list-avds` returned no AVDs.
+- Retry-store inspection identified an AtomicFile recovery edge: if the main operation file is absent while its `.bak` file remains, returning `null` could incorrectly treat an unresolved create as absent. The store now opens AtomicFile when either the base or backup exists; a backup-recovery instrumentation regression test was added. The source/test compile, but this backup recovery behavior is not claimed as device-runtime verified.
+- Fresh checks: `npm test` **157/157**; `npm audit --audit-level=low` **0 vulnerabilities**; `node --check` for 27 changed/untracked JS files passed; `git diff --check` passed with pre-existing line-ending warnings. No live PostgreSQL was contacted.
+- Instrumentation, Playwright, and Docker execution are blocked by no emulator/device, unset `PLAYWRIGHT_BASE_URL`, and the unavailable Docker Engine named pipe. Both staging and production config validators correctly exit 1 because the secret-bearing environment files are absent. No staging or production runtime was contacted.
+- The deployment runbook now lists staging provisioning gates, required evidence, and an ordered safe provisioning plan. Infrastructure, database, secrets, endpoint, backup/restore, rollback, monitoring, and required approvals remain unverified; the checklist does not imply provisioning.
+
+**Decision unchanged: STAGING BLOCKED / NOT READY; PRODUCTION NO-GO.** The highest-priority next action is to obtain an authorized isolated staging owner/target and written scope, then provision it with separate runtime/database/secrets before attempting any staging validation.
+
+## Post-instrumentation integration audit — 2026-10-17
+
+### Verified Android results
+
+- Re-ran from `phone app`: `.\gradlew.bat --offline :app:testDebugUnitTest :app:assembleDebug :app:connectedDebugAndroidTest` — **exit 0**, unit tests **37/37**, instrumentation **6/6**, debug APK assembled. The fresh XML report at `phone app/app/build/outputs/androidTest-results/connected/debug/TEST-emulator-5554 - 14.xml` identifies device `emulator-5554`, model `PHZ110`, Android 14/API 34, six tests and zero failures/errors/skips.
+- Instrumentation scope: Keystore token encryption/clear (1), pending product state/image/scope/recovery (4), and a fake-repository sign-in/dashboard/products/product-detail/orders/order-detail/logout flow (1). This does not test real HTTP authentication or the full admin workflow end to end.
+- `screen_dashboard.xml` gives all four metric TextViews match-parent width/wrap-content height. The navigation test checks that the orders metric is displayed; it is not a screenshot, metric-value, small-screen, or accessibility test.
+
+### Retry and authentication findings
+
+- Code trace verified Android durable operation data → ViewModel identity/fingerprint check → Retrofit `Idempotency-Key` header → authorized Express product route → transaction-scoped advisory lock and `(shop_id, admin_user_id, idempotency_key)` record/fingerprint → original product replay or 409 conflict. Android retains pending state until confirmed success; on-device cases cover AtomicFile backup recovery, store recreation, copied-image integrity, and admin/shop scope.
+- Audit found and fixed a server ambiguity defect: if a COMMIT acknowledgement is lost after commit, the former error path could delete the image file referenced by the committed product. The route now releases/rolls back the uncertain transaction, reacquires the same advisory lock, and looks up the durable idempotency record before deciding how to respond or clean up. If reconciliation itself fails, it retains files and reports the unresolved error. A regression test simulates persisted fake state followed by a lost acknowledgement, verifies the product and image remain, and verifies same-key replay. This is fake-pool evidence only, not PostgreSQL commit-failure evidence.
+- `npm test`: **159/159 passed** after adding regressions for both successful reconciliation and safe file retention when reconciliation is unavailable. `npm audit --audit-level=low`: **0 vulnerabilities**. Changed JS syntax and `git diff --check` passed.
+- Authentication code inspection: server-side session rows are database-backed and per-request authorization joins check token `jti`, DB expiry/revocation, user/session version, shop and current membership. JWTs use HS256/issuer and eight-hour expiry. Logout revokes the current token; password and membership/role changes invalidate affected sessions. Existing tests verify invalid credentials, protected-route denial, expiry, logout revocation with another session preserved, password-change invalidation, member-role/removal revocation, and cookie flags against a fake pool. Android bearer tokens use Android Keystore AES-GCM; its instrumentation test verifies encrypted-at-rest storage and clearing.
+- Session persistence across an app restart depends on the same persistent PostgreSQL database and JWT signing secret. No restart, revocation race, or restore scenario was executed with real PostgreSQL. Express login throttling is process-local memory and resets on restart/is not shared among replicas.
+
+### PostgreSQL and staging blockers
+
+- `pg_isready -h 127.0.0.1 -p 5432` reports a local PostgreSQL listener, but read-only `psql` identity inspection exited 2 because no password was supplied. Identity/isolation are unverified, so no writes, migrations, fixture setup, or cleanup were performed. Other checked local ports 54329, 55432, and 55441 did not respond. Current transaction/idempotency/migration tests are fake-pool or static checks.
+- Migration code inspection found advisory locking, migration checksums, and per-version transaction/rollback. Base schema initialization runs sequential DDL before the versioned migration runner; clean install, prior-schema upgrade, and failure recovery remain unverified against a real supported PostgreSQL instance.
+- `.env.staging` and `.env.production` are absent; validators exited 1 as designed. Playwright URL/host variables are unset. Docker cannot connect to the `desktop-linux` engine. No staging or production resources were accessed.
+
+**Staging remains BLOCKED / NOT READY; production remains NO-GO.** First obtain an identified, authorized, dedicated disposable PostgreSQL test target. Do not run migrations against the currently unidentified local listener.
+
+## Fresh autonomous master-audit follow-up — 2026-10-18 22:18 +06
+
+This is a bounded local follow-up, not completion of the master audit and not a security certification. It reuses prior repository evidence only where identified as historical and records fresh checks separately. No application behavior, dependency, deployment, database, or owner decision was changed.
+
+### Baseline and tool availability
+
+- Repository: `C:\Users\Abidh\OneDrive\Desktop\storefront`; branch `feature/admin-v2`; HEAD `d2c755aaf196a57f3ba42d818e371dacda1739f6`.
+- Starting Git state: 58 modified tracked paths, 119 untracked paths, 0 staged, 0 deleted, 0 conflicts. The repository was already dirty; the untracked `Docker Desktop Installer.exe` and all other existing work were preserved.
+- Windows; Node.js `v24.21.0`, npm `11.19.0`, Python `3.14.7`, Java `17.0.20.1`, Docker CLI `29.8.2`. Android SDK and Chromium were present; `adb` was unavailable and the Docker Engine was unreachable.
+- `.env.staging`, `.env.production`, `TEST_DATABASE_URL`, and the opt-in catalog PostgreSQL test configuration were absent/unset. No `.env` contents were read or emitted. A dedicated secret-scanner executable was unavailable.
+- No approved primary SHOPADEMIA-MGS-001/V2 annex or owner approval for D1-D12 was established. The existing [requirements recovery report](./docs/REQUIREMENTS_RECOVERY_REPORT.md) and [owner decision register](./docs/OWNER_DECISIONS_REQUIRED.md) remain authoritative project blockers; this pass did not infer a business rule.
+
+### Current coverage matrix
+
+| Feature / subsystem | Source and route surface | Auth / expected behavior evidence | Fresh verification and coverage gap | Status |
+|---|---|---|---|---|
+| Public storefront, catalog, cart and policy pages | [index.html](./index.html), [js/main.js](./js/main.js), [server/app.js](./server/app.js); public pages and catalog GET routes | Current rendered behavior and source; policy/consent behavior is only partially accepted absent owner/legal approval | Public Chromium suite exercised 19 cases: 16 passed, 3 product-dependent cases skipped because the read-only preview has no products. Axe found no violations on Home, Shops, Privacy and Terms. No Firefox/WebKit, assistive-technology, full checkout or Bangla acceptance run. | PARTIAL |
+| Guest checkout, pricing, idempotency and stock | [server/app.js](./server/app.js), [server/orders.js](./server/orders.js), [server/db.js](./server/db.js); public `POST /api/v1/orders` | Guest access is currently allowed; server calculates prices, uses a shop-scoped event ID and transaction-scoped managed-product rows/stock reservation. D1 checkout identity remains unresolved. | Node/API tests passed with fake pools. The guarded PostgreSQL test was skipped; no real database concurrency, rollback, ambiguous-commit or multi-process claim is made. | BLOCKED |
+| Admin authentication, sessions and authorization | [server/app.js](./server/app.js), [server/platform.js](./server/platform.js), [server/adminSecurity.js](./server/adminSecurity.js) | Server checks HS256/issuer, persisted session/revocation/expiry/version, current shop membership and role. Mutating cookie-auth requests require the configured same origin; privileged routes have server middleware. | Full Node tests passed, including representative denial, expiry, revocation, cookie and role-change cases using fake pools. No complete endpoint-by-endpoint identity matrix, real PostgreSQL session race, or privileged browser run. | PARTIAL |
+| Manual bKash review, fulfillment and refunds | [server/app.js](./server/app.js), [server/orders.js](./server/orders.js), [server/platform.js](./server/platform.js) | Source implements manual `pending/verified/rejected` review and a separate fulfillment lifecycle; it does not establish provider settlement/authenticity or an order-linked refund policy. | No provider sandbox, reconciliation, replay, refund, or live payment action was run. D3/D8 and related lifecycle decisions remain unresolved; no behavior was invented. | BLOCKED |
+| PostgreSQL schema, migrations, transactions and recovery | [server/db.js](./server/db.js), [server/migrations.js](./server/migrations.js) | Source has constraints, a unique shop/event index, row locks and per-version migration transaction/checksum/advisory lock; base schema initialization also runs sequential DDL outside one encompassing transaction. | Fake-pool migration/API tests passed. No authorized writable target, real PostgreSQL transaction/concurrency/failure test, backup restore, rollback rehearsal, or RPO/RTO evidence. | BLOCKED |
+| Rate limits, sessions across instances and ingress | [server/app.js](./server/app.js), [server/platform.js](./server/platform.js), [docker-compose.production.yml](./docker-compose.production.yml) | Limiters use default process-local MemoryStore and `req.ip`; Compose declares one app service and one trusted proxy hop, but does not prove actual runtime topology or IP derivation. | Source/config review only. No two-process test or shared store; owner must decide supported topology and storage-outage behavior. | BLOCKED |
+| Android admin client | [phone app/app/build.gradle.kts](./phone%20app/app/build.gradle.kts), Android data/UI sources and tests | Debug base URL is loopback; release requires HTTPS. Current unit sources exercise repository and ViewModel paths. | Isolated temporary copy: 39 JVM tests, 0 failures, 2 target-dependent skips; debug APK built and instrumentation source compiled. No device/emulator execution (`adb` unavailable), and no live API integration. | PARTIAL |
+| Dependencies, CI and deployment config | [package.json](./package.json), [package-lock.json](./package-lock.json), [ci.yml](./.github/workflows/ci.yml), Compose files and config validators | CI source runs npm tests/audit, CSS build, config parsing, Caddy validation and image build; local configuration validators fail closed when secret-bearing files are absent. | Fresh npm audit reported 0 advisories; both Compose templates parsed. Validators exited 1 because `.env.staging`/`.env.production` are absent. CI was not run remotely; Docker image/Caddy runtime, remote protections and secret provenance were not verified. | PARTIAL |
+
+### Findings and disposition
+
+- No new reproducible application defect with an approved expected behavior was confirmed in this follow-up; no application-code change was justified.
+- The checkout stale-cache correction remains source- and fake-test-supported, but PostgreSQL locking and oversell behavior remain **NOT TESTED** on real PostgreSQL.
+- Process-local rate limiting is a verified source limitation, not distributed protection. Keep the multi-instance guarantee **BLOCKED** until topology and outage policy are approved and two independent processes are tested.
+- The previously documented static-root realpath/open time-of-check/time-of-use concern remains potential and unproven under the actual runtime filesystem permissions. No concurrent replacement reproduction or immutable-root verification was performed here; do not treat it as fixed or as a confirmed exploit.
+- Payment, refund, retention, inventory/fulfillment, and checkout identity policies remain owner decisions. See [OWNER_DECISIONS_REQUIRED.md](./docs/OWNER_DECISIONS_REQUIRED.md); no policy was changed.
+
+### Release gates and final disposition
+
+- Requirements and scope approval: **BLOCKED** by missing primary specification/annex and unresolved owner decisions.
+- Application functionality/security: **PARTIAL**; local suites passed, but full route/role acceptance and live integrations remain incomplete.
+- Database integrity/recovery: **BLOCKED**; no isolated writable PostgreSQL or restore evidence.
+- Authorized staging/infrastructure: **BLOCKED**; secret files/target authorization absent and Docker Engine unavailable.
+- Production release authorization: **NO-GO**.
+- This audit follow-up did not inspect or revalidate every repository feature, route, Android device journey, legal requirement, external service or historical report. Treat this evidence as applying only to the tested dirty working tree. Exact commands and skips are in [docs/TEST_REPORT.md](./docs/TEST_REPORT.md).
+
+### Independent final verification — 2026-10-18 22:29 +06
+
+- After documenting the audit, independently reran `npm.cmd test` against the current source: exit 0; 166 tests, 165 passed, 0 failed, 1 skipped. The PostgreSQL concurrency case remains skipped because its authorized isolated target is unavailable.
+- Reviewed the final report additions and status. Relative to the immediate pre-edit diff counts, the already-modified [AUDIT_REPORT.md](./AUDIT_REPORT.md) grew by 49 lines and [TEST_REPORT.md](./docs/TEST_REPORT.md) grew by 46 lines, with append-only audit evidence and one clarification to the Compose result description. No application/test source changed in this audit follow-up.
+- Final `git diff --check`: exit 0, with existing line-ending warnings. Branch/HEAD and counts remain `feature/admin-v2` / `d2c755aaf196a57f3ba42d818e371dacda1739f6`, 58 modified tracked, 119 untracked, 0 staged, 0 deleted, 0 conflicts. No pre-existing or untracked work was intentionally discarded or overwritten.
+- These final checks corroborate local tests and report/worktree integrity only. They do not close unresolved product, database, device, infrastructure, payment, recovery, or release-authorization gates. **Overall status: PARTIAL; staging BLOCKED / NOT READY; production NO-GO.**
+
+## Continued audit — checkout replay, Android availability, and database gate (2026-10-18 22:41 +06)
+
+This continuation resumes the existing coverage matrix; it does not restart the audit. It preserves the captured dirty-worktree baseline and addresses the highest-priority safely actionable checkout concern identified in the prior continuation.
+
+### Baseline, evidence and change ledger
+
+- Branch/HEAD remain `feature/admin-v2` / `d2c755aaf196a57f3ba42d818e371dacda1739f6`. Starting/current status is 58 modified tracked paths, 119 untracked paths, zero staged paths; the project was already dirty. No pre-existing work was staged, committed, pushed, switched, cleaned, reset, stashed, discarded or overwritten.
+- The D1 contract trace and existing retry test establish that an unchanged request with the same shop-scoped `eventId` replays the saved order. Existing archived-product tests establish that a *new* order must not accept an archived product. The unresolved customer-authentication choice is not implicated by this finding.
+- **Original defect reproduced:** after a successful order, archiving its managed product caused an identical retry to return HTTP 400 instead of replaying the saved order. The cause was the checkout row query filtering archived products before the transaction checked for an existing `eventId`.
+- **Correction:** [server/app.js](./server/app.js) now loads and locks the requested managed-product row, including archived rows, inside the checkout transaction. It checks for and replays an existing order before rejecting an archived product for a new order. New archived-product checkout remains rejected; no identity, pricing, payment, inventory, cancellation or refund policy was changed.
+- **Regression:** [server/app.test.js](./server/app.test.js) adds a fake-pool API case that creates an order, archives the product and retries with the same request. It asserts HTTP 200, the same order number and subtotal, one persisted order, and exactly one reserved stock unit. Fake-pool support mirrors the SQL predicate and archive update; it does not model PostgreSQL locking or concurrency.
+- **Audit change ledger for this continuation:** `server/app.js`, `server/app.test.js`, `AUDIT_REPORT.md`, `docs/TEST_REPORT.md`, and `docs/OWNER_DECISIONS_REQUIRED.md`. The two source files had extensive pre-existing modifications; only the described checkout query/guard and targeted regression-fixture/test hunks were added. The reports were appended; the owner decision itself was not changed.
+- This supersedes the earlier catalog section's statement that checkout excludes archived products at the row-query stage. The resulting behavior intentionally loads archived rows so an existing order can be found, then rejects the archived product only if no prior order exists.
+
+### Updated coverage and disposition
+
+| Finding | Classification | Current evidence and closure condition |
+|---|---|---|
+| Replay after the ordered product is archived | **VERIFIED FAIL reproduced, then regression PASS with fake pool** | Before correction, the new regression failed: expected HTTP 200, received 400. After correction, the regression and existing archive-rejection/idempotency cases pass. This is local API/fake-pool evidence only. Close the database-concurrency component only with the already-authorized isolated PostgreSQL test target and results; no such target is available now. |
+| Checkout rollback, duplicate retry and stock contention | **PARTIAL / REAL DATABASE BLOCKED** | The current Node suite and earlier focused fake-pool tests cover rollback, same-request replay, changed-payload conflict and inventory reservation at the mocked API layer. The full run still skips the opt-in PostgreSQL competing-checkout test. Fake transactions do not verify PostgreSQL locking, rollback or simultaneous processes. |
+| Android instrumentation availability | **BLOCKED / NOT RUN** | Direct SDK checks: `adb devices -l` returned only the heading and no device; `emulator -list-avds` returned no AVDs; `%LOCALAPPDATA%\Android\Sdk\system-images` is absent. Android emulator/device instrumentation was not run. Close when an authorized device or configured AVD/system image is available, then run the repository's instrumentation task. |
+| Writable PostgreSQL target and checkout concurrency | **BLOCKED / NOT RUN** | The guarded integration test remains opt-in and requires an explicitly identified, marked, non-superuser writable isolated target. No target was authorized or positively verified; the read-only preview remains prohibited for writes. The full test run reports the PostgreSQL integration case skipped. Close only after independent target identity/ownership/isolation evidence and an authorized test run; do not infer safety from URL, name or environment variables. |
+| Multi-instance rate limiting/session behavior, payment verification/refunds, recovery and release gates | **BLOCKED / OWNER DECISION REQUIRED / EXTERNAL EVIDENCE REQUIRED as previously recorded** | No deployment, provider, live database, Android device, staging or production system was contacted. Existing topology and D1/D3/D8 decisions remain unresolved. See the coverage matrix and [OWNER_DECISIONS_REQUIRED.md](./docs/OWNER_DECISIONS_REQUIRED.md); no single-process fake test closes these gates. |
+
+### Validation and remaining prioritized backlog
+
+- `node --test --test-name-pattern='checkout|persists a correctly priced order' server/app.test.js` — **PASS**, 8 passed, 0 failed, 0 skipped. Local API tests use the repository's fake pool.
+- `npm.cmd test` — **PASS**, exit 0; 167 tests, 166 passed, 0 failed, 1 skipped. The skip is the opt-in PostgreSQL checkout/concurrency integration test; it is not a PostgreSQL pass. Node.js `v24.21.0`, npm `11.19.0`.
+- Before the fix, `node --test --test-name-pattern='checkout retries replay a saved order after its product is archived' server/app.test.js` — **FAIL as expected to reproduce the defect**, exit 1; expected 200, got 400. This was not a final-state failure.
+- Prior check evidence: connected-device list empty, configured AVD list empty and no Android system-images directory. No instrumentation task was attempted against a nonexistent target.
+- Prior guarded PostgreSQL setup review remains in force: no authorized isolated writable database, no database writes/migrations/seeds, and no use of the read-only preview. Exact guard variables and marker requirements are in [server/catalog-postgres.integration.test.js](./server/catalog-postgres.integration.test.js).
+- **Prioritized open work:** (1) obtain owner-authorized and independently verified isolated PostgreSQL identity/authorization/isolation evidence, then run checkout concurrency, retry and rollback integration tests; (2) provide an Android device or configured AVD for instrumentation; (3) approve the supported deployment topology and shared-rate-limit/session verification; (4) resolve D1/D3/D8 and complete payment/refund and customer-identity acceptance tests; (5) complete backup/restore, staging authorization and independent production release gates.
+- Current outcome remains **PARTIAL**. Staging remains **BLOCKED / NOT READY**; production remains **NO-GO**.
+
+### Independent final verification — 2026-10-18 22:42 +06
+
+- After the source correction and append-only report updates, independently reran the focused critical cases: `node --test --test-name-pattern='checkout retries replay a saved order after its product is archived|checkout rejects a managed product archived in the database|persists a correctly priced order and returns the same order for a retry' server/app.test.js` — **PASS**, 3 passed, 0 failed, 0 skipped. The broad `npm.cmd test` run above was also against the final application/test source; no source changed afterward.
+- Reviewed the final checkout query/guard, fake-pool support and regression case, plus each new report addendum against this continuation's change ledger. No unrelated file was changed by this continuation; all pre-existing dirty-worktree changes were preserved.
+- Final `git diff --check` — **PASS**, exit 0. Git still reports only existing LF-to-CRLF working-copy warnings. Final status is 58 modified tracked paths, 119 untracked, 0 staged, 0 deleted, 0 conflicts; branch/HEAD unchanged. No test outputs, secrets or generated files were added to the repository.
+- The independent pass verifies local source and report consistency only. PostgreSQL, Android instrumentation, multi-instance topology, provider/payment, recovery, staging and production gates remain open. **Overall: PARTIAL; staging BLOCKED / NOT READY; production NO-GO.**
+
+## Checkout idempotency verification continuation — 2026-10-18 23:16 +06
+
+### Refreshed baseline and change ledger
+
+- Rechecked the repository before action: branch `feature/admin-v2`, HEAD `d2c755aaf196a57f3ba42d818e371dacda1739f6`; 58 modified tracked paths, 119 untracked paths, 0 staged, 0 deleted, 0 conflicted. The existing user worktree is intentionally dirty. No user changes were reverted, overwritten, staged, committed, pushed, switched, reset, cleaned, stashed, or discarded.
+- Reviewed the current audit, test, owner-decision, defect, release-evidence, audit-log, verification-matrix, project-completion, checkout, schema, and test-harness files. Relevant pre-existing application changes remain intact.
+- Test-only changes in [server/app.test.js](./server/app.test.js): fake-pool support for a COMMIT that durably applies state and then loses its acknowledgement; an API regression for recovering that order with the same event ID; and stronger rollback assertions for absence of partial order, stock, or activity-log state. No production application behavior changed in this continuation.
+- Change ledger for this continuation: [server/app.test.js](./server/app.test.js), [AUDIT_REPORT.md](./AUDIT_REPORT.md), [docs/TEST_REPORT.md](./docs/TEST_REPORT.md), [docs/RELEASE_EVIDENCE_REGISTER.md](./docs/RELEASE_EVIDENCE_REGISTER.md), [docs/audit/VERIFICATION-MATRIX.md](./docs/audit/VERIFICATION-MATRIX.md), and [docs/audit/AUDIT-LOG.md](./docs/audit/AUDIT-LOG.md). The matrix and log were clean in the refreshed baseline; the release register was already untracked. Other listed files had pre-existing modifications. All report changes were append-only.
+- The regression asserts the original request receives a generic HTTP 500 while the simulated committed order persists; the same request then receives HTTP 200 for the same saved order. Assertions cover one order, one inventory decrement, and one order-created activity-log insertion after retry. The fake pool is not evidence of PostgreSQL semantics.
+
+### Checkout path, idempotency scope, and risk review
+
+- Observed request path in [server/app.js](./server/app.js) / [server/orders.js](./server/orders.js): validate active shop; begin transaction; collect managed IDs and sort them; select shop-scoped managed product rows in `ORDER BY id FOR UPDATE`; server-price/validate request; fingerprint; select existing `(shop_id, event_id)` order `FOR UPDATE`; replay a match or return 409 for changed details; reject an archived product for a new order; conditionally reserve stock; insert the order with `ON CONFLICT (shop_id, event_id) DO NOTHING`; insert the activity log; commit; only then update the process catalog snapshot.
+- [server/db.js](./server/db.js) creates unique index `orders_shop_event_id_idx` on `(shop_id, event_id)`. **The event ID is scoped per shop**, not global and not tied to a customer identity. It is a retry key, not authentication or authorization. Guest checkout remains public and the existing separate order-number-plus-phone lookup contract is unchanged.
+- The request fingerprint includes shop, customer name, normalized phone, address, bKash number, product IDs/quantities, and advance amount; it does not treat the event ID as identity. Existing coverage proves a materially changed address for a reused event ID returns 409. A same-request retry replays saved persisted amounts, including after product archive.
+- Source inspection finds deterministic ordering for requested managed-product row locks and the same `product rows → existing event-order lookup → insert` sequence across checkout requests. The unique constraint and rollback-on-conflict path are present. This is static ordering/constraint evidence only: no claim is made that PostgreSQL has been shown deadlock-free or that cross-process duplicate requests/stock contention are safe.
+
+### Checkout cases and evidence classification
+
+| Case | Result | Evidence / limitation |
+|---|---|---|
+| New event creates one order; identical retry returns the saved order | **PASS — fake-pool API** | Existing checkout retry test; one logical event record. |
+| Retry after archive returns the original order and does not reserve stock twice | **PASS — fake-pool API** | Regression checks same order number/subtotal, one order, and one unit reserved once. |
+| New event for an archived product remains rejected | **PASS — fake-pool API** | Existing regression returns 400 and creates no order or stock mutation. |
+| Reused event ID with materially changed details | **PASS — fake-pool API** | Existing contract test returns 409. |
+| Rollback after order persistence failure | **PASS — fake-pool API** | Injected failure asserts zero orders, unchanged database stock, and zero order-created log entries after rollback; a retry then creates one order and one reservation. No live PostgreSQL transaction was exercised. |
+| Commit applied but response lost; retry recovers original result without duplicate stock/log/order | **PASS — fake-pool API** | New regression injects `ECONNRESET` after the fake commit persists; first response is generic 500, retry is 200, and counts remain one. This does not simulate a real network or PostgreSQL connection failure. |
+| Guest checkout/order lookup contract | **PASS — fake-pool API** | Existing tests still pass; no identity or authorization semantics changed. |
+| Same-event requests truly concurrent across PostgreSQL connections/processes; event-ID conflict/deadlock behavior | **BLOCKED / NOT TESTED** | PostgreSQL integration was not enabled and no authorized isolated target is available. The fake pool serializes transaction clients and cannot prove concurrency. |
+| Competing checkouts for the last stock unit; transaction rollback/commit ambiguity on PostgreSQL | **BLOCKED / NOT TESTED** | Guarded `server/catalog-postgres.integration.test.js` remained skipped. No unverified DB was contacted or written. |
+
+### Fresh validation and independent gates
+
+- Final focused rerun at 23:16: `node --test --test-name-pattern='persists a correctly priced order and returns the same order for a retry|checkout retry recovers the committed order after a lost commit acknowledgement|checkout prices managed products from database state instead of a stale process catalog|checkout retries replay a saved order after its product is archived|checkout rejects a managed product archived in the database despite a stale active cache|checkout rolls back inventory reservation when order persistence fails|rejects reuse of an idempotency key for changed order details|accepts a matching retry of a pre-hash legacy order|customers can look up an order with the checkout phone and receive only customer-safe details|order lookup does not reveal whether an order exists when the phone does not match' server/app.test.js` — **PASS**, 10 passed, 0 failed, 0 skipped, exit 0.
+- Final broad rerun after the strengthened rollback assertions: `npm.cmd test` — **PASS**, 168 tests, 167 passed, 0 failed, 1 skipped, exit 0. The single skip is the explicitly gated PostgreSQL checkout/concurrent-oversell integration test, not a database pass. Node.js `v24.21.0`; npm `11.19.0`.
+- First focused attempt of the new lost-COMMIT test failed one assertion because the fake-pool activity counter was checking a parameter instead of the SQL literal `order.created`. The harness predicate was corrected; the isolated regression then passed, followed by the final focused and broad passing runs. This was a test-harness defect; no assertion was weakened.
+- PostgreSQL gate rechecked without connecting: `TEST_DATABASE_URL` absent; catalog PG opt-in and URL/database/role settings absent. The guarded test requires explicit target identity/marker/role/write-mode checks plus owner authorization and verified isolation. The read-only browser preview is not an eligible write target. No DB writes, migrations, seeds, or cleanup ran.
+- Android gate rechecked: `adb devices -l` listed no device; `emulator -list-avds` returned no configured AVD; Android SDK `system-images` directory absent. Instrumentation is **BLOCKED / NOT RUN**; no image/device was provisioned.
+- Independent final review: the updated checkout test and its exact assertions were inspected; the final suite covers the current test source. No security assertions or skip conditions were weakened. The two previously clean tracked audit-log/matrix files now add two modified tracked paths, so end-state Git status is 60 modified tracked paths, 119 untracked, 0 staged/deleted/conflicted; branch and HEAD unchanged.
+- Remaining gates: real PostgreSQL transactions/concurrency and recovery; device instrumentation; supported multi-instance rate-limit/session topology; owner decisions D1/D3/D8 and payment/refund acceptance; backup/restore; authorized staging and independent production approval. Overall **PARTIAL**; staging **BLOCKED / NOT READY**; production **NO-GO**.
+
+## Local continuation verification — 2026-10-18 23:23 +06
+
+### Fresh checks
+
+- `npm.cmd test` — **PASS**, exit 0: 168 tests, 167 passed, 0 failed, 1 skipped. The skipped case is `server/catalog-postgres.integration.test.js`; its opt-in guard was not enabled. This suite's checkout/database fakes do not establish PostgreSQL concurrency or recovery behavior.
+- Focused checkout retry/rollback/lookup regressions at 23:26 — **PASS**, exit 0: 10 passed, 0 failed, 0 skipped. This reran the exact 10-case command recorded earlier in `docs/TEST_REPORT.md`; coverage uses the repository fake pool.
+- `npm.cmd run test:e2e -- --workers=1 --reporter=line`, with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002/` and output/report paths configured under `%TEMP%` — **PASS**, exit 0: 19 tests, 16 passed, 0 failed, 3 skipped. The skipped tests require an available marketplace product; no checkout/order submission or privileged/admin browser flow was performed. Automated accessibility checks reported no violations on Home, Shops, Privacy, and Terms in this run. This is local loopback-preview evidence only.
+- `git diff --check` — **PASS**, exit 0. Git printed existing LF-to-CRLF working-copy warnings; no whitespace errors were reported.
+- Tool versions: Node `v24.21.0`, npm `11.19.0`, Git `2.56.0.windows.2`. The evidence run was recorded at `2026-10-18 23:23 +06`.
+
+### Rechecked blockers and limits
+
+- The integration test's exact environment settings `SHOPADEMIA_CATALOG_PG_TEST`, `SHOPADEMIA_CATALOG_PG_DATABASE_URL`, `SHOPADEMIA_CATALOG_PG_DATABASE`, and `SHOPADEMIA_CATALOG_PG_ROLE` are absent. No PostgreSQL connection or write was attempted. There is still no positively verified, owner-authorized isolated writable target. To run the guarded test safely, the owner must provide authorization and independent target-separation evidence, then a loopback-only marked database and dedicated non-superuser role with the test's required identity, write, and active-shop prerequisites. The existing read-only browser preview is not a writable integration target.
+- Android instrumentation remains **BLOCKED / NOT RUN**: `adb` and `emulator` commands are unavailable and `ANDROID_SDK_ROOT` is absent or points to a missing path. No device or AVD could be discovered; no image or software was downloaded or installed.
+- This pass adds no new live security, multi-instance session/rate-limit, migration/rollback, backup/restore, provider, staging, or production verification. Existing mock/source evidence does not close these gates. Rate-limit/session behavior under the supported deployment topology remains unverified; owner decisions and operational targets remain open.
+
+### Change ledger and disposition
+
+- This pass changed only these existing evidence files, by appending this verification: `AUDIT_REPORT.md`, `docs/TEST_REPORT.md`, `docs/RELEASE_EVIDENCE_REGISTER.md`, `docs/audit/VERIFICATION-MATRIX.md`, and `docs/audit/AUDIT-LOG.md`. All five were already modified or untracked at the fresh starting baseline. No application or test source was changed.
+- Starting and final Git state: branch `feature/admin-v2`, HEAD `d2c755aaf196a57f3ba42d818e371dacda1739f6`, 60 modified tracked paths, 119 untracked paths, 0 staged, 0 deleted, 0 conflicted. Existing modifications and untracked paths were preserved; Playwright outputs were directed outside the repository.
+- No new reproducible defect with an established expected behavior was confirmed. Overall remains **PARTIAL**; staging **BLOCKED / NOT READY**; production **NO-GO**.
+
+## PostgreSQL integration gate and audit continuation — 2026-10-19
+
+### Verified blocker and exact requirements
+
+The guarded PostgreSQL integration test in [server/catalog-postgres.integration.test.js](./server/catalog-postgres.integration.test.js) remains **BLOCKED / NOT RUN** because the required opt-in and identity settings are absent. The test requires all of the following variables to be set and valid before any write is attempted:
+
+- `SHOPADEMIA_CATALOG_PG_TEST='1'`
+- `SHOPADEMIA_CATALOG_PG_DATABASE_URL` (loopback-only PostgreSQL URL to the isolated target)
+- `SHOPADEMIA_CATALOG_PG_DATABASE` (exact target database name expected by the test)
+- `SHOPADEMIA_CATALOG_PG_ROLE` (exact non-superuser role name expected by the test)
+
+The test asserts the database is reachable at `127.0.0.1`, the current role is not a superuser, `transaction_read_only='off'`, the database marker matches `SHOPADEMIA_CATALOG_CONSISTENCY_TEST`, and the role marker matches `SHOPADEMIA_CATALOG_TEST_ROLE`. It then creates temporary managed-product and order rows for a known `shop_id` and cleans them up in `t.after()`; the cleanup deletes matching orders and products for the synthetic IDs. It is designed to be a write-only isolated integration test, not a local preview or a shared development database.
+
+No database writes, migrations, seeds, or cleanup were attempted because the required authorization and isolation evidence were not present. The local read-only browser preview at `127.0.0.1:3002` and its PostgreSQL preview database on `127.0.0.1:55441` are not eligible integration targets for this gate.
+
+### Evidence from the current command set
+
+- `node --test server/catalog-postgres.integration.test.js` — **SKIPPED**, exit 0: 1 test, 0 passed, 0 failed, 1 skipped. The skip is the guarded PostgreSQL test, not a pass.
+- `npm test -- --test-reporter=spec` — **PASS**, exit 0: 168 tests, 167 passed, 0 failed, 1 skipped.
+- `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002 npx playwright test tests/e2e/storefront.spec.js --project=chromium --reporter=line` — **PASS**, exit 0: 19 tests, 16 passed, 0 failed, 3 skipped.
+- `adb devices` — **BLOCKED**, command not found; `adb` is unavailable in this environment. No Android emulator or connected device was available.
+- `git diff --check` — **PASS**, exit 0.
+
+### Conclusion and next action
+
+This remains a **real PostgreSQL verification blocker**, not a code defect. The required next step is not to change the repository or the database blindly; it is to obtain written authorization and independent proof of an isolated, writable PostgreSQL target with the exact database name, role, host, and least-privilege permissions expected by the integration test. Until that target is verified, staging stays **BLOCKED / NOT READY** and production stays **NO-GO**.

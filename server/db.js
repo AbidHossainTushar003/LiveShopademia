@@ -191,6 +191,7 @@ async function initializeShopPlatform(pool, admin) {
             shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
             id TEXT NOT NULL CHECK (id ~ '^[a-z0-9][a-z0-9-]{1,47}$'),
             name TEXT NOT NULL CHECK (char_length(name) BETWEEN 2 AND 60),
+            description TEXT NOT NULL DEFAULT '' CHECK (char_length(description) <= 240),
             icon TEXT NOT NULL DEFAULT 'fa-box' CHECK (icon ~ '^fa-[a-z0-9-]{1,48}$'),
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
             is_default BOOLEAN NOT NULL DEFAULT FALSE,
@@ -348,7 +349,7 @@ export async function loadManagedProducts(pool) {
                 seo_title AS "seoTitle", meta_description AS "metaDescription",
                 price, old_price AS "oldPrice",
                 category, image, images, stock_quantity AS "stockQuantity", is_available AS "isAvailable",
-                shop_id AS "shopId", created_at AS "createdAt"
+                is_archived AS "isArchived", shop_id AS "shopId", created_at AS "createdAt"
          FROM managed_products
          ORDER BY created_at DESC, id DESC`
     );
@@ -357,7 +358,7 @@ export async function loadManagedProducts(pool) {
 
 export async function loadShopCategories(pool) {
     const { rows } = await pool.query(
-        `SELECT shop_id AS "shopId", id, name, icon, is_active AS active, is_default AS "isDefault"
+        `SELECT shop_id AS "shopId", id, name, description, icon, is_active AS active, is_default AS "isDefault"
          FROM shop_product_categories ORDER BY created_at, id`
     );
     return rows;

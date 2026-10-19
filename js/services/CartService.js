@@ -45,12 +45,17 @@ export class CartService {
     }
     add(product) {
         if (!product) return false;
+        if (!this.canAddFromShop(product)) return false;
         const lines = [...this.lines.value];
         const existing = lines.find((l) => String(l.product.id) === String(product.id));
         if ((existing?.quantity ?? 0) >= maxQuantityFor(product)) return false;
         if (existing) existing.quantity += 1; else lines.push(new CartLine(product));
         this.lines.set(lines);
         return true;
+    }
+    canAddFromShop(product) {
+        return this.lines.value.length === 0
+            || this.lines.value.every((line) => line.product.shopId === product?.shopId);
     }
     setQuantity(productId, quantity) {
         if (!Number.isInteger(quantity) || quantity < 0) return;
@@ -89,6 +94,7 @@ export class CartService {
     clear() { this.lines.set([]); }
     canCheckout() {
         if (this.lines.value.length === 0) return false;
+        if (!this.lines.value.every((line) => line.product.shopId === this.lines.value[0].product.shopId)) return false;
         const quantities = new Map();
         for (const line of this.lines.value) {
             const key = String(line.product.id);

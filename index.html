@@ -42,17 +42,20 @@
         <div class="marketplace-utility">
             <div class="marketplace-header-inner">
                 <div class="marketplace-announcement" role="region" aria-label="Store announcement">
-                    <div class="marketplace-announcement-track">
-                        <span class="marketplace-announcement-copy"><i class="fa-solid fa-store" aria-hidden="true"></i><span id="marketplaceAnnouncementText">Discover products from independent shops</span></span>
-                        <span class="marketplace-announcement-copy" aria-hidden="true"><i class="fa-solid fa-store" aria-hidden="true"></i><span data-announcement-copy>Discover products from independent shops</span></span>
+                    <div class="marketplace-announcement-viewport">
+                        <div class="marketplace-announcement-track">
+                            <span class="marketplace-announcement-copy"><i class="fa-solid fa-store" aria-hidden="true"></i><span id="marketplaceAnnouncementText">Discover products from independent shops</span></span>
+                            <span class="marketplace-announcement-copy" aria-hidden="true"><i class="fa-solid fa-store" aria-hidden="true"></i><span data-announcement-copy>Discover products from independent shops</span></span>
+                        </div>
                     </div>
+                    <button id="announcementMotionToggle" class="marketplace-announcement-toggle" type="button" aria-label="Pause announcement" aria-pressed="false">Pause</button>
                 </div>
                 <span class="marketplace-utility-note">Prices shown in BDT</span>
             </div>
         </div>
         <div class="marketplace-header-inner">
         <nav aria-label="Primary" class="marketplace-primary-nav">
-            <a href="#home" class="flex items-center gap-2.5 shrink-0 group">
+            <a href="/" class="flex items-center gap-2.5 shrink-0 group" aria-label="Shopademia home">
                 <img src="/public-assets/shopademia-mark.svg" width="40" height="40" alt="" class="w-10 h-10 rounded-2xl shadow-md shadow-blue-500/30 group-hover:scale-105 transition-transform duration-300">
                 <span class="marketplace-brand-name text-base md:text-2xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-950 to-blue-800 bg-clip-text text-transparent tracking-tight">Shopademia</span>
             </a>
@@ -203,7 +206,7 @@
                 <button data-show-all-products type="button" aria-label="View all products in the catalog" class="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"><span>View All</span><i class="fa-solid fa-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i></button>
             </div>
         </div>
-        <div id="featuredProductGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"></div>
+        <div id="featuredProductGrid" class="grid gap-4"></div>
     </section>
 
     <!-- Promo banner -->

@@ -11,6 +11,24 @@ test('returns the server-generated order confirmation', async (t) => {
     assert.equal(result.orderNumber, 'SH-TEST-0001');
 });
 
+test('routes marketplace orders to the selected product seller', async (t) => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    let submitted;
+    globalThis.fetch = async (_url, options) => {
+        submitted = JSON.parse(options.body);
+        return new Response(JSON.stringify({ data: {
+            orderNumber: 'SH-OTHER-0001', subtotal: 250, advanceAmount: 35, due: 250
+        } }), { status: 201 });
+    };
+    const repository = new ApiOrderRepository('/api/v1', 'main-shop-id');
+
+    await repository.place({ toPayload: () => ({ items: [{ productId: 'other-item', quantity: 1 }] }) }, 'other-shop-id');
+
+    assert.equal(submitted.shopId, 'other-shop-id');
+    assert.equal(submitted.items[0].productId, 'other-item');
+});
+
 test('does not report success when the API omits its order confirmation number', async (t) => {
     const originalFetch = globalThis.fetch;
     t.after(() => { globalThis.fetch = originalFetch; });

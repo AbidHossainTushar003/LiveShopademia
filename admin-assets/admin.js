@@ -167,8 +167,12 @@ function clearProductImagePreview() {
 
 function cancelProductEdit() {
     const form = document.getElementById('productForm');
+    const savedCreate = JSON.parse(sessionStorage.getItem(`shopademia.product-create.${activeShopId}`) || 'null');
+    if (savedCreate?.key) sessionStorage.removeItem(`shopademia.product-create.${activeShopId}`);
     form.reset();
     delete form.dataset.productId;
+    delete form.dataset.createIdempotencyKey;
+    delete form.dataset.createFingerprint;
     const imageInput = document.getElementById('productImage');
     imageInput.required = false;
     imageInput.closest('div').querySelector('.muted').textContent = 'Choose up to 10 JPEG, PNG, or WebP images, 5 MB each. Images are resized automatically.';
@@ -236,24 +240,32 @@ function renderManagedProduct(product) {
     const editButton = createText('button', 'button button-secondary', 'Edit');
     editButton.type = 'button';
     editButton.addEventListener('click', () => beginProductEdit(product));
-    const deleteButton = createText('button', 'button button-danger', 'Delete');
-    deleteButton.type = 'button';
-    deleteButton.addEventListener('click', async () => {
-        if (!window.confirm(`Remove "${product.name}" from the storefront? Existing orders will remain unchanged.`)) return;
-        deleteButton.disabled = true;
+    const archiveButton = createText(
+        'button',
+        product.isArchived ? 'button button-secondary' : 'button button-danger',
+        product.isArchived ? 'Restore' : 'Archive'
+    );
+    archiveButton.type = 'button';
+    archiveButton.addEventListener('click', async () => {
+        const archived = !product.isArchived;
+        const action = archived ? 'Archive' : 'Restore';
+        if (!window.confirm(`${action} "${product.name}"? Existing order and inventory history will be retained.`)) return;
+        archiveButton.disabled = true;
         try {
-            const result = await api(`/admin/products/${encodeURIComponent(product.id)}`, { method: 'DELETE' });
-            if (document.getElementById('productForm').dataset.productId === product.id) cancelProductEdit();
-            showMessage(result.warning || `${product.name} was removed from the storefront.`, Boolean(result.warning));
+            await api(`/admin/products/${encodeURIComponent(product.id)}/archive`, {
+                method: 'PATCH',
+                body: { archived }
+            });
+            showMessage(`${product.name} was ${archived ? 'archived' : 'restored'}.`);
             await loadProducts();
         } catch (error) {
             showMessage(error.message, true);
-            deleteButton.disabled = false;
+            archiveButton.disabled = false;
         }
     });
-    actions.append(editButton, deleteButton);
+    actions.append(editButton, archiveButton);
     details.append(
-        name,
+        product.isArchived ? createText('h4', 'muted', `${product.name} · Archived`) : name,
         createText('p', '', priceText),
         createText('p', '', categoryItems.find(({ id }) => id === product.category)?.name || productCategoryLabel(product.category)),
         createText('p', product.stockQuantity === 0 || !product.isAvailable ? 'error' : '', stockText),
@@ -309,18 +321,14 @@ function renderCategory(category) {
     const remove = createText('button', 'button button-danger', 'Delete');
     remove.type = 'button';
     remove.addEventListener('click', async () => {
-        if (!window.confirm(`Delete the “${category.name}” category?`)) return;
-        const deleteProducts = category.productCount > 0
-            && window.confirm(`Also delete all ${category.productCount} product${category.productCount === 1 ? '' : 's'} in this category? Choose Cancel to keep them and leave them unassigned.`);
+        if (!window.confirm(`Deactivate “${category.name}”? Its products will be retained and reassigned to Uncategorized.`)) return;
         remove.disabled = true;
         try {
-            const result = await api(`/admin/shop/categories/${encodeURIComponent(category.id)}`, {
+            await api(`/admin/shop/categories/${encodeURIComponent(category.id)}`, {
                 method: 'DELETE',
-                body: JSON.stringify({ deleteProducts })
+                body: JSON.stringify({ deleteProducts: false })
             });
-            showMessage(deleteProducts
-                ? `Category deleted with ${result.data.deletedProducts} product${result.data.deletedProducts === 1 ? '' : 's'}.`
-                : 'Category deleted. Its products remain in your catalog as unassigned.');
+            showMessage('Category deactivated. Its products remain in your catalog as Uncategorized.');
             await refreshCatalogAdmin();
         } catch (error) {
             showMessage(error.message, true);
@@ -773,6 +781,26 @@ document.getElementById('productForm').addEventListener('submit', async (event) 
     error.classList.add('hidden');
     button.disabled = true;
     const productId = form.dataset.productId;
+    const fingerprint = JSON.stringify([
+        ...Array.from(new FormData(form).entries()).map(([name, value]) => [
+            name,
+            value instanceof File ? [value.name, value.size, value.type, value.lastModified] : value
+        ])
+    ]);
+    let createIdempotencyKey;
+    if (!productId) {
+        if (form.dataset.createFingerprint !== fingerprint || !form.dataset.createIdempotencyKey) {
+            const stored = JSON.parse(sessionStorage.getItem(`shopademia.product-create.${activeShopId}`) || 'null');
+            const reusable = stored?.fingerprint === fingerprint && /^[0-9a-f-]{36}$/i.test(stored.key || '');
+            form.dataset.createFingerprint = fingerprint;
+            form.dataset.createIdempotencyKey = reusable ? stored.key : crypto.randomUUID();
+            sessionStorage.setItem(`shopademia.product-create.${activeShopId}`, JSON.stringify({
+                key: form.dataset.createIdempotencyKey,
+                fingerprint
+            }));
+        }
+        createIdempotencyKey = form.dataset.createIdempotencyKey;
+    }
     button.textContent = productId ? 'Saving product…' : 'Uploading product…';
     showMessage('');
     try {
@@ -791,9 +819,13 @@ document.getElementById('productForm').addEventListener('submit', async (event) 
         } else {
             const result = await api('/admin/products', {
                 method: 'POST',
+                headers: { 'Idempotency-Key': createIdempotencyKey },
                 body: await optimizedFormData(form)
             });
             form.reset();
+            sessionStorage.removeItem(`shopademia.product-create.${activeShopId}`);
+            delete form.dataset.createIdempotencyKey;
+            delete form.dataset.createFingerprint;
             clearProductImagePreview();
             showMessage(`${result.data.name} was uploaded and published. Refresh the storefront to see it.`);
         }

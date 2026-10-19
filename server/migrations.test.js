@@ -73,3 +73,28 @@ test('external product image links can be reused by multiple catalog items', () 
     assert.ok(migration);
     assert.match(migration.sql, /DROP CONSTRAINT IF EXISTS managed_products_image_key/);
 });
+
+test('inventory adjustment history is idempotent and append-only at the database boundary', () => {
+    const migration = ADMIN_MIGRATIONS.find(({ version }) => version === '003_inventory_adjustment_history');
+    assert.ok(migration);
+    assert.match(migration.sql, /UNIQUE \(shop_id, idempotency_key\)/);
+    assert.match(migration.sql, /CHECK \(new_quantity = previous_quantity \+ delta\)/);
+    assert.match(migration.sql, /BEFORE UPDATE OR DELETE OR TRUNCATE ON inventory_adjustments/);
+    assert.match(migration.sql, /inventory adjustment history is append-only/);
+});
+
+test('product lifecycle migration adds archive state and durable scoped create idempotency', () => {
+    const migration = ADMIN_MIGRATIONS.find(({ version }) => version === '004_product_archiving_and_create_idempotency');
+    assert.ok(migration);
+    assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE/);
+    assert.match(migration.sql, /PRIMARY KEY \(shop_id, admin_user_id, idempotency_key\)/);
+    assert.match(migration.sql, /request_fingerprint CHAR\(64\)/);
+    assert.match(migration.sql, /product_id TEXT NOT NULL REFERENCES managed_products\(id\) ON DELETE RESTRICT/);
+});
+
+test('category metadata migration supports bounded descriptions', () => {
+    const migration = ADMIN_MIGRATIONS.find(({ version }) => version === '005_category_descriptions');
+    assert.ok(migration);
+    assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''/);
+    assert.match(migration.sql, /char_length\(description\) <= 240/);
+});

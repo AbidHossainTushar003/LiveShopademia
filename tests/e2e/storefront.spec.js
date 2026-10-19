@@ -20,10 +20,25 @@ test('storefront announcement scrolls and displays configured plain text', async
     expect(await ticker.locator('.marketplace-announcement-track').evaluate((element) =>
         getComputedStyle(element).animationName
     )).toBe('marketplace-announcement-slide');
+    const motionToggle = ticker.locator('#announcementMotionToggle');
+    await expect(motionToggle).toHaveAccessibleName('Pause announcement');
+    await expect(motionToggle).toHaveAttribute('aria-pressed', 'false');
+    await motionToggle.focus();
+    await motionToggle.press('Space');
+    await expect(motionToggle).toHaveAttribute('aria-label', 'Resume announcement');
+    await expect(motionToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(ticker).toHaveClass(/is-paused/);
+    await motionToggle.press('Space');
+    await expect(motionToggle).toHaveAttribute('aria-label', 'Pause announcement');
+    await expect(ticker).not.toHaveClass(/is-paused/);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     expect(await ticker.locator('.marketplace-announcement-track').evaluate((element) =>
         getComputedStyle(element).animationName
     )).toBe('none');
+    await expect(ticker.getByRole('button', { name: 'Pause announcement' })).toBeHidden();
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(motionToggle).toBeHidden();
 });
 
 test('homepage loads catalog and essential-only consent remains changeable', async ({ page }) => {
@@ -36,6 +51,8 @@ test('homepage loads catalog and essential-only consent remains changeable', asy
         category: 'gadgets',
         stockQuantity: 4,
         isAvailable: true,
+        shopId: '00000000-0000-4000-8000-000000000011',
+        shopAdvanceCharge: 35,
         shopSlug: 'other-shop',
         shopName: 'Other Shop'
     };
@@ -80,6 +97,8 @@ test('homepage loads catalog and essential-only consent remains changeable', asy
     await expect(page.getByRole('button', { name: 'Show search results' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Shop Products' })).toBeVisible();
     await expect(page.locator('#productResultsStatus')).toContainText('Showing');
+    await expect(page.locator('#newArrivalsGrid [data-action="add"]').first()).toBeVisible();
+    await expect(page.locator('#newArrivalsGrid [data-action="buy-now"]').first()).toBeVisible();
     const catalog = [marketplaceProduct];
     const firstCard = page.locator('#featuredProductGrid .market-product-card').first();
     await expect(firstCard).toBeVisible();
@@ -91,9 +110,8 @@ test('homepage loads catalog and essential-only consent remains changeable', asy
     if (firstProduct.shopSlug === 'main') {
         await expect(firstCard.locator('[data-action="add"]')).toBeVisible();
     } else {
-        await expect(firstCard.getByRole('link', { name: 'View product' }))
-            .toHaveAttribute('href', `/product/${encodeURIComponent(firstProduct.id)}?shop=${encodeURIComponent(firstProduct.shopSlug)}`);
-        await expect(firstCard.locator('[data-action="add"], [data-action="buy-now"]')).toHaveCount(0);
+        await expect(firstCard.locator('[data-action="add"]')).toBeVisible();
+        await expect(firstCard.locator('[data-action="buy-now"]')).toBeVisible();
     }
     const visibleImages = page.locator('img:visible');
     for (let index = 0; index < await visibleImages.count(); index++) {
@@ -104,6 +122,14 @@ test('homepage loads catalog and essential-only consent remains changeable', asy
     expect(await visibleImages.evaluateAll((images) =>
         images.filter((image) => image.naturalWidth === 0).map((image) => image.currentSrc || image.src)
     )).toEqual([]);
+    await firstCard.locator('[data-action="add"]').click();
+    await expect(page.locator('#cartBadge')).toHaveText('1');
+    await firstCard.locator('[data-action="buy-now"]').click();
+    await expect(page.locator('#checkoutModal')).toBeVisible();
+    await expect(page.locator('#cartBadge')).toHaveText('2');
+    await expect(page.locator('#coSubtotal')).toContainText('৳');
+    await expect(page.locator('#coAdvance')).toContainText('35');
+    await page.locator('#checkoutCloseBtn').click();
     await expect(page.locator('#featuredProductGrid .fa-star')).toHaveCount(0);
     await page.getByRole('button', { name: 'Show search results' }).click();
     await expect(page.locator('#productResultsStatus')).toBeFocused();
@@ -124,6 +150,44 @@ test('homepage loads catalog and essential-only consent remains changeable', asy
     expect(pageErrors).toEqual([]);
     expect(sameOriginFailures).toEqual([]);
     expect(sameOriginConsoleErrors).toEqual([]);
+});
+
+test('new-arrival cards support adding to cart and seller-routed buy now', async ({ page }) => {
+    const product = {
+        id: 'arrival-purchase-item',
+        name: 'Arrival purchase item',
+        description: 'A new product from an independent shop.',
+        price: 250,
+        oldPrice: null,
+        category: 'gadgets',
+        stockQuantity: 4,
+        isAvailable: true,
+        shopId: '00000000-0000-4000-8000-000000000011',
+        shopAdvanceCharge: 35,
+        shopSlug: 'other-shop',
+        shopName: 'Other Shop'
+    };
+    await page.route((url) => new URL(url).pathname === '/api/v1/products', (route) =>
+        route.fulfill({ json: { data: [product] } })
+    );
+    await page.goto(storefrontPath);
+
+    const card = page.locator('#newArrivalsGrid [data-id="arrival-purchase-item"]');
+    const addToCart = card.getByRole('button', { name: 'Add Arrival purchase item to cart' });
+    const buyNow = card.getByRole('button', { name: 'Buy Arrival purchase item now' });
+    await expect(addToCart).toBeVisible();
+    await expect(buyNow).toBeVisible();
+
+    await addToCart.click();
+    await expect(page.locator('#cartBadge')).toHaveText('1');
+    await page.locator('#cartDrawerBtn').click();
+    await expect(page.locator('#cartItemsContainer [data-id="arrival-purchase-item"]')).toBeVisible();
+    await page.getByRole('button', { name: 'Remove Arrival purchase item' }).click();
+    await page.locator('#closeCartBtn').click();
+
+    await buyNow.click();
+    await expect(page.locator('#checkoutModal')).toBeVisible();
+    await expect(page.locator('#coAdvance')).toContainText('35');
 });
 
 test('cart items display their product image with an image fallback available', async ({ page }) => {
@@ -259,9 +323,10 @@ test('Top this week shows cross-shop rankings with shop-specific product links',
     await expect(page.getByRole('heading', { name: 'Weekly favorite' })).toBeVisible();
     await expect(page.locator('.route-product-grid .market-product-card')).toHaveCount(1);
     await expect(page.getByRole('link', { name: 'Other Shop' })).toHaveAttribute('href', '/shops/other-shop');
-    await expect(page.getByRole('link', { name: 'View product' }))
+    await expect(page.getByRole('link', { name: 'View details for Weekly favorite', exact: true }))
         .toHaveAttribute('href', '/product/weekly-product?shop=other-shop');
-    await expect(page.locator('[data-route-add], [data-route-buy-now]')).toHaveCount(0);
+    await expect(page.locator('[data-route-add]')).toBeEnabled();
+    await expect(page.locator('[data-route-buy-now]')).toBeEnabled();
 });
 
 test('Deals lists discounted products from active shops marketplace-wide', async ({ page }) => {
@@ -286,9 +351,10 @@ test('Deals lists discounted products from active shops marketplace-wide', async
     await expect(page.getByRole('heading', { name: 'Marketplace deal' })).toBeVisible();
     await expect(page.locator('.route-product-grid .market-product-card')).toHaveCount(1);
     await expect(page.getByRole('link', { name: 'Other Shop' })).toHaveAttribute('href', '/shops/other-shop');
-    await expect(page.getByRole('link', { name: 'View product' }))
+    await expect(page.getByRole('link', { name: 'View details for Marketplace deal', exact: true }))
         .toHaveAttribute('href', '/product/other-discount?shop=other-shop');
-    await expect(page.locator('[data-route-add], [data-route-buy-now]')).toHaveCount(0);
+    await expect(page.locator('[data-route-add]')).toBeEnabled();
+    await expect(page.locator('[data-route-buy-now]')).toBeEnabled();
 });
 
 test('shop profile presents storefront identity and navigable sections', async ({ page }) => {
@@ -334,14 +400,14 @@ test('shop profile presents storefront identity and navigable sections', async (
 });
 
 test('product cards offer immediate checkout with a responsive purchase layout', async ({ page }) => {
-    const response = await page.request.get('/api/v1/shops/main/products');
+    const response = await page.request.get('/api/v1/products?limit=100');
     expect(response.status()).toBe(200);
     const product = (await response.json()).data.find((item) =>
         item.isAvailable !== false && item.stockQuantity !== 0 && item.isAvailableForPurchase !== false
     );
-    test.skip(!product, 'Buy-now acceptance requires an available catalog item.');
+    test.skip(!product?.shopSlug, 'Buy-now acceptance requires an available marketplace item with a shop.');
 
-    await page.goto('/shops/main');
+    await page.goto(`/shops/${encodeURIComponent(product.shopSlug)}`);
     const card = page.locator('.route-product-card').filter({
         has: page.getByRole('heading', { name: product.name, exact: true })
     });
@@ -390,6 +456,45 @@ test('storefront remains usable when external font and icon CDNs are unavailable
     expect(pageErrors).toEqual([]);
 });
 
+test('home product grid adapts its columns to available products and viewport width', async ({ page }) => {
+    const products = Array.from({ length: 3 }, (_value, index) => ({
+        id: `layout-product-${index + 1}`,
+        name: `Layout product ${index + 1}`,
+        description: 'A responsive grid test product.',
+        price: 250,
+        oldPrice: null,
+        category: 'gadgets',
+        stockQuantity: 4,
+        isAvailable: true,
+        shopId: '00000000-0000-4000-8000-000000000011',
+        shopAdvanceCharge: 35,
+        shopSlug: 'main',
+        shopName: 'Main Shop'
+    }));
+    await page.route((url) => new URL(url).pathname === '/api/v1/products', (route) =>
+        route.fulfill({ json: { data: products } })
+    );
+    await page.goto(storefrontPath);
+    const grid = page.locator('#featuredProductGrid');
+    await expect(grid.locator('.market-product-card')).toHaveCount(products.length);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const desktopLayout = await grid.evaluate((element) => ({
+        columns: getComputedStyle(element).gridTemplateColumns.split(' ')
+            .filter((width) => Number.parseFloat(width) > 0).length,
+        cardWidths: [...element.querySelectorAll('.market-product-card')]
+            .map((card) => card.getBoundingClientRect().width)
+    }));
+    expect(desktopLayout.columns).toBe(products.length);
+    expect(desktopLayout.cardWidths.every((width) => width <= 288)).toBe(true);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileColumns = await grid.evaluate((element) =>
+        getComputedStyle(element).gridTemplateColumns.split(' ').length
+    );
+    expect(mobileColumns).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('shop product API is public, CORS-readable, and returns only managed listings', async ({ page }) => {
     const shopsResponse = await page.request.get('/api/v1/shops');
     expect(shopsResponse.status()).toBe(200);
@@ -431,11 +536,22 @@ test('shop product API is public, CORS-readable, and returns only managed listin
 });
 
 test('public routes, error page, and mobile layout work', async ({ page }) => {
+    await page.route('**/api/v1/**', async (route) => {
+        const path = new URL(route.request().url()).pathname;
+        const data = path === '/api/v1/shops/main/config'
+            ? { shopId: 1, slug: 'main', name: 'Main Shop', heroSlides: [] }
+            : [];
+        await route.fulfill({
+            json: path === '/api/v1/shops/main/config'
+                ? { data, delivery: { advanceCharge: 0 } }
+                : { data }
+        });
+    });
     for (const [path, heading] of [
         ['/privacy', 'Privacy policy'],
         ['/terms', 'Terms & conditions'],
         ['/about', 'Shopping with main shop'],
-        ['/shops', 'Explore our shops'],
+        ['/shops', 'Find your next favorite shop'],
         ['/deals', 'Deals and offers']
     ]) {
         const response = await page.goto(`${path}?shop=main`);
@@ -501,11 +617,12 @@ test('public storefront keyboard navigation keeps visible focus', async ({ page 
 });
 
 test('product detail route and metadata render for an available catalog item', async ({ page }) => {
-    const catalogResponse = await page.request.get('/api/v1/shops/main/products');
+    const catalogResponse = await page.request.get('/api/v1/products?limit=100');
     expect(catalogResponse.status()).toBe(200);
     const catalog = await catalogResponse.json();
-    const product = catalog.data[0];
-    test.skip(!product, 'Product detail acceptance requires a seeded shop catalog item.');
+    const product = catalog.data.find((item) => item.shopSlug
+        && item.isAvailable !== false && item.stockQuantity !== 0 && item.isAvailableForPurchase !== false);
+    test.skip(!product, 'Product detail acceptance requires an available marketplace item with a shop.');
     test.skip(
         product.isAvailable === false || product.stockQuantity === 0 || product.isAvailableForPurchase === false,
         'Buy-now acceptance requires an available catalog item.'
@@ -515,13 +632,8 @@ test('product detail route and metadata render for an available catalog item', a
         '/uploads/11111111-1111-4111-8111-111111111111.jpg',
         '/uploads/22222222-2222-4222-8222-222222222222.jpg'
     ];
-    await page.route('**/api/v1/shops/main/products', (route) => route.fulfill({
-        json: {
-            ...catalog,
-            data: catalog.data.map((item) => item.id === product.id
-                ? { ...item, images: galleryImages }
-                : item)
-        }
+    await page.route(`**/api/v1/shops/${encodeURIComponent(product.shopSlug)}/products**`, (route) => route.fulfill({
+        json: { ...catalog, data: [{ ...product, images: galleryImages }] }
     }));
     await page.route('**/uploads/11111111-1111-4111-8111-111111111111.jpg', (route) => route.fulfill({
         contentType: 'image/svg+xml',
@@ -532,7 +644,7 @@ test('product detail route and metadata render for an available catalog item', a
         body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
     }));
 
-    const productResponse = await page.goto(`/product/${encodeURIComponent(product.id)}?shop=main`);
+    const productResponse = await page.goto(`/product/${encodeURIComponent(product.id)}?shop=${encodeURIComponent(product.shopSlug)}`);
     expect(productResponse?.status()).toBe(200);
     await expect(page.getByRole('heading', { name: product.name, exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'How ordering works' })).toBeVisible();
@@ -542,8 +654,11 @@ test('product detail route and metadata render for an available catalog item', a
     await expect(page.getByRole('button', { name: 'Remove from wishlist' })).toHaveAttribute('aria-pressed', 'true');
     await page.getByRole('button', { name: 'Remove from wishlist' }).click();
     await expect(page.getByRole('button', { name: 'Save to wishlist' })).toHaveAttribute('aria-pressed', 'false');
-    await expect(page).toHaveTitle(`${product.seoTitle?.trim() || product.name} | Main Shop | Shopademia`);
-    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', new RegExp(`/product/${encodeURIComponent(product.id)}$`));
+    await expect(page).toHaveTitle(`${product.seoTitle?.trim() || product.name} | ${product.shopName} | Shopademia`);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+        'href',
+        new RegExp(`/product/${encodeURIComponent(product.id)}\\?shop=${encodeURIComponent(product.shopSlug)}$`)
+    );
     const structuredData = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
     expect(structuredData['@graph'].some(({ '@type': type }) => type === 'Product')).toBe(true);
     expect(structuredData['@graph'].some(({ '@type': type }) => type === 'BreadcrumbList')).toBe(true);
@@ -553,7 +668,7 @@ test('product detail route and metadata render for an available catalog item', a
     const productDescription = product.description?.trim().replace(/\s+/g, ' ');
     const expectedMetaDescription = configuredMetaDescription || (productDescription
         ? (productDescription.length > 160 ? `${productDescription.slice(0, 157).trimEnd()}…` : productDescription)
-        : `Explore ${product.name} from Main Shop on Shopademia.`);
+        : `Explore ${product.name} from ${product.shopName} on Shopademia.`);
     await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', expectedMetaDescription);
 
     const gallery = page.getByRole('group', { name: 'Product images' });
@@ -631,6 +746,25 @@ test('category product image link has an accessible name and opens product detai
 });
 
 test('homepage internal links resolve and Stores network errors are visible', async ({ page }) => {
+    await page.route('**/api/v1/shops/main/config', (route) => route.fulfill({
+        json: {
+            data: { shopId: '00000000-0000-4000-8000-000000000001', slug: 'main', name: 'Main Shop', heroSlides: [] },
+            delivery: { advanceCharge: 0 }
+        }
+    }));
+    await page.route('**/api/v1/storefront-announcement', (route) => route.fulfill({
+        json: { data: { text: 'Discover products from independent shops' } }
+    }));
+    await page.route('**/api/v1/categories', (route) => route.fulfill({
+        json: { data: [{ id: 'gadgets', name: 'Electronics', icon: 'fa-laptop' }] }
+    }));
+    await page.route((url) => new URL(url).pathname.startsWith('/api/v1/products'), (route) => {
+        const isHeroOffer = new URL(route.request().url()).pathname.endsWith('/hero-offer');
+        return route.fulfill({ json: { data: isHeroOffer ? null : [] } });
+    });
+    await page.route('**/api/v1/top-selling', (route) => route.fulfill({
+        json: { data: [] }
+    }));
     await page.goto(storefrontPath);
     const baseUrl = new URL(process.env.PLAYWRIGHT_BASE_URL);
     const navigation = await page.locator('.marketplace-category-nav [data-nav-route]').evaluateAll((links) =>
@@ -673,6 +807,10 @@ test('homepage internal links resolve and Stores network errors are visible', as
     await page.route('**/api/v1/shops', (route) => route.abort());
     await page.goto('/shops?shop=main');
     await expect(page.getByRole('alert')).toContainText('We couldn’t load this page');
+    const brandLink = page.locator('.marketplace-primary-nav > a').first();
+    await expect(brandLink).toHaveAttribute('href', '/');
+    await brandLink.click();
+    await expect(page).toHaveURL(`${baseUrl.origin}/`);
 });
 
 test('homepage, Stores, and policy pages pass automated WCAG 2.1 AA checks', async ({ page }) => {

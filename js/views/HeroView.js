@@ -133,7 +133,7 @@ export class HeroView {
             <div class="mt-2 flex items-baseline gap-1.5">
                 <span class="text-sm font-extrabold text-blue-700">${formatPrice(p.price)}</span>
                 ${p.hasDiscount ? `<span class="text-[10px] text-slate-600 line-through">${formatPrice(p.oldPrice)}</span>
-                <span class="text-[10px] font-bold text-rose-500 bg-rose-50 px-1 rounded">-${p.discountPercent}%</span>` : ''}
+                <span class="text-[10px] font-bold text-rose-700 bg-rose-50 px-1 rounded">-${p.discountPercent}%</span>` : ''}
             </div>
             <button data-action="add" ${available ? '' : 'disabled'} title="${escapeHtml(p.name)}" class="w-full mt-2.5 py-1.5 rounded-lg ${available ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-400 cursor-not-allowed'} text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-colors shadow-sm">
                 <span>${available ? 'Add to Cart' : availabilityLabel}</span>${available ? '<i class="fa-solid fa-arrow-right text-[10px]"></i>' : ''}

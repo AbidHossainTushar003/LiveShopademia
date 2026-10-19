@@ -49,7 +49,7 @@ This mode verifies the database identity and schema using read-only queries, set
 
 The storefront includes `/privacy` and `/terms`, a consent choice for optional analytics, a social sharing image, and a generated `/sitemap.xml` and `/robots.txt`. Cart and wishlist remain in local browser storage; optional analytics trackers are not loaded unless a visitor allows analytics. Analytics integrations remain disabled until public tracker IDs are configured in `js/config/tracking.config.js`. The published policy text is an operational template and should be reviewed against the operator’s actual practices and local legal requirements.
 
-For production, set `DOMAIN` to the public hostname; Docker passes `https://${DOMAIN}` to the app as `PUBLIC_SITE_URL` for canonical metadata and sitemap links. Caddy terminates TLS, redirects HTTP to HTTPS, and compresses responses. Keep application secrets in the server environment only. Browser-side image uploads are resized/compressed to WebP when the browser can produce a smaller file; the server still validates image type/signature and enforces upload limits.
+Production uses separate `shopademia.store`, `admin.shopademia.store`, and `api.shopademia.store` hostnames. The Docker deployment supplies the storefront and admin origins explicitly; Caddy terminates TLS, redirects HTTP to HTTPS, and restricts each hostname to its intended routes. Keep application secrets in the server environment only. Browser-side image uploads are resized/compressed to WebP when the browser can produce a smaller file; the server still validates image type/signature and enforces upload limits.
 
 The server creates the order tables, admin credential table, and indexes at startup. The PostgreSQL Docker volume persists when the app restarts. Back up the database and product-image volumes for disaster recovery. `npm run build:css` regenerates the checked-in production stylesheet when frontend styles change.
 
@@ -145,7 +145,7 @@ The storefront footer lists Shopademia's customer-support email, phone, and What
 
 This deployment targets a single Linux VM with Docker Compose and a public DNS name. It is deliberately single-app-instance because rate limits use per-process memory and the managed-product catalog/inventory has a process-local cache.
 
-1. Point the domain's DNS A record (and any AAAA record) at the VM. Allow inbound TCP ports 80 and 443; allow UDP 443 if HTTP/3 is desired. Install Docker Engine and the Docker Compose plugin.
+1. On an owner-verified Linux VM, point A/AAAA records for `shopademia.store`, `admin.shopademia.store`, and `api.shopademia.store` at that VM. Verify DNS and ownership before changing records. Allow inbound TCP ports 80 and 443; allow UDP 443 if HTTP/3 is desired. Install Docker Engine, the Docker Compose plugin, Git, and Node.js 20+ with npm for release/config validation.
 2. Create the production environment file and edit it with unique values:
 
    ```sh
@@ -159,23 +159,33 @@ This deployment targets a single Linux VM with Docker Compose and a public DNS n
    node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
    ```
 
-   Use the generated values for `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_MIGRATION_PASSWORD`, `ADMIN_PASSWORD`, `JWT_SECRET`, and `MFA_ENCRYPTION_KEY`. The MFA key must be a distinct 64-character hexadecimal value. Put the app password in `DATABASE_URL` and the migration password in `MIGRATION_DATABASE_URL`; both database URLs use their respective dedicated PostgreSQL roles. Hex values are URL-safe. Set `DOMAIN` to the DNS name. Install `age`, generate an encryption identity with `age-keygen`, keep its private key off the server, and set `BACKUP_AGE_RECIPIENT` to its public recipient. Keep `.env.production` private; it is ignored by Git.
+   Create independent, high-entropy secrets for `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_MIGRATION_PASSWORD`, `ADMIN_PASSWORD`, `JWT_SECRET`, and `MFA_ENCRYPTION_KEY`. Database passwords, JWT, and MFA keys must be 64-character hexadecimal values; the admin password must be unique and at least 64 characters. Set `SHOPADEMIA_RELEASE` to the exact 40–64-character Git commit SHA being released. Set the three exact domain variables and `ADMIN_SITE_URL` from `.env.production.example`. Put the app and migration passwords in `DATABASE_URL` and `MIGRATION_DATABASE_URL`, using their dedicated PostgreSQL roles. Install `age`, generate an encryption identity with `age-keygen`, keep its private identity separate from the VM, and set `BACKUP_AGE_RECIPIENT` to its public recipient. `ADMIN_SETTINGS_ENCRYPTION_KEY` is optional, but if used it must be unique and recoverable. Keep `.env.production` private; it is ignored by Git. Do not use the example placeholders as deployment configuration.
    For an existing database volume, take and verify a backup before the first deploy with these role changes. Run `chmod 700 scripts/upgrade-database-role.sh`, then `scripts/upgrade-database-role.sh`; review its confirmation prompt and set the migrator password/URL in `.env.production`. The script transfers ownership of objects in the `public` schema to `shopademia_migrator`, grants the app only data access, and removes the app's schema `CREATE` privilege.
-3. Start the stack:
+3. Check out the specifically approved, clean release commit on the VPS. Set `SHOPADEMIA_RELEASE` to that commit's full SHA in `.env.production`, then validate the file and Compose model before building:
 
    ```sh
-   docker compose --env-file .env.production -f docker-compose.production.yml up --build -d
+   git status --short
+   git rev-parse HEAD
+   npm ci
+   npm run validate:production
+   docker compose --env-file .env.production -f docker-compose.production.yml config --quiet
+   docker compose --env-file .env.production -f docker-compose.production.yml build
+   docker compose --env-file .env.production -f docker-compose.production.yml up -d
    docker compose --env-file .env.production -f docker-compose.production.yml ps
    ```
 
-   Caddy obtains and renews the TLS certificate automatically. Do not publish the Node or database ports; only Caddy exposes 80/443. `DATABASE_SSL=false` is used only for traffic on the isolated private Docker network. For a managed database, use its TLS endpoint with `DATABASE_SSL=true`, a trusted CA, restricted network access, and a deployment configuration that removes the local database service.
+   The app and one-shot migrator use the same SHA-tagged image. The Compose project name is fixed so its named PostgreSQL, uploads, and Caddy volumes remain stable across release directories; do not override the project name. Caddy obtains and renews TLS certificates automatically after all three DNS names resolve to the verified VPS and ports are reachable. Do not publish Node or PostgreSQL ports; only Caddy exposes 80/443. `DATABASE_SSL=false` is allowed only over the isolated private Docker network. The Compose file keeps PostgreSQL authoritative and local to its private network.
 4. Verify deployment:
 
    ```sh
-   curl --fail --show-error https://your-domain.example/healthz
+   curl --fail --show-error https://shopademia.store/healthz
+   curl --fail --show-error https://admin.shopademia.store/healthz
+   curl --fail --show-error https://api.shopademia.store/healthz
+   curl --fail --show-error https://shopademia.store/
+   curl --fail --show-error https://admin.shopademia.store/admin
    ```
 
-   The endpoint should return HTTP 200 and `{"status":"ok"}`. Confirm `https://<your-domain>/` and `/admin` load, and check service logs with `docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=100`.
+   All health endpoints should return HTTP 200 and `{"status":"ok"}`. Confirm the storefront is served only on the storefront host, admin sign-in and same-origin admin APIs work only on the admin host, and the API host returns only the documented public API/health paths. Test a real admin login only with the authorized initial admin account; do not use production customer data in smoke tests. Inspect sanitized service logs with `docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=100`.
 5. Install `age` on the VM and create the backup directory for your deployment user. Test the encrypted backup command:
 
    ```sh
@@ -208,21 +218,12 @@ The web process uses `shopademia_app`, which has schema usage and DML/sequence a
 
 Login and checkout are limited to 8 and 30 requests per client IP per 15 minutes, respectively. Order lookup allows 5 requests and product uploads 10 per IP per 15 minutes; public catalog reads allow 120 per minute. These limits are in-memory and reset on restart; do not scale to multiple app replicas without adding a shared rate-limit store, and add edge-level abuse controls if traffic warrants them.
 
-### cPanel GitHub Actions deployment
+### Retired deployment path
 
-The CI workflow can deploy `main` to the existing cPanel Node.js app after tests and the dependency audit pass. Deployment is intentionally disabled until the production environment and database migrations are ready. Do not enable it until `MFA_ENCRYPTION_KEY` is configured and backed up, a migration database URL and appropriate database role are established, and the production schema migration has been run and verified. Back up the database and uploaded product images before changing the live app.
-
-To enable automatic deployment:
-
-1. In cPanel, import and authorize a dedicated Ed25519 SSH key for GitHub Actions under **Security → SSH Access → Manage SSH Keys**. Keep its private key out of the repository and logs.
-2. Add these repository **Actions variables**: `CPANEL_DEPLOY_ENABLED`=`true`, `CPANEL_HOST`=`shopademia.store`, `CPANEL_PORT`=`8081`, `CPANEL_USER`=`shopadem`, and `CPANEL_APP_ROOT`=`/home/shopadem/shopademia-app`.
-3. Add these repository **Actions secrets**: `CPANEL_SSH_KEY` with the private key, and `CPANEL_KNOWN_HOSTS` with the SSH host-key lines for `[shopademia.store]:8081`. Obtain them with `ssh-keyscan -p 8081 shopademia.store` and independently verify the fingerprints with the hosting provider.
-4. Push to `main`. The workflow waits for CI, syncs the release while preserving cPanel's `.htaccess`, environment files, uploaded product images, logs, and runtime directory, installs production dependencies, restarts the Node application, and checks `/healthz`.
-
-The deploy job remains skipped until the enable variable is set. It requires cPanel SSH access and verifies the configured destination and SSH host key. It does not create database backups or run schema migrations automatically; those remain explicit, reviewed production operations.
+The cPanel deployment job and its instructions are retired and removed from the active CI workflow. Production releases must use the manually authorized Docker VPS procedure above; do not recreate or enable a cPanel deployment workflow.
 
 ### Launch blockers for real commerce
 
-This deployment provides TLS and hardened service networking, but a fresh database still starts with bundled sample products. Before accepting real orders, replace those listings with actual business products and inventory, test database restore and order recovery, configure actual off-host backup storage and uptime alerts, and review local privacy/tax/consumer requirements. Payments remain manual: train staff to compare sender numbers and transactions in the bKash merchant records, and never treat the dashboard's manual status as provider verification.
+Before accepting real orders, load verified business products and inventory, test database restore and order recovery, configure actual off-host backup storage and uptime alerts, and review local privacy/tax/consumer requirements. Payments remain manual: train staff to compare sender numbers and transactions in the bKash merchant records, and never treat the dashboard's manual status as provider verification.
 
 Run backend validation and route tests with `npm test`.

@@ -8,7 +8,6 @@ export function renderProductCard({ product, shopSlug, isWished = false, mode = 
     const available = product.isAvailable !== false && product.stockQuantity !== 0
         && product.isAvailableForPurchase !== false;
     const availabilityLabel = product.isAvailable === false ? 'Unavailable' : 'Out of stock';
-    const isCurrentShop = productShopSlug === shopSlug;
     const routeMode = mode === 'route';
     const wishlistAction = routeMode
         ? `data-route-wishlist="${escapeHtml(product.id)}"`
@@ -22,9 +21,7 @@ export function renderProductCard({ product, shopSlug, isWished = false, mode = 
     const shopLink = product.shopName
         ? `<a class="market-product-shop" href="/shops/${encodeURIComponent(productShopSlug)}">${escapeHtml(product.shopName)}</a>`
         : '';
-    const actions = !isCurrentShop
-        ? `<div class="market-product-actions is-view-only"><a class="market-product-add market-product-view" href="${productLink}">View product</a></div>`
-        : `<div class="market-product-actions">
+    const actions = `<div class="market-product-actions">
             <button type="button" ${addAction} ${available ? '' : 'disabled'} class="market-product-add">${available ? '<i class="fa-solid fa-cart-shopping" aria-hidden="true"></i>Add to cart' : availabilityLabel}</button>
             <button type="button" ${buyNowAction} ${available ? '' : 'disabled'} class="market-product-buy">${available ? 'Buy now' : 'Unavailable'}</button>
         </div>`;

@@ -63,6 +63,71 @@ test('the checked-in staging template is rejected by the same dotenv-backed vali
     assert.ok(errors.every((error) => !error.includes('replace-with-')));
 });
 
+test('staging Compose wires the validated domain to app and all Caddy sites', async () => {
+    const root = new URL('../', import.meta.url);
+    const [compose, caddyfile] = await Promise.all([
+        readFile(new URL('docker-compose.staging.yml', root), 'utf8'),
+        readFile(new URL('Caddyfile', root), 'utf8')
+    ]);
+
+    assert.match(compose, /PUBLIC_SITE_URL:\s*https:\/\/\$\{STAGING_DOMAIN:\?/);
+    assert.match(compose, /ADMIN_SITE_URL:\s*https:\/\/admin\.\$\{STAGING_DOMAIN:\?/);
+    assert.match(compose, /DATABASE_URL:\s*\$\{DATABASE_URL:\?/);
+    assert.match(compose, /MIGRATION_DATABASE_URL:\s*\$\{MIGRATION_DATABASE_URL:\?/);
+    assert.match(compose, /DATABASE_SSL:\s*"false"/);
+
+    const caddyService = compose.split('\n  caddy:')[1]?.split('\nnetworks:')[0];
+    assert.ok(caddyService, 'Compose must define the Caddy service.');
+    const caddyEnvironment = caddyService.match(/^    environment:\r?\n((?:^      .+\r?\n)+)/m)?.[1];
+    assert.ok(caddyEnvironment, 'Caddy must have an explicit environment mapping.');
+    const configuredDomains = [...caddyEnvironment.matchAll(/^\s+([A-Z_]+):\s*(.+)$/gm)]
+        .map(([, name, value]) => [name, value.trim()]);
+    assert.deepEqual(configuredDomains, [
+        ['STOREFRONT_DOMAIN', '${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}'],
+        ['ADMIN_DOMAIN', 'admin.${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}'],
+        ['API_DOMAIN', 'api.${STAGING_DOMAIN:?Set STAGING_DOMAIN in .env.staging}']
+    ]);
+
+    const caddyReferences = [...caddyfile.matchAll(/\{\$([A-Z_]+)\}/g)].map(([, name]) => name);
+    assert.deepEqual([...new Set(caddyReferences)].sort(), ['ADMIN_DOMAIN', 'API_DOMAIN', 'STOREFRONT_DOMAIN']);
+    assert.match(caddyfile, /\{\$STOREFRONT_DOMAIN\}/);
+    assert.match(caddyfile, /\{\$ADMIN_DOMAIN\}/);
+    assert.match(caddyfile, /\{\$API_DOMAIN\}/);
+    assert.match(caddyfile, /reverse_proxy app:3000/);
+    assert.doesNotMatch(compose, /^\s+DOMAIN:/m);
+});
+
+test('staging Compose keeps all published ingress loopback-only and internal services unpublished', async () => {
+    const compose = await readFile(new URL('../docker-compose.staging.yml', import.meta.url), 'utf8');
+    const services = compose.split(/(?=^  [a-z][\w-]*:\s*$)/m);
+    const serviceBlock = (name) => {
+        const block = services.find((service) => service.startsWith(`  ${name}:`));
+        assert.ok(block, `Compose must define ${name}.`);
+        return block;
+    };
+
+    for (const name of ['database', 'migrate', 'app']) {
+        assert.doesNotMatch(serviceBlock(name), /^\s+ports:/m, `${name} must not publish host ports.`);
+    }
+    for (const name of ['database', 'migrate', 'app', 'caddy']) {
+        assert.doesNotMatch(serviceBlock(name), /^\s+network_mode:\s*host\s*$/m, `${name} must not use host networking.`);
+    }
+
+    const caddyService = serviceBlock('caddy');
+    const portKeys = [...caddyService.matchAll(/^    ports:\s*$/gm)];
+    assert.equal(portKeys.length, 1, 'Caddy must declare exactly one ports section.');
+    const portSection = caddyService.match(/^    ports:\r?\n((?:^      - .+\r?\n)+)/m)?.[1];
+    assert.ok(portSection, 'Caddy ports must be declared as an explicit sequence.');
+    const caddyPorts = [...portSection.matchAll(/^      - "([^"]+)"\s*$/gm)]
+        .map(([, port]) => port);
+    assert.deepEqual(caddyPorts, [
+        '127.0.0.1:80:80',
+        '127.0.0.1:443:443',
+        '127.0.0.1:443:443/udp'
+    ]);
+    assert.ok(caddyPorts.every((port) => port.startsWith('127.0.0.1:')));
+});
+
 test('the local environment example contains no unassigned database connection URL', async () => {
     const examplePath = fileURLToPath(new URL('../.env.example', import.meta.url));
     const lines = (await readFile(examplePath, 'utf8')).split(/\r?\n/);

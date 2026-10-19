@@ -29,7 +29,11 @@ export function normalizePhone(value) {
     return digits.startsWith('880') ? digits.slice(2) : digits;
 }
 
-export function validateAndPriceOrder(payload, advanceCharge, { checkInventory = true, shopId = DEFAULT_SHOP_ID } = {}) {
+export function validateAndPriceOrder(payload, advanceCharge, {
+    checkInventory = true,
+    shopId = DEFAULT_SHOP_ID,
+    productLookup = findProductForShop
+} = {}) {
     const customer = payload?.customer ?? {};
     const payment = payload?.payment ?? {};
     const items = payload?.items;
@@ -58,7 +62,7 @@ export function validateAndPriceOrder(payload, advanceCharge, { checkInventory =
 
     const requestedStock = new Map();
     const pricedItems = items.map((item) => {
-        const product = findProductForShop(item?.productId, shopId);
+        const product = productLookup(item?.productId, shopId);
         if (!product || !Number.isInteger(item?.quantity) || item.quantity < 1 || item.quantity > 99) {
             throw new OrderInputError('An order contains an invalid product or quantity.');
         }
@@ -78,7 +82,7 @@ export function validateAndPriceOrder(payload, advanceCharge, { checkInventory =
         };
     });
     for (const [productId, quantity] of requestedStock) {
-        const product = findProductForShop(productId, shopId);
+        const product = productLookup(productId, shopId);
         if (!checkInventory || !Number.isSafeInteger(product.stockQuantity)) continue;
         if (quantity > product.stockQuantity) {
             throw new OrderInputError('An order quantity exceeds available stock.');

@@ -40,6 +40,7 @@ async function start() {
         host: process.env.HOST?.trim() || undefined,
         trustProxyHops: Number(process.env.TRUST_PROXY_HOPS || 0),
         siteUrl: process.env.PUBLIC_SITE_URL?.trim() || null,
+        adminSiteUrl: process.env.ADMIN_SITE_URL?.trim() || null,
         databaseUrl: required('DATABASE_URL'),
         databaseSsl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' || String(process.env.DATABASE_SSL || '').toLowerCase() === '1',
         jwtSecret: required('JWT_SECRET', 32),
@@ -74,6 +75,22 @@ async function start() {
         config.siteUrl = siteUrl.origin;
     } else if (config.nodeEnv === 'production') {
         throw new Error('PUBLIC_SITE_URL must be set in production for canonical URLs and the sitemap.');
+    }
+    if (config.adminSiteUrl) {
+        const adminSiteUrl = new URL(config.adminSiteUrl);
+        if (!['http:', 'https:'].includes(adminSiteUrl.protocol)
+            || adminSiteUrl.origin !== config.adminSiteUrl.replace(/\/+$/, '')) {
+            throw new Error('ADMIN_SITE_URL must be an absolute HTTP(S) origin without a path, query, or fragment.');
+        }
+        if (config.nodeEnv === 'production' && adminSiteUrl.protocol !== 'https:') {
+            throw new Error('ADMIN_SITE_URL must use HTTPS in production.');
+        }
+        if (config.siteUrl && adminSiteUrl.hostname !== `admin.${new URL(config.siteUrl).hostname}`) {
+            throw new Error('ADMIN_SITE_URL must use the admin subdomain of PUBLIC_SITE_URL.');
+        }
+        config.adminSiteUrl = adminSiteUrl.origin;
+    } else if (config.nodeEnv === 'production') {
+        throw new Error('ADMIN_SITE_URL must be set in production to protect admin browser sessions.');
     }
     if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) throw new Error('PORT must be a valid TCP port.');
     if (config.host && !isIP(config.host)) throw new HostConfigurationError();
@@ -135,10 +152,33 @@ async function start() {
     if (config.host) server.listen(config.port, config.host, onListening);
     else server.listen(config.port, onListening);
 
-    const shutdown = () => server.close(async () => {
-        await pool.end();
-        process.exit(0);
-    });
+    let shuttingDown = false;
+    const shutdown = () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        const forceClose = setTimeout(() => {
+            console.error('Graceful shutdown timed out; closing remaining HTTP connections.');
+            server.closeAllConnections?.();
+        }, 25_000);
+        forceClose.unref();
+        server.close(async (error) => {
+            clearTimeout(forceClose);
+            if (error) {
+                console.error('HTTP server shutdown failed:', { name: error.name || 'Error', code: error.code });
+                process.exitCode = 1;
+            }
+            try {
+                await pool.end();
+            } catch (poolError) {
+                console.error('PostgreSQL pool shutdown failed:', {
+                    name: poolError.name || 'Error',
+                    code: typeof poolError.code === 'string' ? poolError.code : undefined
+                });
+                process.exitCode = 1;
+            }
+        });
+        server.closeIdleConnections?.();
+    };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 }

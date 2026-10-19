@@ -3,6 +3,14 @@ import { fetchWithTimeout } from '../utils/fetchWithTimeout.js';
 export class HeaderView {
     constructor({ cartVM, wishlistVM, homeVM }) {
         this.loadAnnouncement();
+        const announcement = document.querySelector('.marketplace-announcement');
+        const announcementToggle = document.getElementById('announcementMotionToggle');
+        announcementToggle.addEventListener('click', () => {
+            const paused = announcement.classList.toggle('is-paused');
+            announcementToggle.setAttribute('aria-pressed', String(paused));
+            announcementToggle.setAttribute('aria-label', `${paused ? 'Resume' : 'Pause'} announcement`);
+            announcementToggle.textContent = paused ? 'Resume' : 'Pause';
+        });
         const cartBadge = document.getElementById('cartBadge');
         const wishBadge = document.getElementById('wishlistBadge');
         cartVM.summary.subscribe((s) => { cartBadge.textContent = s.count; });

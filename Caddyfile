@@ -1,4 +1,30 @@
-{$DOMAIN} {
+{$STOREFRONT_DOMAIN} {
     encode zstd gzip
+    @adminOnly path /admin /admin/* /admin-assets/* /admin-platform.html /api/v1/admin /api/v1/admin/*
+    respond @adminOnly 404
     reverse_proxy app:3000
+}
+
+{$ADMIN_DOMAIN} {
+    encode zstd gzip
+    @adminRoot path /
+    redir @adminRoot https://{$STOREFRONT_DOMAIN}/ 308
+    @adminSurface path /admin /admin/ /admin/platform /admin/platform/* /api/v1/admin /api/v1/admin/* /admin-assets/* /js/* /css/* /public-assets/* /uploads/* /healthz
+    handle @adminSurface {
+        reverse_proxy app:3000
+    }
+    handle {
+        respond 404
+    }
+}
+
+{$API_DOMAIN} {
+    encode zstd gzip
+    @publicApi path /healthz /api/v1/orders /api/v1/customer/order-lookup /api/v1/products /api/v1/products/* /api/v1/categories /api/v1/shops /api/v1/shops/* /api/v1/discounted-products /api/v1/top-selling /api/v1/storefront-config /api/v1/storefront-announcement /api/v1/public/shops/*
+    handle @publicApi {
+        reverse_proxy app:3000
+    }
+    handle {
+        respond 404
+    }
 }
