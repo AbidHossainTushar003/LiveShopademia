@@ -95,6 +95,22 @@ test('staging Compose wires the validated domain to app and all Caddy sites', as
     assert.match(caddyfile, /\{\$API_DOMAIN\}/);
     assert.match(caddyfile, /reverse_proxy app:3000/);
     assert.doesNotMatch(compose, /^\s+DOMAIN:/m);
+
+    const storefrontSite = caddyfile.split('{$STOREFRONT_DOMAIN} {')[1]?.split('{$ADMIN_DOMAIN} {')[0];
+    const adminSite = caddyfile.split('{$ADMIN_DOMAIN} {')[1]?.split('{$API_DOMAIN} {')[0];
+    const apiSite = caddyfile.split('{$API_DOMAIN} {')[1];
+    assert.ok(storefrontSite, 'Caddy must define the storefront host site.');
+    assert.ok(adminSite, 'Caddy must define the admin host site.');
+    assert.ok(apiSite, 'Caddy must define the API host site.');
+    assert.match(storefrontSite, /@adminOnly path \/admin \/admin\/\*/);
+    assert.match(storefrontSite, /respond @adminOnly 404/);
+    assert.match(adminSite, /@adminRoot path \//);
+    assert.match(adminSite, /redir @adminRoot https:\/\/\{\$STOREFRONT_DOMAIN\}\/ 308/);
+    assert.match(adminSite, /@adminSurface path \/admin(?:\/| )/);
+    assert.match(adminSite, /handle @adminSurface \{\s+reverse_proxy app:3000\s+\}/);
+    assert.match(apiSite, /@publicApi path \/healthz /);
+    assert.match(apiSite, /\/api\/v1\/public\/shops\/\*/);
+    assert.match(apiSite, /handle @publicApi \{\s+reverse_proxy app:3000\s+\}/);
 });
 
 test('staging Compose keeps all published ingress loopback-only and internal services unpublished', async () => {

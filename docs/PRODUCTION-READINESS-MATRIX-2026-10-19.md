@@ -1,7 +1,7 @@
 # Shopademia Production Readiness Matrix
 
-**Reassessed:** 2026-10-19 09:26 UTC
-**Repository:** `feature/admin-v2`, commit `49ff88d96ef0661d68c91cc81c4d671b63e592aa`
+**Reassessed:** 2026-10-19 09:45 UTC (15:45 +06)
+**Repository:** `feature/admin-v2`, commit `0786d690983d615bf1ef655909872229bd903f18`
 **Intended remote:** `AbidHossainTushar003/LiveShopademia`, `feature/admin-v2`
 **Overall verdict:** **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**
 
@@ -11,21 +11,21 @@
 
 | Area | Status | Evidence and limitation | Next safe action |
 |---|---|---|---|
-| Release source | PASS | Current local HEAD matches the intended GitHub branch. CI run `39227369801` succeeded for this commit. | Preserve the reviewed commit; do not infer release identity from a live response. |
-| Storefront host | PASS (limited) | `https://shopademia.store/` serves the Shopademia shell; `/healthz` returned `{"status":"ok"}`; the public catalog API returned JSON. | Verify product/search/cart behavior in an isolated browser environment and identify the live SHA. |
-| Admin host routing | FAIL | `https://admin.shopademia.store/` serves a LiteSpeed directory listing; `/admin` returns 404. Listing includes `cgi-bin` and `php.ini`; file contents were not opened. | Disable directory listing; inspect the web root and configure the intended authenticated admin route through the hosting provider. |
-| API host routing | FAIL | `https://api.shopademia.store/` and `/healthz` timed out with no response. | Verify DNS/vhost/proxy and app target using authorized host diagnostics; do not change DNS as a workaround. |
-| DNS | PASS (limited) | All three names resolved to `122.173.84.249` during reassessment. This does not prove correct virtual-host routing. | Confirm DNS ownership and hosting-provider mappings through an authorized account. |
-| TLS | PASS (limited) | TLS handshakes succeeded with trusted Let's Encrypt chains and observed apex/wildcard hostname coverage. | Verify renewal and each host's application mapping after routing is corrected. |
-| HTTP-to-HTTPS | PASS (limited) | A plain HTTP storefront request ended at the HTTPS apex. | Verify direct redirect status/headers after cutover. |
+| Release source | PASS (source/CI only) | Local HEAD and intended GitHub branch both match `0786d690983d615bf1ef655909872229bd903f18`; CI run `39230764949` passed. CI is not deployment evidence. | Preserve the reviewed commit; determine the live SHA only through an authorized host check. |
+| Storefront host | PASS (limited) | `https://shopademia.store/`, `/healthz`, and same-origin `/api/v1/products?limit=1` returned HTTP 200 over verified HTTPS. Live SHA and functional browser flows remain unknown. | Verify product/search/cart behavior in isolated staging and identify the live SHA. |
+| Admin host routing | FAIL — HOST CONFIG | `admin.shopademia.store` resolves to the shared IP and returns HTTP 200 from `Server: LiteSpeed` with a 1593-byte directory index listing `cgi-bin` and `php.ini`; `/admin` is 404. Neither listed entry was opened. Express has a `/admin` route; the live result is consistent with a wrong vhost/document root or missing proxy, but server configuration is unavailable. | Provider must disable listing and inspect the webroot read-only, then map this host to the intended app. Do not delete files or edit production config from this workspace. |
+| API host routing | FAIL — UPSTREAM/VHOST UNKNOWN | `api.shopademia.store` resolves to the same IP; TCP 443 and HTTPS negotiation succeeded and the HTTP request was sent, but no response arrived within 10 seconds. The apex-host health/catalog API works. | Provider must inspect host-specific vhost, proxy/upstream, process and logs. Do not change DNS as a workaround. |
+| DNS | PASS (limited) | All three A records resolved to `122.173.84.249`; the apex AAAA and admin/API CNAME queries returned no answer. Same IP does not prove correct host routing or ownership. | Confirm destination ownership and active vhost mappings through provider support. |
+| TLS | PASS (limited) | TLS verification succeeded for storefront and admin HTTP responses; API negotiated HTTPS before timing out. Certificate success does not establish app routing. | Verify renewal and each host's application mapping after routing is corrected. |
+| HTTP-to-HTTPS | PASS (limited) | Prior probe showed the storefront HTTP request ending at HTTPS; no fresh redirect behavior was needed to diagnose the current host routing. | Verify direct redirect status/headers after cutover. |
 | Storefront/API code | PASS (source/unit scope) | Express routes, product/catalog repositories, server-priced order validation, and `GET /healthz` are present. Tests use fake pools for most API cases. | Validate real PostgreSQL behavior only against an explicitly isolated, marked test database. |
 | Product shop isolation / SEO-001 | PASS (source/regression scope) | The server-rendered product route resolves `findProductForShop`; new test confirms another active shop cannot render the main-shop product's metadata. | Retain this regression test. |
-| Admin authentication | BLOCKED (production) | Source includes login, token/session controls, MFA enforcement in production, and protected admin APIs; the public admin host does not reach that app. | Correct host routing, then test with an authorized synthetic staging identity. |
+| Admin authentication | BLOCKED (production) | Source includes login, token/session controls, production MFA enforcement, HttpOnly/Secure/SameSite=Strict cookies and same-origin checks; the public admin host does not reach that app. | Correct host routing, then test with an authorized synthetic staging identity. |
 | Customer orders/payment | PASS (test/source scope only) | Unit/API tests cover server-side prices, validation, idempotency, and order flows. README states payment collection is manual; no bKash API integration exists. | Test only in isolated staging with synthetic data; do not place a live order. |
 | PostgreSQL production state | BLOCKED | The authoritative production database, owner, schema, and existing records were not inventoried. A live storefront readiness response alone is not a backup or migration-safety check. | Use authorized, read-only provider access to identify database and schema before planning changes. |
-| Backup and restore | BLOCKED | No verified database/upload backup, checksum record, or isolated restore drill is evidenced. | Create protected backups through supported provider tools and validate restoration into an isolated target. |
+| Backup and restore | BLOCKED | Repository backup/restore scripts exist; no production backup pair, integrity record, or isolated restore drill is evidenced. Script presence is not recovery evidence. | Create protected backups through supported provider tools and validate restoration into an isolated target. |
 | Rollback | BLOCKED | No prior release mapping, tested rollback, or recovery time evidence is available. | Preserve the current release and document/test rollback before any cutover. |
-| Hosting runtime | BLOCKED | cPanel lists Application Manager and Setup Node.js App tools, but page navigation failed. A prior trusted SSH read-only session found PostgreSQL tools but no Node/npm/Docker in normal `PATH`; subsequent SSH attempts timed out. | Through a working authenticated cPanel session, record supported Node versions, app state, process restart, environment, database connectivity, and domain mappings. |
+| Hosting runtime | BLOCKED / UNVERIFIED | The shared cPanel page shows menu links for Application Manager and Setup Node.js App but currently reports an HTTP 401 resource error; no runtime/version, app state, or domain mapping is visible. A prior trusted SSH read-only session found PostgreSQL tools but no Node/npm/Docker in ordinary `PATH`; later SSH timed out. Neither observation proves unsupported Node. | Ask the provider to confirm Node 20+, persistent process management, Docker/Compose, PostgreSQL connectivity, protected env support, backups, and per-host vhost/upstream details. |
 | Local test suite | PASS | `npm test`: 169 tests, 168 passed, 0 failed, 1 skipped. | Provision the explicitly isolated PostgreSQL test database to remove the integration-test skip. |
 | Dependency audit | PASS | `npm audit --audit-level=low`: 0 vulnerabilities reported. This is not a full source security review. | Continue normal lockfile and CI review. |
 | Production configuration | BLOCKED | `.env.production` is absent; `npm run validate:production` refuses to proceed. No production secrets were generated or displayed. | Provision secrets directly in the authorized host's protected environment after runtime and backup checks. |
@@ -45,25 +45,71 @@
 | Skipped test | `PostgreSQL checkout reads current product state and prevents concurrent oversell`; it is explicitly opt-in and requires a loopback-only isolated database with marked database/role identity. No test identity was configured. |
 | `npm audit --audit-level=low` | PASS — 0 vulnerabilities |
 | Lint/type-check | NOT APPLICABLE — no lint or type-check script is defined in `package.json`. |
-| `npm run build:css` | PASS in the preceding assessment; the generated-only diff was restored. |
+| Focused admin/routing tests | PASS — 3 tests passed for admin page/headers, configured admin origin, and staging domain-to-Caddy wiring. |
+| Tailwind production CSS build | PASS — built to a temporary file with `npm exec -- tailwindcss -i css/tailwind.input.css -o "$env:TEMP\shopademia-tailwind-generated.css" --minify`; output content matched the checked-in CSS after line-ending normalization. The temporary output was removed; the repository artifact was not modified. |
+| Caddy route regression assertions | PASS — added checks for storefront admin-path denial, admin `/admin` forwarding/root redirect, and API `/healthz` and public API forwarding. The focused staging-config test passed. |
 | `npm run validate:production` | BLOCKED — `.env.production` is intentionally absent. |
 | Playwright | BLOCKED — no isolated local preview; production targets are explicitly refused by the repository guard. |
 | Android Gradle build/tests | BLOCKED — Android project is absent from current HEAD. |
-| GitHub Actions | PASS — workflow run [39227369801](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39227369801). |
+| GitHub Actions | PASS — run [39230764949](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39230764949) for commit `0786d690983d615bf1ef655909872229bd903f18`; CI is not a production deployment. |
+
+The Caddy route regression assertions are uncommitted local changes and were not part of CI run `39230764949`; the complete local test suite above includes them.
 
 ## Live domain observations
 
-During the 2026-10-19 reassessment:
+During the 2026-10-19 09:37 UTC reassessment:
 
-- `shopademia.store`: storefront HTML, health JSON, and public catalog JSON responded over HTTPS.
-- `admin.shopademia.store`: LiteSpeed directory index; `/admin` returned 404.
-- `api.shopademia.store`: requests timed out.
+- `shopademia.store`: `/`, `/healthz`, and `/api/v1/products?limit=1` returned HTTP 200 over verified HTTPS.
+- `admin.shopademia.store`: HTTP 200 from LiteSpeed directory index (1593 bytes); `/admin` returned 404. The listing names only `cgi-bin` and `php.ini`; their contents were not opened.
+- `api.shopademia.store`: TCP/TLS succeeded and HTTP request was sent, but no response bytes arrived within 10 seconds on `/healthz` or `/`.
+- All three names resolved to `122.173.84.249`; the apex AAAA and admin/API CNAME queries returned no answer. This does not identify the actual virtual host or upstream.
 - The integrated browser returned load failures for the storefront and admin; browser functional behavior therefore remains unverified.
 
-These observations do not identify the deployed code SHA, validate admin authorization in production, or establish data recoverability.
+The repository's Express `/admin` route and Caddy host-routing contract are present and covered by tests/config validation. The observations indicate a production vhost/proxy mismatch, not a reproduced application-route failure. Exact document root, API upstream, running process, and provider policy remain unknown without authorized host diagnostics.
 
 ## Release gate
 
-**NO-GO.** The storefront's partial availability does not satisfy the three-host architecture. The admin host is incorrectly routed and directory indexing is enabled; the API host is unreachable. The production database/uploads, backups, restore, rollback, runtime, deployed SHA, and isolated browser workflow checks remain unverified. No production changes were attempted.
+**PRODUCTION NO-GO — DEPLOYMENT BLOCKED.** The storefront is partially available, but the admin host exposes a LiteSpeed directory index and fails `/admin`; the API hostname accepts an HTTPS request but sends no response. No application code defect or safe code-level remediation was established. Production database/uploads, verified backups/restore, rollback, supported runtime, deployed SHA, and isolated browser workflows remain unverified. No production changes were attempted.
 
-Required before a production change: restore reliable authorized host access; verify supported runtime and routing; inventory persistent data read-only; create and restore-test protected backups; document rollback; provision secrets on-host; verify isolated staging; then deploy a known, reviewed release and test all domains.
+## Minimum provider action
+
+Send the hosting provider an authenticated support request asking them to (1) confirm Node 20+ persistent-process, Docker/Compose, Caddy ports 80/443, PostgreSQL and persistent-volume support; (2) identify the active document root and vhost/proxy/upstream for each hostname; (3) disable admin directory listing and inspect the webroot read-only without deleting files; (4) inspect API-host upstream/process logs for the no-response timeout; and (5) confirm protected environment-variable and backup/restore capabilities. Require written approval before any DNS, routing, file, database, or service changes. If the plan cannot run the repository's existing Docker Compose architecture, request an authorized Linux VPS rather than replacing the app/database.
+
+Required before a production change: obtain the provider response and authorized host access; inventory persistent data read-only; create protected backups and prove restoration into isolation; document rollback; provision secrets on-host; verify isolated staging; then deploy a known, reviewed release and test all domains.
+
+## Authenticated cPanel evidence update — 2026-10-19
+
+This update supersedes earlier claims that cPanel runtime status and domain roots were unavailable. It does not supersede the production NO-GO verdict.
+
+| Area | Latest verified evidence | Status / remaining gate |
+|---|---|---|
+| GitHub release and CI | GitHub API confirms `AbidHossainTushar003/LiveShopademia:feature/admin-v2` is at `0786d690983d615bf1ef655909872229bd903f18`; Actions run `39230764949` succeeded for this SHA. The local `github` remote points elsewhere; local investigation edits are uncommitted/unpushed. | PASS for source/CI only; not deployment evidence. |
+| cPanel domain roots | cPanel Domains lists `/home/shopadem/public_html`, `/home/shopadem/admin.shopademia.store`, and `/home/shopadem/api.shopademia.store`, with HTTPS forced on each. | Verified roots; effective LiteSpeed/Nginx vhost and upstream settings remain unavailable. |
+| Admin host and listing | Public response has `Server: LiteSpeed`; root returns a directory index, `/admin` returns 404. cPanel maps this host to its independent directory; visible entries are `cgi-bin` (0755) and `php.ini` (374 bytes, 0644). Contents and hidden entries were not inspected. cPanel Indexes is `Inherit`; `HEAD` to those paths returned 403. | FAIL — host/application mapping. No sensitive content exposure confirmed. cPanel offers **No Indexing**, but it was not applied. |
+| API host and routing | API host has its own cPanel document root. Public `/healthz` received zero response bytes in a 10-second probe; authenticated browser showed HTTP 500 “Request Timeout.” No effective vhost/upstream or error log was available. | FAIL — exact timeout cause unknown. Provider must inspect host routing and logs. |
+| Passenger / Node runtime | cPanel Setup Node.js App reports a single production Passenger app at URI `shopademia.store/`, root `/home/shopadem/shopademia-app`, Node `v20.20.2`, startup `server/index.js`, status `started`. | PARTIAL PASS — Node 20 app manager and apex app are verified; admin/API host mapping, live SHA, and database-connected health are not. |
+| Runtime environment | cPanel showed environment-variable names only; values were not read. `DATABASE_URL` and `DATABASE_SSL` appear in the displayed list; source-required `ADMIN_SITE_URL` did not. | BLOCKED — host must verify effective configuration securely; no secret values should be placed in reports. |
+| PostgreSQL | cPanel lists `shopadem_shopapp` (8.54 MB) and `shopadem_shopuser`. | PARTIAL inventory only — running app's connection target, schema, records, and authoritative production identity are unverified. |
+| Backups and recovery | cPanel states there are no automatically generated backups; partial home-directory and database backup downloads dated Oct. 8 are offered. No backup was downloaded or restored; JetBackup provided no usable evidence. | BLOCKED — coverage, integrity, isolated restoration, uploads, and rollback remain unverified. |
+| Logs / web-server configuration | cPanel Errors page navigation timed out; no application/error logs or effective vhost configuration were obtained. Public storefront/admin identify LiteSpeed; this does not rule out a proxy layer. | BLOCKED — provider support required to explain API timeout and provide supported host mapping. |
+| Hosting architecture | Passenger/Node 20 is present for one app; PostgreSQL management UI is present. | PARTIAL — Docker/Compose/Caddy support and required persistent storage/backup capabilities remain unverified; no production deployment target is approved. |
+
+Public outcomes remain separate: the storefront root, health check, and same-origin catalog API returned HTTP 200; admin root listed directory entries and `/admin` returned 404; API hostname did not return a response within the bounded probe. No code-level application defect explaining those host-specific results has been demonstrated, and no production changes were made. `PRODUCTION NO-GO — DEPLOYMENT BLOCKED` remains the only release verdict.
+
+Latest local verification: `npm test` — 169 total, 168 passed, 0 failed, 1 opt-in PostgreSQL test skipped; `npm audit --audit-level=low` — 0 vulnerabilities; `npm run build:css` — PASS. An independent build to a temporary path was byte-for-byte identical to the generated stylesheet. Against baseline HEAD, generation removes only the unused `.isolate{isolation:isolate}` utility; no source uses the `.isolate` class, and the separate `isolation:isolate` CSS declaration remains. This generated artifact change is included in the candidate. `git diff --check` — PASS. These results do not establish live deployment or production recovery readiness.
+
+## Fresh baseline recheck — 2026-10-19 16:19 +06
+
+| Requirement | Status | Fresh evidence / limitation |
+|---|---|---|
+| Intended GitHub branch baseline | PASS (baseline only) | `git ls-remote` and GitHub branch listing both report `feature/admin-v2` at `0786d690983d615bf1ef655909872229bd903f18`. CI run `39230764949` succeeded for that SHA, not the subsequent local changes. |
+| Storefront | PASS (limited) | Fresh HTTPS `/`: 200, HTML, 34,371 bytes, 0.435 s; `/healthz`: 200 JSON, 15 bytes, 0.264 s; `/api/v1/products?limit=1`: 200 JSON, 3,770 bytes, 0.260 s. `Server: LiteSpeed`; TLS verification succeeded. No browser customer-flow test. |
+| Admin | FAIL | Fresh HTTPS `/`: 200 LiteSpeed HTML directory index, 1,593 bytes, 0.357 s. `/admin`: 404 HTML, 1,251 bytes, 0.239 s. cPanel's admin root remains separate from Passenger; Indexes remains `Inherit`; no production setting was changed. |
+| API | FAIL | Fresh HTTPS `/healthz`: HTTP `000`, curl exit 28 after 10.013 s, zero response bytes and no content type. TLS/HTTP connection was made before timeout; effective upstream cause remains unknown. |
+| DNS | PASS (limited) | All three A lookups returned `122.173.84.249`; this does not identify routing or origin ownership. |
+| cPanel containment capability | PASS (control observed; not applied) | Indexes `No Indexing` states no files appear if no default file exists; current selection is `Inherit`. It does not route requests to Express. No setting was saved. |
+| Recovery/deployment gates | BLOCKED | Running app's database identity, schema/data and upload inventory; complete backup integrity; isolated restoration; rollback; isolated staging; effective vhosts/logs; and production authorization remain unverified. |
+
+Probes were certificate-validating HTTPS GETs with a 10-second maximum and redirect-following enabled; redirect counts were not captured. No live deployment, application restart, production file/database/upload/DNS mutation, commit, or push is established by this check. The two unrelated untracked files remain untouched. Verdict remains **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**.
+
+Current local suite and artifact checks: `npm test` — 169 total, 168 passed, 0 failed, 1 opt-in PostgreSQL test skipped; `npm audit --audit-level=low` — 0 vulnerabilities; production CSS build plus independent comparison — PASS; `git diff --check` — PASS.
