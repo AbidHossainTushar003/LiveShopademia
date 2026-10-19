@@ -130,3 +130,55 @@ This section records a new bounded read-only check after the preceding cPanel in
 - GitHub Actions CI run [39237231146](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237231146) completed successfully for exactly this commit. It validates the workflow checks, not a production deployment.
 - Local verification for this candidate: 169 tests total, 168 passed, 0 failed, 1 opt-in PostgreSQL integration test skipped; dependency audit found 0 vulnerabilities; CSS build and independent output comparison passed; `git diff --check` passed.
 - No production deployment, file/configuration change, DNS change, process restart, or database/upload mutation was performed. Two unrelated untracked entries remain untouched. The release verdict remains **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**.
+
+## Latest bounded production and source audit — 2026-10-19 16:41 +06
+
+### Repository, published candidate, and CI
+
+- Local branch `feature/admin-v2` and HEAD are `61eff3c199ecb2fadf9574bbd168ce52b934367a`. GitHub confirms `AbidHossainTushar003/LiveShopademia:feature/admin-v2` points to this exact SHA; Actions run [39237401770](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237401770) completed successfully for it.
+- The local `github` tracking remote points to a different repository, and `origin` is the cPanel SSH deployment target. The local “ahead 6” label is relative to that unrelated tracking ref; it is not evidence of divergence from the intended GitHub repository. The intended GitHub branch was independently checked through GitHub.
+- The tracked worktree was clean at audit start. This audit has since modified the three reports and regenerated the CSS artifact; those local changes are not committed or covered by CI. Two unrelated untracked entries remain untouched. No production commit, cPanel configuration, DNS, process, database, upload, or customer record was changed.
+
+### Fresh public checks
+
+Certificate-validating HTTPS probes used a 10-second maximum and followed redirects; final URLs remained the requested HTTPS URLs. An initial parallel probe was repeated once per route after a local PowerShell output-filter error; no further retries were made.
+
+| Host and route | Result | Response evidence |
+|---|---|---|
+| `shopademia.store/` | RESPONDING | HTTP 200; HTML; 34,371 bytes; 0.338 s; `Server: LiteSpeed`; HSTS present. |
+| `shopademia.store/api/v1/products?limit=1` | RESPONDING | HTTP 200; JSON; 3,770 bytes; 0.257 s; `Server: LiteSpeed`; HSTS present. |
+| `admin.shopademia.store/` | MISROUTED | HTTP 200; HTML; 1,593 bytes; 0.261 s; `Server: LiteSpeed`. cPanel still maps this hostname to its own document root, and its Indexes setting remains Inherit. Previous bounded inspection observed a directory index; no listed file contents were opened. |
+| `admin.shopademia.store/admin` | MISROUTED | HTTP 404; HTML; 1,251 bytes; 0.262 s; `Server: LiteSpeed`. |
+| `api.shopademia.store/healthz` | NO RESPONSE | curl exit 28 after 10.007 s; HTTP `000`; zero bytes; no content type. The TCP/TLS/HTTP handshake had succeeded in the earlier bounded probe; this request received no HTTP response. |
+
+All three A lookups returned `122.173.84.249`. The requests validated TLS certificates. These observations establish the current public outcomes, not the server's complete proxy topology or live application revision.
+
+### Current cPanel evidence and uncertainty
+
+- cPanel Domains continues to show separate document roots for the storefront, admin, and API. The Setup Node.js App screen reports one production Passenger app at URI `shopademia.store/`, application root `/home/shopadem/shopademia-app`, Node.js `v20.20.2`, startup `server/index.js`, status `started`. It does not expose the live Git SHA, database target, per-request routing, or effective web-server proxy configuration.
+- Public responses identify LiteSpeed as the responding web server. The effective virtual-host configuration was not available, so an upstream Nginx layer is neither confirmed nor ruled out.
+- The cPanel Errors page snapshot visible during this check contained Passenger `[INFO]` messages and restart-marker entries timestamped between 06:45 and 16:02 +06. It included virtual-host labels for storefront, admin, and API contexts, including 23 admin and 10 API label occurrences. The displayed snapshot contained no `ERROR`, `WARN`, `timeout`, `failed`, `exception`, `502`, `503`, or `upstream` markers. This limited log view does not establish that requests reached Express or explain the API timeout.
+- The Passenger host-context markers qualify, but do not resolve, the application-mapping question: the app manager lists only the storefront URI, while the log snapshot also names admin/API virtual-host contexts. Neither is effective vhost/upstream configuration. Do not conclude from either alone that admin/API requests are correctly mapped or that an app is absent.
+- cPanel Indexes for the admin root remains set to **Inherit**. **No Indexing** is available but was not applied. Earlier `HEAD` checks to `/php.ini` and `/cgi-bin/` returned 403; this does not prove that all files are protected. No sensitive contents or secret exposure were confirmed.
+- The environment-variable screen exposed names only; no values were read. It displayed `DATABASE_URL` and related names but not `ADMIN_SITE_URL`, which production source validation requires. The displayed list does not prove the effective process environment is missing that variable; the provider must verify it securely.
+- cPanel lists PostgreSQL database `shopadem_shopapp` (8.54 MB) and user `shopadem_shopuser`, but the live `DATABASE_URL` was not inspected. The Backup page says no automatic backups and offers partial downloads dated Oct. 8; none was downloaded or restored. Isolated recovery, uploads coverage, rollback, staging, and production database identity remain unverified.
+
+### Prioritized issue register
+
+| ID | Priority | Status | Evidence | Minimum next action |
+|---|---|---|---|---|
+| HOST-001 | P1 | Confirmed | Admin hostname serves a LiteSpeed HTML index from its separate cPanel document root; `/admin` is 404, while Express source defines `/admin`. | In cPanel, use the supported No Indexing control to suppress listing, then have the host map the admin hostname and `/admin` to the existing Express app. Preserve files; do not guess at vhost changes. |
+| HOST-002 | P1 | Confirmed failure; cause unresolved | API `/healthz` times out with zero bytes. cPanel shows a separate API root and Passenger context markers, but effective routing and upstream logs are unavailable. | Ask the host to inspect effective LiteSpeed/proxy/Passenger routing and request-timeout logs for this hostname; provide a supported mapping to the existing Express app. |
+| OPS-001 | P1 | Blocked | The running app's PostgreSQL target and production data/uploads inventory are unverified; no complete backup has been successfully restored in isolation, and rollback is untested. | Verify the connection target without revealing credentials; obtain protected database/upload backups; restore to an isolated target and rehearse application/data rollback before any release. |
+| DEP-001 | P1 | Blocked | Passenger reports Node 20.20.2 started, but live SHA, effective production environment, staging, and deploy/rollback target are unknown. | Host confirms deployed release identity, runtime environment, route map, persistence, and safe staging/release/rollback support. |
+| AUD-001 | P2 | Open / scope-limited | Full browser customer/admin journeys and real PostgreSQL concurrency/restore are not verified. The opt-in PostgreSQL test is skipped. The current tree has no Android Gradle project or manifest. Earlier audit items still include owner/legal decisions for privacy retention and shop-specific fulfillment/refund policy. | Use isolated PostgreSQL and browser staging with synthetic identities/data; obtain owner-approved requirements and policy decisions; do not claim Android coverage for this revision. |
+
+### Local validation and source review
+
+- `npm test`: 169 tests; 168 passed, 0 failed, 1 opt-in PostgreSQL integration test skipped.
+- `npm audit --audit-level=low`: 0 vulnerabilities.
+- `npm run build:css`: PASS. The generated artifact now includes `.isolate{isolation:isolate}`; no HTML or JavaScript class reference was found, while `css/styles.css` has a separate `isolation:isolate` declaration. This is an unused generated utility, not an observed functional defect; the checked-in generated file was rebuilt to match the reproducible command.
+- A focused security review of Express routes, admin authentication/session/origin controls, PostgreSQL access and migrations, upload/static-path handling, environment configuration, and deployment assets found no security vulnerabilities in the reviewed source at `61eff3c`. It did not verify production configuration, database grants, live routing, or runtime behavior. `npm audit` is reported separately.
+- No application routing defect was reproduced in source that explains the public admin/API failures. The code-level admin route and relative storefront API configuration remain consistent with the successful same-origin storefront API; the failures are host-specific and require hosting evidence/actions.
+
+**Release decision:** **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**. Do not deploy or alter production data. First contain directory indexing via the supported cPanel control, obtain the provider's effective host/upstream diagnosis and supported route mapping, and complete verified database/upload backup, isolated restore, and rollback gates.

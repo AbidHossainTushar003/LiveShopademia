@@ -121,3 +121,30 @@ Current local suite and artifact checks: `npm test` — 169 total, 168 passed, 0
 | Candidate source | PASS (source only) | Commit `1ec245ca10a9d4c552b7718ad1ea6c7739ae108c` was pushed to `AbidHossainTushar003/LiveShopademia:feature/admin-v2`; GitHub branch SHA and `git ls-remote` match. |
 | CI for candidate | PASS (CI only) | GitHub Actions run [39237231146](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237231146) completed successfully for the exact commit above. No live deployment is implied. |
 | Production | BLOCKED | Admin/API routing and production recovery/authorization gates remain unresolved; no production change was made. |
+
+## Latest audit refresh — 2026-10-19 16:41 +06
+
+| Area | Status | Latest evidence and limitation |
+|---|---|---|
+| Intended GitHub source and CI | PASS (source/CI only) | GitHub confirms `feature/admin-v2` at `61eff3c199ecb2fadf9574bbd168ce52b934367a`; CI run [39237401770](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237401770) succeeded for this SHA. This is not deployment evidence. Local tracking points to a different repository; the intended GitHub ref was checked independently. Current audit report/CSS edits are local and not covered by that run. |
+| Storefront hostname | PASS (limited) | HTTPS `/` returned 200 HTML (34,371 bytes, 0.338 s); same-origin `/api/v1/products?limit=1` returned 200 JSON (3,770 bytes, 0.257 s). Both identified LiteSpeed; TLS verified. Full browser customer journeys and live release SHA are unknown. |
+| Admin hostname | FAIL — host mapping/indexing | HTTPS `/` returned 200 HTML (1,593 bytes, 0.261 s); `/admin` returned 404 HTML (1,251 bytes, 0.262 s). cPanel maps the hostname to a separate document root and Indexes remains Inherit. The public index and missing Express route remain a confirmed operational failure; no sensitive file contents were examined. |
+| API hostname | FAIL — exact cause unknown | HTTPS `/healthz` timed out after 10.007 s, HTTP `000`, zero bytes. cPanel logs show Passenger context markers for the API hostname but no error/timeout marker in the visible snapshot. Effective proxy/upstream/request handling remains unverified. |
+| DNS/TLS | PASS (limited) | All three A records resolve to `122.173.84.249`; curl certificate validation succeeded. This does not identify the effective vhost or upstream. |
+| Responding web server | PARTIAL | Public responses identify LiteSpeed. Effective virtual-host configuration is unavailable; an upstream Nginx layer is neither confirmed nor ruled out. |
+| cPanel runtime | PARTIAL | Node.js `v20.20.2`, Passenger, startup `server/index.js`, application root `/home/shopadem/shopademia-app`, and `started` status are reported for the storefront URI. The live deployed SHA and actual request mapping remain unknown. |
+| cPanel logs | PARTIAL / non-diagnostic | Visible Errors-page snapshot showed Passenger INFO/restart-marker entries for storefront/admin/API host contexts and no error-level/timeout strings. It does not establish request routing, process health for each hostname, or explain the API timeout. |
+| PostgreSQL and recovery | BLOCKED | cPanel lists `shopadem_shopapp` (8.54 MB); the app's actual connection target remains unknown. No automatic backups are reported; partial Oct. 8 downloads were not restored. Backup integrity, uploads, isolated restore, rollback, and staging are unverified. |
+| Source security review | PASS (bounded) | Focused source review found no vulnerabilities at `61eff3c`; live secrets, DB grants, deployed proxy configuration, and runtime behavior were not reviewed. Dependency audit separately reports 0 vulnerabilities. |
+| Test/build | PASS (local scope) | `npm test`: 169 total, 168 passed, 0 failed, 1 opt-in PostgreSQL test skipped. CSS build passed and the generated artifact was synchronized with the command output. No real PostgreSQL integration, full browser flow, or production smoke test. |
+| Other audit scope | OPEN | No Android project/manifest is present in this revision. Full browser customer/admin journeys, PostgreSQL restore/concurrency checks, and owner-approved privacy/fulfillment/refund decisions remain outstanding; see `AUDIT_REPORT.md`. |
+
+### Prioritized release issues
+
+1. **P1 HOST-001 — Admin listing and `/admin` 404:** suppress indexing using the supported cPanel control, then map the hostname to the existing Express app. Do not delete files.
+2. **P1 HOST-002 — API hostname timeout:** provider must inspect effective LiteSpeed/Passenger/proxy configuration and request-timeout logs; map the allowlisted API paths and health route to the existing Express process.
+3. **P1 OPS-001 — Recovery not proven:** identify the live PostgreSQL target privately; back up database and uploads; prove isolated restore and application/data rollback.
+4. **P1 DEP-001 — Deployment target/live revision unknown:** verify deployed commit, effective environment, staging, persistent storage, and authorized rollback path.
+5. **P2 AUD-001 — Product acceptance gaps:** complete isolated database and browser tests, recover owner-approved requirements/policies, and do not imply Android support for this source tree.
+
+**Verdict remains `PRODUCTION NO-GO — DEPLOYMENT BLOCKED`.** No production configuration or data was changed.

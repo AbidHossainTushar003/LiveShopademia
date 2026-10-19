@@ -896,3 +896,52 @@ Fresh local verification after the recheck: `npm test` — 169 total, 168 passed
 ## Published source candidate and CI — 2026-10-19 16:25 +06
 
 Commit `1ec245ca10a9d4c552b7718ad1ea6c7739ae108c` was pushed to the verified GitHub branch `AbidHossainTushar003/LiveShopademia:feature/admin-v2`. Actions run `39237231146` completed successfully for this exact SHA. Local validation was 168/169 passing (one opt-in PostgreSQL test skipped), zero dependency vulnerabilities, CSS build/comparison passing, and `git diff --check` passing. This is source publication only; the production admin/API failures, database identity, recovery evidence, and release authorization remain blockers. No production changes were made.
+
+## Latest cPanel, public-host, and source-security audit — 2026-10-19 16:41 +06
+
+This bounded refresh supersedes earlier interpretations where the new cPanel evidence narrows or qualifies them. It is not a production deployment, penetration test, full browser acceptance run, PostgreSQL restore drill, or security certification.
+
+### Baseline and independent release evidence
+
+- Local branch `feature/admin-v2`, HEAD `61eff3c199ecb2fadf9574bbd168ce52b934367a`.
+- GitHub API independently confirms `AbidHossainTushar003/LiveShopademia:feature/admin-v2` is at this exact SHA, and Actions run [39237401770](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39237401770) succeeded for it.
+- The configured local `github` tracking remote points to a different repository; `origin` is the cPanel SSH deployment target. The local ahead-count is therefore not a comparison against the intended GitHub branch.
+- The tracked worktree was clean at audit start. This audit has since modified the three reports and regenerated the CSS artifact; those local changes are not committed or covered by CI. Two unrelated untracked entries were preserved. No production setting, source file, process, DNS, database, upload, or customer record was changed.
+
+### Fresh domain and hosting observations
+
+- All three A records resolve to `122.173.84.249`. Certificate-validating HTTPS checks completed for storefront/admin; the API negotiated HTTPS but gave no HTTP response.
+- `https://shopademia.store/`: HTTP 200, HTML, 34,371 bytes, 0.338 s, `Server: LiteSpeed`, HSTS present.
+- `https://shopademia.store/api/v1/products?limit=1`: HTTP 200, JSON, 3,770 bytes, 0.257 s. The storefront's relative `/api/v1` base continues to work on its own host.
+- `https://admin.shopademia.store/`: HTTP 200, HTML, 1,593 bytes, 0.261 s, `Server: LiteSpeed`. cPanel maps the hostname to a separate document root; its Indexes setting is still **Inherit**. Earlier public inspection observed an index listing `cgi-bin` and `php.ini`; their contents were not opened.
+- `https://admin.shopademia.store/admin`: HTTP 404, HTML, 1,251 bytes, 0.262 s, `Server: LiteSpeed`. The source-level Express `/admin` route therefore is not serving the current public request.
+- `https://api.shopademia.store/healthz`: curl exit 28 after 10.007 s, HTTP `000`, zero response bytes. This is a host-specific failure; the same-origin catalog endpoint above responds.
+- cPanel's Node.js page reports one Passenger application at URI `shopademia.store/`, root `/home/shopadem/shopademia-app`, Node.js `v20.20.2`, startup `server/index.js`, production mode, status `started`. The cPanel Errors-page snapshot showed Passenger INFO/restart-marker records timestamped 06:45–16:02 +06. It included Passenger virtual-host labels for admin and API contexts, but no `ERROR`, `WARN`, timeout, failure, exception, 502/503, or upstream marker in the displayed snapshot. Those markers do not prove requests reach the intended Express routes; they also mean the exact API configuration cannot be concluded from the app-manager URI alone.
+- Public responses identify LiteSpeed as the responding server. The effective virtual-host configuration was unavailable, so an upstream Nginx layer is neither confirmed nor ruled out.
+- The earlier model that the API simply has no Passenger involvement is **not established**. cPanel confirms a separate API document root, the app-manager list shows only the storefront URI, and the limited log shows Passenger API-context markers. Effective vhost/upstream configuration and request-correlated logs are still needed to distinguish route mapping, upstream, Passenger, provider, or application timeout causes.
+- cPanel's displayed environment-variable names included `DATABASE_URL` but not `ADMIN_SITE_URL`; no values were inspected, so the effective process environment remains unknown. The displayed PostgreSQL inventory is `shopadem_shopapp` (8.54 MB) with user `shopadem_shopuser`, but the live app's database target is not confirmed.
+- cPanel reports no automatic backups and offers partial database/home downloads dated Oct. 8. None was downloaded or restored. No backup integrity, complete upload coverage, isolated restoration, rollback, staging, or deployment authorization is evidenced.
+- cPanel offers **No Indexing** for the admin directory, but it remains set to **Inherit** and was not changed. Bounded HEAD requests to the visible `php.ini` and `cgi-bin` paths returned 403; this is not proof of complete webroot protection. No sensitive content or secret disclosure was confirmed.
+
+### Current issue register
+
+| ID | Priority | Finding | Evidence / limitation | Disposition |
+|---|---|---|---|---|
+| HOST-001 | P1 | Admin hostname lists its document root and `/admin` is unavailable. | cPanel separate admin root, Indexes Inherit; public root 200 and `/admin` 404. Express source does define `/admin`; Caddy's repository route is not evidence of the live LiteSpeed mapping. | Hosting action: suppress indexing using the supported cPanel control and map admin routes to the existing Express app. Preserve all files. |
+| HOST-002 | P1 | API hostname does not respond. | Public `/healthz` times out at 10 seconds with zero bytes. Passenger API-context markers exist, but the visible log is informational and no effective vhost/upstream or request-correlated error log is available. | Hosting action: inspect active LiteSpeed/Passenger/proxy config and timeout logs, then provide a verified route to the existing Express app. |
+| OPS-001 | P1 | Production data recovery is not release-ready. | Actual database target, schema/data inventory, uploads, complete backups, isolated restore, and rollback are unverified. | No production mutation until protected backup and isolated DB/upload restoration plus rollback are demonstrated. |
+| DEP-001 | P1 | The live release and runtime config are unknown. | Passenger reports the apex app started, but does not identify deployed SHA or confirm all per-host mappings, effective environment, or persistent data. | Confirm release identity, required `ADMIN_SITE_URL` and other settings privately, staging support, and rollback with the host. |
+| AUD-001 | P2 | End-to-end acceptance remains partial. | Current test suite skips its opt-in PostgreSQL integration test; no live browser/customer/admin flow, cross-browser/a11y acceptance, isolated concurrency/restore, or Android project is evidenced. Owner/legal requirements for privacy retention and shop-specific fulfillment/refund terms remain open in prior audit findings. | Complete only in isolated staging with synthetic data and approved requirements. |
+
+### Source and validation review
+
+- A bounded security review at HEAD `61eff3c` covered Express routes, admin authentication/session/origin controls, PostgreSQL access patterns/migrations, upload/static-path handling, environment configuration, and deployment assets. It reported **no security vulnerabilities found in the reviewed source**. It did not contact production and did not verify live secrets, DB grants, deployed routing, or runtime. This does not supersede the production directory-index configuration finding.
+- Source tracing confirms Express serves `/admin` from `admin.html`, exposes `/admin/platform`, uses `index:false` on relevant static mounts, and has a database-backed `/healthz`; the frontend API base is same-origin `/api/v1`. The public same-origin API works, so the separate API-host failure is not explained by the client base URL.
+- `npm test`: 169 tests, 168 passed, 0 failed, 1 opt-in PostgreSQL integration test skipped. `npm audit --audit-level=low`: 0 vulnerabilities. `npm run build:css`: passed. The output contains an unused generated `.isolate{isolation:isolate}` utility (no HTML/JS class reference; a separate `isolation:isolate` declaration exists in `css/styles.css`); the tracked generated asset was synchronized to the successful build. `git diff --check` was run after the final report/artifact edits.
+- Existing audit findings about incomplete owner-approved policies, full browser journeys, real PostgreSQL concurrency/recovery, and legal review remain open; this refresh did not treat a passing unit suite or dependency audit as proof of those controls.
+
+### Release conclusion
+
+No code defect explaining the public admin/API host failures was established, so no application routing behavior was changed. The only generated-code artifact refresh is the output of the existing CSS build. The minimum next safe action is to suppress admin directory listing through the supported cPanel control, have the provider inspect and map the existing Express routes for admin/API, and prove the production database/upload recovery and rollback path before considering deployment.
+
+**PRODUCTION NO-GO — DEPLOYMENT BLOCKED**
