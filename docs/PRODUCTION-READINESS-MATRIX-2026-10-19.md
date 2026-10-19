@@ -148,3 +148,25 @@ Current local suite and artifact checks: `npm test` — 169 total, 168 passed, 0
 5. **P2 AUD-001 — Product acceptance gaps:** complete isolated database and browser tests, recover owner-approved requirements/policies, and do not imply Android support for this source tree.
 
 **Verdict remains `PRODUCTION NO-GO — DEPLOYMENT BLOCKED`.** No production configuration or data was changed.
+
+## Production-release continuation — 2026-10-19 16:57 +06
+
+This refresh rechecks the current published candidate and public service outcomes. HTTP reachability is not end-to-end product acceptance.
+
+| Requirement | Status | Current evidence / limitation |
+|---|---|---|
+| GitHub branch, push, and CI | FIXED AND VERIFIED | Local HEAD, GitHub branch, and `git ls-remote` match `c50408de67163f5b727dc45639d3ad630b64c396`. CI run [39240110333](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39240110333) passed for this SHA. No production deployment is implied. |
+| Storefront host | OPEN | HTTPS root 200 HTML (34,371 bytes, 0.381 s); `/healthz` 200 JSON `{"status":"ok"}`; same-origin catalog 200 JSON. No current browser customer journey, release identity, or database persistence verification. |
+| Admin host | BLOCKED — PROVIDER | Root remains a 1,593-byte LiteSpeed index; `/admin` remains 404. Separate cPanel document root is confirmed; the previously observed setting is Indexes Inherit. No production setting was changed. |
+| API host | BLOCKED — PROVIDER | `/healthz` still times out after 10.013 s with no response bytes; browser shows provider HTTP 500 Request Timeout. cPanel log snapshot is informational only and not request-correlated. |
+| PostgreSQL identity and grants | BLOCKED — PROVIDER | cPanel lists a database/user, but effective app URL, target, schema, and permissions remain unverified. |
+| Backup, restore, uploads, rollback | BLOCKED — RECOVERY | No verified full backup, isolated restore, uploads recovery check, or rollback rehearsal. |
+| Staging/E2E/real PostgreSQL integration | BLOCKED — PROVIDER | Required `.env.staging` and `.env.production` are absent; config validators fail closed. E2E listing is blocked by missing `PLAYWRIGHT_BASE_URL`; production is disallowed by the target guard. The opt-in PostgreSQL integration test remains skipped. |
+| Local unit/API suite | FIXED AND VERIFIED | `npm test`: 169 total, 168 passed, 0 failed, 1 skipped. Scope is automated local tests; no live or end-to-end acceptance. |
+| CSS output | FIXED AND VERIFIED | `npm run build:css` output matches the checked-in artifact exactly. |
+| Dependency audit | FIXED AND VERIFIED | `npm audit --audit-level=low`: zero advisories. |
+| Source security / secret checks | OPEN | Source review at `61eff3c` reported no vulnerabilities in scope; no dedicated scanner or history scan. The local pattern scan found two test-only URL-credential validation fixtures, not emitted as secret values. Production configuration and database grants remain outside scope. |
+| Android/client scope | OPEN | No Android Gradle project or manifest in current HEAD; reconcile with release scope before claiming cross-client acceptance. |
+| Legal/business, monitoring, operations | OPEN | Earlier owner/legal decisions and monitoring requirements remain unresolved; no staging or live observability acceptance. |
+
+Production remains NO-GO. Provider route diagnosis and recovery proof are release gates, not code-test gaps that can be waived by CI.

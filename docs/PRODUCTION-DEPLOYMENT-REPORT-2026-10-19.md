@@ -182,3 +182,51 @@ All three A lookups returned `122.173.84.249`. The requests validated TLS certif
 - No application routing defect was reproduced in source that explains the public admin/API failures. The code-level admin route and relative storefront API configuration remain consistent with the successful same-origin storefront API; the failures are host-specific and require hosting evidence/actions.
 
 **Release decision:** **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**. Do not deploy or alter production data. First contain directory indexing via the supported cPanel control, obtain the provider's effective host/upstream diagnosis and supported route mapping, and complete verified database/upload backup, isolated restore, and rollback gates.
+
+## Production-release continuation — 2026-10-19 16:57 +06
+
+### Current Git and CI baseline
+
+- Rechecked local branch `feature/admin-v2`, HEAD `c50408de67163f5b727dc45639d3ad630b64c396`, and GitHub's `feature/admin-v2` ref; both SHAs match. `git ls-remote` independently returned the same SHA.
+- GitHub Actions run [39240110333](https://github.com/AbidHossainTushar003/LiveShopademia/actions/runs/39240110333) completed successfully for that exact SHA. The worktree has no tracked changes at audit start. The two existing unrelated untracked entries remain untouched.
+- The configured `github` tracking remote still points to `MyTestProjects007/ShopademiaAdmin`, not the intended `AbidHossainTushar003/LiveShopademia`; compare release publication to the explicit intended GitHub remote, not the local upstream count.
+
+### Fresh public probes
+
+Certificate-validating HTTPS requests used a 10-second maximum. All three DNS A records resolved to `122.173.84.249`.
+
+| Target | Observed result |
+|---|---|
+| `https://shopademia.store/` | HTTP 200, HTML, 34,371 bytes, 0.381 s, `Server: LiteSpeed`, HSTS present. This proves an HTML response only, not storefront customer-flow acceptance or release identity. |
+| `https://shopademia.store/healthz` | HTTP 200 JSON `{"status":"ok"}`, 15 bytes, 0.290 s, `Server: LiteSpeed`, HSTS present. This is the apex app's observed readiness response. |
+| `https://shopademia.store/api/v1/products?limit=1` | HTTP 200 JSON, 3,770 bytes, 0.285 s, `Server: LiteSpeed`, HSTS present. |
+| `https://admin.shopademia.store/` | HTTP 200 HTML, 1,593 bytes, 0.354 s, `Server: LiteSpeed`; this is still the separate-host index response, not the admin UI. |
+| `https://admin.shopademia.store/admin` | HTTP 404 HTML, 1,251 bytes, 0.270 s, `Server: LiteSpeed`. |
+| `https://api.shopademia.store/healthz` | curl exit 28 after 10.013 s; HTTP `000`, zero response bytes. The shared browser shows the provider's HTTP 500 “Request Timeout” page for this URL. |
+
+### Hosting, application, and recovery disposition
+
+- Admin failure remains attributable to host mapping: cPanel's separate admin document root serves a directory index, while Express source serves `/admin`. cPanel's previously observed Indexes value was **Inherit**, with **No Indexing** available. No file contents were opened. No production setting was changed during this audit; containment remains outstanding.
+- API failure remains host-specific, but the exact cause is unresolved. The cPanel Errors page snapshot (retrieved during this audit) showed 110 Passenger log records from 06:45 through 16:02 +06, all `[INFO]`; it contains admin/API Passenger virtual-host labels but no error, warning, timeout, failure, exception, 502/503, or upstream marker. The snapshot is not request-correlated and predates the current probe, so it cannot explain the timeout or prove the request reached Express.
+- cPanel still reports a single Node.js 20.20.2 Passenger app at the storefront URI, root `/home/shopadem/shopademia-app`, startup `server/index.js`, status `started`. The effective request mappings and live release SHA are not visible. Public response headers identify LiteSpeed; any upstream Nginx layer remains unverified.
+- PostgreSQL database `shopadem_shopapp` is listed in cPanel, but the running app's `DATABASE_URL`, actual database/role, schema state, and persistent upload inventory are not verified. cPanel reports no automatic backups; the partial Oct. 8 database/home downloads have not been restored. Backup integrity, isolated recovery, rollback, and staging remain unproven.
+- No production setting, DNS, service, database, upload, order, inventory, or customer record was changed. No deployment occurred.
+
+### Current acceptance matrix
+
+| Requirement | Status | Evidence and remaining action |
+|---|---|---|
+| Storefront host and same-origin API | OPEN | Root, health, and catalog endpoints respond over HTTPS. Customer workflows, browser/device layouts, deployed SHA, and persistence have not been accepted end-to-end. Run the existing browser suite only on a verified isolated local/staging target. |
+| Admin hostname and protected routes | BLOCKED — PROVIDER | Separate document root returns an index and `/admin` is 404. Provider/cPanel-supported route mapping is required; privileged operations cannot be safely verified on the current host. |
+| API hostname | BLOCKED — PROVIDER | `/healthz` times out, despite the apex health and catalog endpoints responding. Obtain effective LiteSpeed/Passenger/upstream config and request-correlated error logs. |
+| PostgreSQL target, schema, and role | BLOCKED — PROVIDER | cPanel database inventory does not prove the application connection target or effective role/grants. Verify without disclosing credentials. |
+| Database/upload backup, isolated restore, and rollback | BLOCKED — RECOVERY | No complete verified backup pair, successful isolated restore, upload validation, or rollback rehearsal. No production deployment until demonstrated. |
+| Staging and E2E acceptance | BLOCKED — PROVIDER | `.env.staging`, `.env.production`, and the isolated `TEST_DATABASE_URL` are absent. Both config validators fail closed. `npm run test:e2e -- --list` is blocked because `PLAYWRIGHT_BASE_URL` is unset; production targets are explicitly refused. |
+| Unit/API suite and local build | FIXED AND VERIFIED | 169 tests: 168 passed, 0 failed, 1 opt-in PostgreSQL integration test skipped. CSS build exactly matches tracked generated output. This is local automated-test/build evidence, not end-to-end acceptance. |
+| Exact-commit CI | FIXED AND VERIFIED | Run `39240110333` passed for `c50408de67163f5b727dc45639d3ad630b64c396`; this is CI evidence only, not deployment or production verification. |
+| Source/dependency security checks | OPEN | Focused source review reported no vulnerabilities at `61eff3c`; dependencies report 0 advisories. No dedicated secret scanner is installed; a narrow current-tree pattern scan found only two credential-URL validation fixtures in tests, with values not emitted. No secret-history scan or production security review was performed. |
+| Android, monitoring, owner-approved policy | OPEN | No Android Gradle project/manifest is present. Monitoring, full acceptance flows, and earlier owner/legal decisions remain open; see the historical audit findings. |
+
+The cPanel Indexes menu was not changed: production recovery evidence remains incomplete, and the current browser interaction did not successfully open that control. The exact next step is an authorized, narrowly scoped cPanel **No Indexing** change after the recovery/rollback gate, followed by a public check that the directory listing is gone; it will not fix the `/admin` or API route mapping. Do not guess at the API upstream or migrate away from PostgreSQL.
+
+**Final release decision remains PRODUCTION NO-GO — DEPLOYMENT BLOCKED.**

@@ -945,3 +945,36 @@ This bounded refresh supersedes earlier interpretations where the new cPanel evi
 No code defect explaining the public admin/API host failures was established, so no application routing behavior was changed. The only generated-code artifact refresh is the output of the existing CSS build. The minimum next safe action is to suppress admin directory listing through the supported cPanel control, have the provider inspect and map the existing Express routes for admin/API, and prove the production database/upload recovery and rollback path before considering deployment.
 
 **PRODUCTION NO-GO — DEPLOYMENT BLOCKED**
+
+## Current release-gate continuation — 2026-10-19 16:57 +06
+
+### Rechecked baseline and outputs
+
+- Branch `feature/admin-v2`, local HEAD `c50408de67163f5b727dc45639d3ad630b64c396`; intended GitHub branch and `git ls-remote` match. CI run `39240110333` passed for that exact SHA. The two unrelated untracked entries remain untouched.
+- Fresh public checks: storefront `/` 200 HTML; `/healthz` 200 JSON `{"status":"ok"}`; same-origin catalog 200 JSON. Admin root 200 LiteSpeed HTML index; `/admin` 404. API-host `/healthz` timed out after 10.013 seconds with HTTP `000` and zero bytes; the shared API browser page renders a provider “Request Timeout” HTTP 500 page. All three A records still resolve to `122.173.84.249`.
+- The cPanel Errors-page snapshot contains 110 Passenger log entries from 06:45 through 16:02 +06, all INFO; admin/API host-context markers are present, but the snapshot has no error/warning/timeout/upstream marker and is not request-correlated. Do not infer a specific proxy or Passenger root cause from it.
+- cPanel still lists a single Passenger Node.js 20.20.2 app at the storefront URI, with `server/index.js` startup and `started` status. The separate admin/API document roots and effective routing remain material; no deployed SHA or effective database target is known.
+- Config validators were run and failed closed because `.env.production` and `.env.staging` are absent. `npm run test:e2e -- --list` could not load Playwright configuration because `PLAYWRIGHT_BASE_URL` is unset. No browser E2E test ran. `TEST_DATABASE_URL` and the explicit opt-in PostgreSQL integration-test configuration are absent.
+- Current `npm test`: 169 tests, 168 passed, 0 failed, 1 skipped (opt-in PostgreSQL integration). `npm audit --audit-level=low`: zero advisories. Fresh Tailwind output exactly matches the tracked CSS. These do not establish production acceptance.
+- Dedicated secret-scanner binaries are unavailable. A narrow high-confidence current-tree scan produced two URL-credential-pattern matches, both in test-only negative-input fixtures (`scripts/playwright-target.test.js:102`, `server/app.test.js:52`); no matched values were emitted. No history-wide secret scan or actual secret/value inspection was performed.
+- No Android Gradle build file or Android manifest is present in this revision. The cross-client E2E spec exists, but could not run without an approved staging target and the prior Android source tree is absent.
+
+### Acceptance statuses
+
+| Requirement | Status | Disposition |
+|---|---|---|
+| Storefront root/health/catalog reachability | OPEN | Reachable via HTTPS. Complete customer workflows, responsive/browser matrix, release identity, and data persistence remain unverified. |
+| Admin routing and privileged workflows | BLOCKED — PROVIDER | Separate static document root serves an index; `/admin` is 404. Provider/cPanel-supported mapping to the existing Express app is required. |
+| API hostname routing | BLOCKED — PROVIDER | Hostname fails while same-origin endpoints respond. Effective LiteSpeed/Passenger/upstream config and request-specific logs are unavailable. |
+| PostgreSQL target, role, schema/migrations | BLOCKED — PROVIDER | cPanel inventory is not proof of the app's actual connection or role privileges. |
+| Database/uploads recovery and rollback | BLOCKED — RECOVERY | No verified complete backup pair, isolated restore, upload validation, or rollback rehearsal. |
+| Isolated staging and browser/DB integration acceptance | BLOCKED — PROVIDER | Staging credentials/DB/uploads and Playwright target are unavailable; do not use production for mutating tests. |
+| Unit/API tests, CSS build, dependency audit | FIXED AND VERIFIED | 168/169 unit/API tests pass (one DB test skipped); CSS output matches; npm reports no advisories. Exact published CI for `c50408d` passed, but is not deployment evidence. |
+| Bounded source security review | OPEN | Prior focused source review found no vulnerability in scope; current-tree credential-pattern candidates are test fixtures. Live controls and history scan remain unverified. |
+| Android/mobile admin, monitoring, owner policies | OPEN | No current Android project; end-to-end mobile/admin and monitoring acceptance plus prior owner/legal decisions remain outstanding. |
+
+### Change decision
+
+No application source defect was reproduced that explains the current host-specific admin/API behavior. Do not fabricate a Caddy fix for a LiteSpeed/Passenger deployment. No cPanel setting was changed during this continuation: recovery is not proven, and the current authenticated browser control could not be opened. The current cPanel Indexes value was previously observed as Inherit; applying No Indexing remains a narrow containment action that still requires the recovery/rollback gate and successful public verification. No DNS, production app, PostgreSQL, uploads, or customer data was modified.
+
+**PRODUCTION NO-GO — DEPLOYMENT BLOCKED**
